@@ -1,27 +1,117 @@
+@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap");
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --surface: #ffffff;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --brand-50: #eff6ff;
+  --brand-100: #dbeafe;
+  --brand-600: #2563eb;
+  --brand-700: #1e40af;
+  --brand-800: #1e3a8a;
+  --success: #059669;
+  --danger: #dc2626;
+  --warning: #d97706;
+  --radius-card: 1.25rem;
+  --nav-height: 4.5rem;
+  --header-offset: 4.5rem;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
   }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+html,
+body {
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 body {
   color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background:
+    radial-gradient(120% 80% at 0% 0%, #dbeafe 0%, transparent 55%),
+    radial-gradient(90% 60% at 100% 0%, #e2e8f0 0%, transparent 45%),
+    var(--background);
+  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  min-height: 100dvh;
+  touch-action: manipulation;
+  padding-top: env(safe-area-inset-top, 0px);
+}
+
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand-700) 70%, white);
+  outline-offset: 2px;
 }
 
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+
+  .pb-nav {
+    padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px) + 1rem);
+  }
+
+  .money {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  .touch-btn {
+    @apply inline-flex min-h-12 min-w-12 cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 text-base font-semibold transition duration-200 ease-out active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50;
+  }
+}
+
+@layer components {
+  .card-panel {
+    @apply rounded-[1.25rem] border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.04)];
+  }
+
+  .field-input {
+    @apply h-14 w-full cursor-text rounded-2xl border border-slate-200 bg-white px-4 text-base text-slate-900 outline-none transition duration-200 placeholder:text-slate-400 focus:border-brand-700 focus:ring-4 focus:ring-brand-700/15;
+  }
+
+  .section-title {
+    @apply text-base font-bold tracking-tight text-slate-900;
+  }
+
+  .chip {
+    @apply inline-flex min-h-8 items-center rounded-full px-2.5 py-1 text-xs font-semibold;
+  }
+
+  .sticky-action-bar {
+    @apply fixed inset-x-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pt-3 backdrop-blur-md;
+    bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px));
   }
 }

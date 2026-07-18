@@ -1,36 +1,55 @@
-This is a [Next.js](https://nextjs.org/) project bootstrapped with [`create-next-app`](https://github.com/vercel/next.js/tree/canary/packages/create-next-app).
+﻿# Trà Đá App (PWA)
 
-## Getting Started
+Ứng dụng PWA quản lý bán hàng, tồn kho và đối chiếu dòng tiền cho quán trà đá (4 cổ đông).
 
-First, run the development server:
+## Tech stack
+- Next.js 14 (App Router) + JavaScript
+- Tailwind CSS (mobile-first)
+- Firebase Auth + Firestore
+- next-pwa, lucide-react, recharts, date-fns
 
+## Chạy local
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Mở http://localhost:3000
 
-You can start editing the page by modifying `app/page.js`. The page auto-updates as you edit the file.
+## Firebase setup
+1. Bật Email/Password trong Authentication.
+2. Tạo user trên Firebase Auth.
+3. Tạo document `users/{uid}` với fields:
+   - `uid`, `email`, `name`, `role` (`manager` | `investor`)
+4. (Tuỳ chọn) Seed sản phẩm trong app: Cài đặt → Seed sản phẩm mẫu.
+5. Rules Firestore tối thiểu cho dev (siết lại khi production):
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/basic-features/font-optimization) to automatically optimize and load Inter, a custom Google Font.
+## Modules
+- `/login` — Đăng nhập
+- `/manager/pos` — Bán hàng + VietQR
+- `/manager/inventory` — Kiểm kê & chốt ca
+- `/dashboard` — Thu/Chi/Lợi nhuận + lịch sử chốt ca + biểu đồ
+- `/settings` — Hồ sơ, seed data, ghi chi, đăng xuất
 
-## Learn More
+## PWA
+Build production rồi cài Add to Home Screen:
+```bash
+npm run build && npm start
+```
+Manifest: `display: standalone`, `theme_color: #1e40af`.
 
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js/) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/deployment) for more details.
+## Webhook n8n (tuỳ chọn)
+Thêm vào `.env.local`:
+```
+NEXT_PUBLIC_N8N_WEBHOOK_URL=https://your-n8n/webhook/...
+```

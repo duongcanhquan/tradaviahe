@@ -1,0 +1,267 @@
+'use client';
+
+import { useEffect, useMemo, useState } from "react";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  startOfMonth,
+  endOfMonth,
+  subDays,
+  format,
+  parse,
+  isValid,
+} from "date-fns";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+} from "recharts";
+import AppShell from "@/components/AppShell";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import { DiscrepancyBadge, Money, StatCard } from "@/components/StatusBadges";
+import { useToast } from "@/components/Toast";
+import { db } from "@/lib/firebase";
+import { formatCurrency } from "@/lib/utils";
+
+function DashboardContent() {
+  const { showToast } = useToast();
+  const [transactions, setTransactions] = useState([]);
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const monthStart = startOfMonth(new Date()).getTime();
+    const monthEnd = endOfMonth(new Date()).getTime();
+
+    const txQuery = query(
+      collection(db, "transactions"),
+      orderBy("timestamp", "desc")
+    );
+
+    const reportQuery = query(
+      collection(db, "daily_reports"),
+      orderBy("date", "desc")
+    );
+
+    let loaded = { tx: false, report: false };
+    const maybeDone = () => {
+      if (loaded.tx && loaded.report) setLoading(false);
+    };
+
+    const unsubTx = onSnapshot(
+      txQuery,
+      (snap) => {
+        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const inMonth = rows.filter((t) => {
+          const ms = t.timestamp?.toMillis?.() ?? 0;
+          return ms >= monthStart && ms <= monthEnd;
+        });
+        setTransactions(inMonth);
+        loaded.tx = true;
+        maybeDone();
+      },
+      (error) => {
+        console.error(error);
+        showToast("Không tải được giao dịch", "error");
+        loaded.tx = true;
+        maybeDone();
+      }
+    );
+
+    const unsubReports = onSnapshot(
+      reportQuery,
+      (snap) => {
+        setReports(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        loaded.report = true;
+        maybeDone();
+      },
+      (error) => {
+        console.error(error);
+        showToast("Không tải được báo cáo chốt ca", "error");
+        loaded.report = true;
+        maybeDone();
+      }
+    );
+
+    return () => {
+      unsubTx();
+      unsubReports();
+    };
+  }, [showToast]);
+
+  const totals = useMemo(() => {
+    const income = transactions
+      .filter((t) => t.type === "income")
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    const expense = transactions
+      .filter((t) => t.type === "expense")
+      .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    return {
+      income,
+      expense,
+      profit: income - expense,
+    };
+  }, [transactions]);
+
+  const chartData = useMemo(() => {
+    return Array.from({ length: 7 }).map((_, index) => {
+      const day = subDays(new Date(), 6 - index);
+      const key = format(day, "dd/MM/yyyy");
+      const report = reports.find((r) => r.date === key);
+      return {
+        date: format(day, "dd/MM"),
+        fullDate: key,
+        discrepancy: report ? Number(report.discrepancy) || 0 : 0,
+        hasReport: Boolean(report),
+      };
+    });
+  }, [reports]);
+
+  const sortedReports = useMemo(() => {
+    return [...reports].sort((a, b) => {
+      const da = parse(a.date || "", "dd/MM/yyyy", new Date());
+      const dbDate = parse(b.date || "", "dd/MM/yyyy", new Date());
+      const ta = isValid(da) ? da.getTime() : 0;
+      const tb = isValid(dbDate) ? dbDate.getTime() : 0;
+      return tb - ta;
+    });
+  }, [reports]);
+
+  return (
+    <AppShell title="Đối soát" subtitle="Thu · Chi · Chênh lệch quỹ">
+      <section className="mb-4 grid grid-cols-1 gap-3">
+        <StatCard
+          label="Tổng thu tháng này"
+          value={loading ? 0 : totals.income}
+          tone="success"
+        />
+        <StatCard
+          label="Tổng chi tháng này"
+          value={loading ? 0 : totals.expense}
+          tone="danger"
+        />
+        <StatCard
+          label="Lợi nhuận tháng này"
+          value={loading ? 0 : totals.profit}
+          tone="brand"
+        />
+      </section>
+
+      <section className="card-panel mb-4">
+        <h2 className="section-title mb-1">Chênh lệch 7 ngày</h2>
+        <p className="mb-3 text-xs text-slate-500">
+          Đường 0 = khớp sổ. Âm = thất thoát · Dương = dư quỹ.
+        </p>
+        <div className="h-52 w-full" aria-hidden={false}>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={chartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+              <XAxis dataKey="date" tick={{ fontSize: 12, fill: "#64748b" }} />
+              <YAxis
+                tick={{ fontSize: 11, fill: "#64748b" }}
+                tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                width={40}
+              />
+              <Tooltip
+                formatter={(value) => formatCurrency(value)}
+                labelFormatter={(label, payload) =>
+                  payload?.[0]?.payload?.fullDate || label
+                }
+              />
+              <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
+              <Line
+                type="monotone"
+                dataKey="discrepancy"
+                name="Chênh lệch"
+                stroke="#1e40af"
+                strokeWidth={3}
+                dot={{ r: 4, fill: "#1e40af" }}
+                activeDot={{ r: 6 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
+        {/* Fallback bảng cho a11y / không chỉ dựa vào màu */}
+        <div className="mt-3 overflow-hidden rounded-2xl border border-slate-100">
+          <table className="w-full text-left text-xs">
+            <caption className="sr-only">
+              Bảng chênh lệch quỹ 7 ngày gần nhất
+            </caption>
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-3 py-2 font-semibold">Ngày</th>
+                <th className="px-3 py-2 font-semibold">Chênh lệch</th>
+              </tr>
+            </thead>
+            <tbody>
+              {chartData.map((row) => (
+                <tr key={row.fullDate} className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-700">{row.fullDate}</td>
+                  <td className="px-3 py-2">
+                    {row.hasReport ? (
+                      <DiscrepancyBadge value={row.discrepancy} />
+                    ) : (
+                      <span className="text-slate-400">Chưa chốt</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="section-title">Lịch sử chốt ca</h2>
+        {loading ? (
+          <div className="card-panel h-24 animate-pulse bg-white/80" />
+        ) : sortedReports.length === 0 ? (
+          <div className="card-panel text-sm text-slate-500">
+            Chưa có báo cáo chốt ca.
+          </div>
+        ) : (
+          sortedReports.map((report) => (
+            <article key={report.id} className="card-panel space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-lg font-bold">{report.date}</p>
+                  <p className="text-xs text-slate-500">
+                    {report.status || "đã chốt"}
+                  </p>
+                </div>
+                <DiscrepancyBadge value={report.discrepancy} />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
+                <p>
+                  Đầu ca: <Money amount={report.startCash} />
+                </p>
+                <p>
+                  Tiền mặt: <Money amount={report.endCashActual} />
+                </p>
+                <p>
+                  CK thực tế: <Money amount={report.bankingActual} />
+                </p>
+                <p>
+                  DT hệ thống: <Money amount={report.systemRevenue} />
+                </p>
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+    </AppShell>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <ProtectedRoute allowRoles={["manager", "investor"]}>
+      <DashboardContent />
+    </ProtectedRoute>
+  );
+}
