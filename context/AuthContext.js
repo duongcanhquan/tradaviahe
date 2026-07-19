@@ -9,6 +9,11 @@ import {
   usernameToEmail,
 } from "@/lib/authIdentity";
 import {
+  clearDeviceLogin,
+  rememberLastUsername,
+  saveDeviceLogin,
+} from "@/lib/deviceSession";
+import {
   canCloseShift,
   canEnterIncome,
   canManageAssets,
@@ -55,6 +60,7 @@ export function AuthProvider({ children }) {
         try {
           const data = await ensureUserProfile(firebaseUser);
           if (data.blocked) {
+            clearDeviceLogin();
             await signOut(auth);
             setUser(null);
             setProfile(null);
@@ -78,7 +84,8 @@ export function AuthProvider({ children }) {
   }, []);
 
   /** Đăng nhập bằng TÊN — map sang email nội bộ, không hỏi email */
-  const login = async (identifier, password) => {
+  const login = async (identifier, password, options = {}) => {
+    const { remember = true } = options;
     const username = extractUsername(identifier);
     if (!username) {
       throw new Error("Nhập tên đăng nhập");
@@ -89,15 +96,27 @@ export function AuthProvider({ children }) {
       authEmail,
       password
     );
+    rememberLastUsername(username);
+    if (remember) {
+      saveDeviceLogin({ username, password });
+    } else {
+      clearDeviceLogin();
+    }
     return credential.user;
   };
 
   const changePassword = async (currentPassword, newPassword) => {
     const { changeCurrentUserPassword } = await import("@/lib/bootstrap");
     await changeCurrentUserPassword(currentPassword, newPassword);
+    const username =
+      profile?.username || extractUsername(user?.email || "") || "";
+    if (username) {
+      saveDeviceLogin({ username, password: newPassword });
+    }
   };
 
   const logout = async () => {
+    clearDeviceLogin();
     await signOut(auth);
     setUser(null);
     setProfile(null);

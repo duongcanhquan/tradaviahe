@@ -90,7 +90,7 @@ function SettingsContent() {
   const handleLogout = async () => {
     try {
       await logout();
-      showToast("Đã đăng xuất", "info");
+      showToast("Đã đăng xuất — máy quên tài khoản này", "info");
       router.replace("/login");
     } catch (error) {
       console.error(error);

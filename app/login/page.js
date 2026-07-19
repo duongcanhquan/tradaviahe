@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Suspense } from "react";
+import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
@@ -9,6 +9,11 @@ import {
   SUPERADMIN_DEFAULT_PASSWORD,
   SUPERADMIN_USERNAME,
 } from "@/lib/bootstrap";
+import {
+  loadDeviceLogin,
+  peekSavedUsername,
+  saveDeviceLogin,
+} from "@/lib/deviceSession";
 import { homePathForRole } from "@/lib/roles";
 
 function friendlyAuthError(error) {
@@ -25,7 +30,7 @@ function friendlyAuthError(error) {
     code === "auth/invalid-login-credentials" ||
     code === "auth/invalid-email"
   ) {
-    return "Sai tên hoặc mật khẩu. Nhân viên: hỏi quản lý tên đã tạo. Admin: thử canhquan / canhquan hoặc nút xanh bên dưới.";
+    return "Sai tên hoặc mật khẩu. Hỏi quản lý tên đã tạo cho bạn.";
   }
   if (code === "auth/too-many-requests") {
     return "Thử quá nhiều lần — đợi rồi thử lại.";
@@ -33,7 +38,7 @@ function friendlyAuthError(error) {
   if (code === "auth/network-request-failed") {
     return "Mất mạng — kiểm tra kết nối rồi thử lại.";
   }
-  return "Không đăng nhập được. Gõ TÊN tài khoản (không gõ email) + mật khẩu.";
+  return "Không đăng nhập được. Gõ tên tài khoản + mật khẩu.";
 }
 
 function LoginForm() {
@@ -43,8 +48,13 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [autoLogging, setAutoLogging] = useState(false);
+  const [checkingDevice, setCheckingDevice] = useState(true);
   const [quickLoading, setQuickLoading] = useState(false);
+  const [showAdmin, setShowAdmin] = useState(false);
+  const autoTriedRef = useRef(false);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -52,13 +62,53 @@ function LoginForm() {
     router.replace(next || homePathForRole(role));
   }, [authLoading, role, router, searchParams, user]);
 
+  // Prefill + tự đăng nhập lại nếu máy đã ghi nhớ
+  useEffect(() => {
+    if (authLoading) return;
+    if (user) {
+      setCheckingDevice(false);
+      return;
+    }
+    if (autoTriedRef.current) return;
+    autoTriedRef.current = true;
+
+    const saved = loadDeviceLogin();
+    const lastName = peekSavedUsername();
+    if (lastName) setIdentifier(lastName);
+
+    if (!saved?.username || !saved?.password) {
+      setCheckingDevice(false);
+      return;
+    }
+
+    setPassword(saved.password);
+    setRemember(true);
+    setAutoLogging(true);
+
+    (async () => {
+      try {
+        await login(saved.username, saved.password, { remember: true });
+        showToast("Đã vào lại — máy nhớ đăng nhập", "success");
+      } catch (error) {
+        console.error(error);
+        // Giữ form đã điền; nhân viên chỉ cần bấm Đăng nhập nếu mạng lỗi tạm thời
+        showToast("Máy nhớ tài khoản — bấm Đăng nhập để vào", "info");
+      } finally {
+        setAutoLogging(false);
+        setCheckingDevice(false);
+      }
+    })();
+  }, [authLoading, login, showToast, user]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(identifier, password);
-      showToast("Đăng nhập thành công", "success");
-      // Redirect do useEffect khi AuthContext cập nhật
+      await login(identifier, password, { remember });
+      showToast(
+        remember ? "Đã vào — lần sau không cần nhập lại" : "Đăng nhập thành công",
+        "success"
+      );
     } catch (error) {
       console.error(error);
       showToast(friendlyAuthError(error), "error");
@@ -73,6 +123,12 @@ function LoginForm() {
       await loginAsDefaultSuperAdmin();
       setIdentifier(SUPERADMIN_USERNAME);
       setPassword(SUPERADMIN_DEFAULT_PASSWORD);
+      if (remember) {
+        saveDeviceLogin({
+          username: SUPERADMIN_USERNAME,
+          password: SUPERADMIN_DEFAULT_PASSWORD,
+        });
+      }
       showToast("Đã vào Super Admin", "success");
     } catch (error) {
       console.error(error);
@@ -84,7 +140,22 @@ function LoginForm() {
     }
   };
 
-  const busy = loading || quickLoading || authLoading;
+  const busy = loading || quickLoading || authLoading || autoLogging;
+
+  if (checkingDevice || autoLogging || authLoading) {
+    return (
+      <div className="relative flex min-h-dvh flex-col items-center justify-center overflow-hidden bg-brand-800 px-4">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.45),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.18),transparent_35%)]" />
+        <div className="relative z-10 text-center text-white">
+          <div className="mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-4 border-white/30 border-t-white" />
+          <p className="text-lg font-bold">Cửa nhân viên</p>
+          <p className="mt-1 text-sm text-blue-100">
+            {autoLogging ? "Đang vào lại tự động..." : "Đang mở cửa..."}
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="relative flex min-h-dvh flex-col justify-end overflow-hidden bg-brand-800 px-4 pb-10 pt-16">
@@ -93,15 +164,13 @@ function LoginForm() {
       <div className="relative z-10 mx-auto w-full max-w-lg">
         <div className="mb-8 text-white">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-100">
-            Quản lý quán
+            Trà Đá App
           </p>
           <h1 className="mt-2 text-4xl font-extrabold leading-none">
-            Trà Đá App
+            Cửa nhân viên
           </h1>
           <p className="mt-3 max-w-sm text-sm text-blue-100">
-            Chỉ cần <strong>tên đăng nhập</strong> + mật khẩu.
-            <br />
-            Không dùng email.
+            Đăng nhập <strong>một lần</strong> — máy tự nhớ để vào bán hàng ngay.
           </p>
         </div>
 
@@ -134,7 +203,7 @@ function LoginForm() {
             />
           </label>
 
-          <label className="mb-6 block">
+          <label className="mb-4 block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
               Mật khẩu
             </span>
@@ -150,34 +219,58 @@ function LoginForm() {
             />
           </label>
 
+          <label className="mb-6 flex items-start gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(e) => setRemember(e.target.checked)}
+              className="mt-1 h-5 w-5 accent-brand-700"
+            />
+            <span>
+              <span className="block text-sm font-semibold text-slate-800">
+                Ghi nhớ trên máy này
+              </span>
+              <span className="mt-0.5 block text-xs text-slate-500">
+                Lần sau mở app là vào thẳng — không phải nhập lại.
+              </span>
+            </span>
+          </label>
+
           <button
             type="submit"
             disabled={busy}
             className="touch-btn h-16 w-full bg-brand-700 text-lg text-white disabled:opacity-60"
           >
-            {loading ? "Đang vào..." : "Đăng nhập"}
+            {loading ? "Đang vào..." : "Vào bán hàng"}
           </button>
 
-          <div className="my-4 h-px bg-slate-100" />
+          <div className="mt-5">
+            <button
+              type="button"
+              onClick={() => setShowAdmin((v) => !v)}
+              className="w-full text-center text-xs font-semibold text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
+            >
+              {showAdmin ? "Ẩn khu quản lý" : "Quản lý / Admin"}
+            </button>
 
-          <p className="mb-2 text-center text-xs font-semibold text-slate-500">
-            Dành cho Super Admin lần đầu
-          </p>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={handleQuickAdmin}
-            className="touch-btn h-14 w-full bg-emerald-600 text-white disabled:opacity-60"
-          >
-            {quickLoading
-              ? "Đang vào..."
-              : "Vào Super Admin (canhquan)"}
-          </button>
-
-          <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
-            Nhân viên / quản lý: dùng đúng <strong>tên</strong> Admin đã tạo
-            (không phải email).
-          </p>
+            {showAdmin ? (
+              <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                <p className="mb-2 text-center text-xs font-semibold text-slate-500">
+                  Super Admin lần đầu
+                </p>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleQuickAdmin}
+                  className="touch-btn h-12 w-full bg-emerald-600 text-sm text-white disabled:opacity-60"
+                >
+                  {quickLoading
+                    ? "Đang vào..."
+                    : "Vào Super Admin (canhquan)"}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </form>
       </div>
     </div>
