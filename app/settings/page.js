@@ -352,11 +352,11 @@ function SettingsContent() {
       {canManageShop ? (
         <>
           <Link
-            href="/manager/products"
+            href="/admin/products"
             className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
           >
             <Package className="h-5 w-5" />
-            Món & giá — nhập / bán / công thức cost
+            Setup món & giá để bán
           </Link>
 
           <section className="card-panel mb-4 space-y-3">

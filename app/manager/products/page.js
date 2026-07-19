@@ -12,6 +12,7 @@ import {
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money } from "@/components/StatusBadges";
+import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
   COST_MODE,
@@ -43,6 +44,7 @@ const emptyForm = {
 };
 
 function ProductsContent() {
+  const { canManageProducts, role } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -205,10 +207,24 @@ function ProductsContent() {
     }
   };
 
+  if (!canManageProducts) {
+    return (
+      <AppShell title="Món & giá" subtitle="Không có quyền">
+        <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+          Chỉ Quản lý, Chủ đầu tư (Admin) và Super Admin được setup món/giá.
+        </p>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       title="Món & giá"
-      subtitle="Giá bán · giá nhập · công thức cost"
+      subtitle={
+        role === "manager"
+          ? "Quản lý — giá bán · nhập · công thức"
+          : "Admin — giá bán · nhập · công thức"
+      }
     >
       <div className="mb-4 grid grid-cols-2 gap-2">
         <button
@@ -656,7 +672,7 @@ function ProductsContent() {
 
 export default function ProductsPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "investor"]}>
+    <ProtectedRoute allowRoles={["manager", "investor", "superadmin"]}>
       <ProductsContent />
     </ProtectedRoute>
   );

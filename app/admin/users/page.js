@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Briefcase,
   Crown,
   Eye,
   EyeOff,
   KeyRound,
+  Package,
   Pencil,
   Plus,
   RefreshCw,
@@ -83,6 +85,7 @@ function AdminUsersContent() {
     role: actorRole,
     isSuperAdmin,
     canManageUsers,
+    canManageProducts,
   } = useAuth();
   const { showToast } = useToast();
   const [users, setUsers] = useState([]);
@@ -377,18 +380,28 @@ function AdminUsersContent() {
         <div className="card-panel mb-4 border-amber-200 bg-amber-50 text-sm text-amber-900">
           <p className="font-bold">Chủ đầu tư — Admin + quản lý</p>
           <p className="mt-1 text-amber-800/80">
-            Toàn quyền quản lý quán, vốn đầu tư, thêm/sửa người dùng, xem/reset
-            mật khẩu (trừ Super Admin). Cũng có quyền nhân viên (thu tiền).
+            Setup món/giá, vốn đầu tư, người dùng, xem/reset mật khẩu (trừ Super
+            Admin). Có quyền nhân viên (thu tiền).
           </p>
         </div>
       ) : actorRole === "manager" ? (
         <div className="card-panel mb-4 border-brand-100 bg-brand-50 text-sm text-brand-900">
-          <p className="font-bold">Quản lý — quán + quyền nhân viên</p>
+          <p className="font-bold">Quản lý — quán + món/giá + nhân viên</p>
           <p className="mt-1 text-brand-800/80">
-            Kiểm soát thu/chi, hàng hóa/thiết bị, quản lý nhân viên, và thu tiền
-            POS như nhân viên. Không xem tiền đầu tư / Admin MK.
+            Setup món bán & giá, thu/chi, hàng hóa/thiết bị, nhân viên, POS.
+            Không xem tiền đầu tư / Admin MK.
           </p>
         </div>
+      ) : null}
+
+      {canManageProducts ? (
+        <Link
+          href="/admin/products"
+          className="touch-btn mb-3 h-14 w-full gap-2 bg-amber-600 text-white"
+        >
+          <Package className="h-5 w-5" />
+          Setup món & giá để bán
+        </Link>
       ) : null}
 
       <button
