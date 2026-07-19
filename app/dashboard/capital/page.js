@@ -16,6 +16,7 @@ import {
   Box,
   Landmark,
   Loader2,
+  Package,
   Save,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -26,7 +27,10 @@ import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import {
   createInvestment,
+  filterInvestmentsForRole,
+  investmentTypeLabel,
   subscribeInvestments,
+  summarizeAssets,
   summarizeInvestments,
 } from "@/lib/investments";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -48,8 +52,18 @@ function formatInvestmentDate(row) {
   return format(new Date(ms), "dd/MM/yyyy");
 }
 
+function typeChipClass(type) {
+  if (type === "equipment") {
+    return "bg-amber-50 text-amber-800 ring-1 ring-amber-100";
+  }
+  if (type === "goods") {
+    return "bg-sky-50 text-sky-800 ring-1 ring-sky-100";
+  }
+  return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
+}
+
 function CapitalContent() {
-  const { user, canManageShop } = useAuth();
+  const { user, canManageShop, canViewInvestmentCapital } = useAuth();
   const { showToast } = useToast();
 
   const [investments, setInvestments] = useState([]);
@@ -57,10 +71,12 @@ function CapitalContent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const [investorMode, setInvestorMode] = useState("select"); // select | custom
+  const [investorMode, setInvestorMode] = useState("select");
   const [investorSelect, setInvestorSelect] = useState("");
   const [investorCustom, setInvestorCustom] = useState("");
-  const [type, setType] = useState("cash");
+  const [type, setType] = useState(
+    canViewInvestmentCapital ? "cash" : "goods"
+  );
   const [equipmentName, setEquipmentName] = useState("");
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
@@ -73,7 +89,7 @@ function CapitalContent() {
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được danh sách vốn góp", "error");
+        showToast("Không tải được danh sách", "error");
         setLoading(false);
       }
     );
@@ -87,19 +103,31 @@ function CapitalContent() {
         const names = snap.docs
           .map((d) => d.data())
           .filter((u) => u.role === "investor" || u.role === "manager")
-          .map((u) => u.name || u.email)
+          .map((u) => u.name || u.username || u.email)
           .filter(Boolean);
-        setInvestorOptions([...new Set(names)].sort((a, b) => a.localeCompare(b, "vi")));
+        setInvestorOptions(
+          [...new Set(names)].sort((a, b) => a.localeCompare(b, "vi"))
+        );
       },
       () => setInvestorOptions([])
     );
     return () => unsub();
   }, []);
 
+  const visibleRows = useMemo(
+    () =>
+      filterInvestmentsForRole(investments, {
+        canViewCapital: canViewInvestmentCapital,
+      }),
+    [canViewInvestmentCapital, investments]
+  );
+
   const { total, shares } = useMemo(
     () => summarizeInvestments(investments),
     [investments]
   );
+
+  const assets = useMemo(() => summarizeAssets(investments), [investments]);
 
   const pieData = useMemo(
     () =>
@@ -111,8 +139,19 @@ function CapitalContent() {
     [shares]
   );
 
+  const typeOptions = canViewInvestmentCapital
+    ? [
+        { id: "cash", label: "Tiền đầu tư", icon: Banknote },
+        { id: "goods", label: "Hàng hóa", icon: Package },
+        { id: "equipment", label: "Thiết bị", icon: Box },
+      ]
+    : [
+        { id: "goods", label: "Hàng hóa", icon: Package },
+        { id: "equipment", label: "Thiết bị", icon: Box },
+      ];
+
   const resetForm = () => {
-    setType("cash");
+    setType(canViewInvestmentCapital ? "cash" : "goods");
     setEquipmentName("");
     setAmount("");
     setNote("");
@@ -120,19 +159,33 @@ function CapitalContent() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    if (!canViewInvestmentCapital && type === "cash") {
+      showToast("Quản lý không được nhập tiền đầu tư", "error");
+      return;
+    }
+
     const investorName =
       investorMode === "custom" ? investorCustom.trim() : investorSelect.trim();
 
     if (!investorName) {
-      showToast("Chọn hoặc nhập tên cổ đông", "error");
+      showToast(
+        type === "cash"
+          ? "Chọn hoặc nhập tên cổ đông"
+          : "Nhập nguồn / người phụ trách",
+        "error"
+      );
       return;
     }
     if (!amount || Number(amount) <= 0) {
       showToast("Nhập giá trị / số tiền hợp lệ", "error");
       return;
     }
-    if (type === "equipment" && !equipmentName.trim()) {
-      showToast("Nhập tên thiết bị", "error");
+    if ((type === "equipment" || type === "goods") && !equipmentName.trim()) {
+      showToast(
+        type === "goods" ? "Nhập tên hàng hóa" : "Nhập tên thiết bị",
+        "error"
+      );
       return;
     }
 
@@ -146,24 +199,43 @@ function CapitalContent() {
         note,
         createdBy: user.uid,
       });
-      showToast("Đã lưu vốn góp", "success");
+      showToast(
+        type === "cash" ? "Đã lưu tiền đầu tư" : "Đã lưu hàng hóa / thiết bị",
+        "success"
+      );
       resetForm();
     } catch (error) {
       console.error(error);
-      showToast("Lưu vốn góp thất bại", "error");
+      showToast("Lưu thất bại", "error");
     } finally {
       setSaving(false);
     }
   };
 
+  const pageTitle = canViewInvestmentCapital ? "Vốn góp" : "Hàng hóa & thiết bị";
+  const pageSubtitle = canViewInvestmentCapital
+    ? "Tiền đầu tư · Hàng hóa · Thiết bị · Cổ phần"
+    : "Nhập hàng hóa · Thiết bị (không gồm tiền đầu tư)";
+
   return (
-    <AppShell title="Vốn góp" subtitle="Cổ phần · Tiền mặt · Thiết bị">
+    <AppShell title={pageTitle} subtitle={pageSubtitle}>
       {canManageShop ? (
         <section className="card-panel mb-4 space-y-4">
           <div className="flex items-center gap-2">
             <Landmark className="h-5 w-5 text-brand-700" aria-hidden />
-            <h2 className="section-title">Nhập tiền / vốn góp</h2>
+            <h2 className="section-title">
+              {canViewInvestmentCapital
+                ? "Nhập vốn / tài sản"
+                : "Nhập hàng hóa / thiết bị"}
+            </h2>
           </div>
+
+          {!canViewInvestmentCapital ? (
+            <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              Bạn kiểm soát dòng tiền quán và nhập hàng hóa/thiết bị. Tiền đầu
+              tư của cổ đông chỉ Chủ đầu tư / Super Admin xem được.
+            </p>
+          ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-100 p-1">
@@ -190,7 +262,7 @@ function CapitalContent() {
             {investorMode === "select" ? (
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Cổ đông
+                  {type === "cash" ? "Cổ đông" : "Nguồn / phụ trách"}
                 </span>
                 <select
                   className="field-input"
@@ -198,7 +270,7 @@ function CapitalContent() {
                   onChange={(e) => setInvestorSelect(e.target.value)}
                   required={investorMode === "select"}
                 >
-                  <option value="">— Chọn cổ đông —</option>
+                  <option value="">— Chọn —</option>
                   {investorOptions.map((name) => (
                     <option key={name} value={name}>
                       {name}
@@ -209,13 +281,15 @@ function CapitalContent() {
             ) : (
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Tên cổ đông
+                  {type === "cash" ? "Tên cổ đông" : "Nguồn / phụ trách"}
                 </span>
                 <input
                   className="field-input"
                   value={investorCustom}
                   onChange={(e) => setInvestorCustom(e.target.value)}
-                  placeholder="VD: Nguyễn Văn A"
+                  placeholder={
+                    type === "cash" ? "VD: Nguyễn Văn A" : "VD: Nhà cung cấp A"
+                  }
                   required={investorMode === "custom"}
                 />
               </label>
@@ -223,48 +297,54 @@ function CapitalContent() {
 
             <div>
               <span className="mb-2 block text-sm font-semibold text-slate-700">
-                Hình thức góp
+                Loại
               </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setType("cash")}
-                  className={cn(
-                    "touch-btn h-14 gap-2 border",
-                    type === "cash"
-                      ? "border-emerald-600 bg-emerald-50 text-emerald-800"
-                      : "border-slate-200 bg-white text-slate-500"
-                  )}
-                >
-                  <Banknote className="h-5 w-5" aria-hidden />
-                  Tiền mặt
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setType("equipment")}
-                  className={cn(
-                    "touch-btn h-14 gap-2 border",
-                    type === "equipment"
-                      ? "border-amber-600 bg-amber-50 text-amber-800"
-                      : "border-slate-200 bg-white text-slate-500"
-                  )}
-                >
-                  <Box className="h-5 w-5" aria-hidden />
-                  Thiết bị
-                </button>
+              <div
+                className={cn(
+                  "grid gap-2",
+                  typeOptions.length === 3 ? "grid-cols-3" : "grid-cols-2"
+                )}
+              >
+                {typeOptions.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setType(item.id)}
+                      className={cn(
+                        "touch-btn h-14 flex-col gap-1 border px-2 text-xs sm:text-sm",
+                        type === item.id
+                          ? item.id === "cash"
+                            ? "border-emerald-600 bg-emerald-50 text-emerald-800"
+                            : item.id === "goods"
+                              ? "border-sky-600 bg-sky-50 text-sky-800"
+                              : "border-amber-600 bg-amber-50 text-amber-800"
+                          : "border-slate-200 bg-white text-slate-500"
+                      )}
+                    >
+                      <Icon className="h-5 w-5" aria-hidden />
+                      {item.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {type === "equipment" ? (
+            {type === "equipment" || type === "goods" ? (
               <label className="block">
                 <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Tên thiết bị
+                  {type === "goods" ? "Tên hàng hóa" : "Tên thiết bị"}
                 </span>
                 <input
                   className="field-input"
                   value={equipmentName}
                   onChange={(e) => setEquipmentName(e.target.value)}
-                  placeholder="VD: Tủ lạnh, Bàn ghế"
+                  placeholder={
+                    type === "goods"
+                      ? "VD: Trà, ly, đường"
+                      : "VD: Tủ lạnh, bàn ghế"
+                  }
                   required
                 />
               </label>
@@ -313,106 +393,144 @@ function CapitalContent() {
               ) : (
                 <Save className="h-5 w-5" aria-hidden />
               )}
-              {saving ? "Đang lưu..." : "Lưu vốn góp"}
+              {saving ? "Đang lưu..." : "Lưu"}
             </button>
           </form>
         </section>
       ) : null}
 
-      <section className="mb-4">
-        <StatCard
-          label="Tổng vốn đầu tư"
-          value={loading ? 0 : total}
-          tone="brand"
-        />
-      </section>
-
-      <section className="card-panel mb-4">
-        <h2 className="section-title mb-1">Tỷ lệ cổ phần</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Tính theo tổng giá trị đã góp (tiền mặt + thiết bị quy đổi).
-        </p>
-
-        {loading ? (
-          <div className="h-56 animate-pulse rounded-2xl bg-slate-100" />
-        ) : pieData.length === 0 ? (
-          <div className="py-10 text-center text-sm text-slate-500">
-            Chưa có dữ liệu vốn góp.
+      {canViewInvestmentCapital ? (
+        <section className="mb-4">
+          <StatCard
+            label="Tổng tiền đầu tư"
+            value={loading ? 0 : total}
+            tone="brand"
+          />
+        </section>
+      ) : (
+        <section className="mb-4 grid grid-cols-1 gap-3">
+          <StatCard
+            label="Tổng hàng hóa & thiết bị"
+            value={loading ? 0 : assets.total}
+            tone="brand"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              label="Hàng hóa"
+              value={loading ? 0 : assets.goods}
+              tone="success"
+            />
+            <StatCard
+              label="Thiết bị"
+              value={loading ? 0 : assets.equipment}
+              tone="muted"
+            />
           </div>
-        ) : (
-          <>
-            <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={48}
-                    outerRadius={88}
-                    paddingAngle={2}
-                  >
-                    {pieData.map((entry, index) => (
-                      <Cell
-                        key={entry.name}
-                        fill={PIE_COLORS[index % PIE_COLORS.length]}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    formatter={(value, name, props) => [
-                      `${formatCurrency(value)} (${(props?.payload?.percent || 0).toFixed(1)}%)`,
-                      name,
-                    ]}
-                  />
-                  <Legend
-                    verticalAlign="bottom"
-                    formatter={(value) => (
-                      <span className="text-xs text-slate-700">{value}</span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
+        </section>
+      )}
 
-            <ul className="mt-2 space-y-2 border-t border-slate-100 pt-3">
-              {shares.map((s, index) => (
-                <li
-                  key={s.name}
-                  className="flex items-center justify-between gap-3 text-sm"
-                >
-                  <span className="flex min-w-0 items-center gap-2">
-                    <span
-                      className="h-3 w-3 shrink-0 rounded-full"
-                      style={{
-                        backgroundColor: PIE_COLORS[index % PIE_COLORS.length],
-                      }}
-                      aria-hidden
+      {canViewInvestmentCapital ? (
+        <section className="card-panel mb-4">
+          <h2 className="section-title mb-1">Tỷ lệ cổ phần</h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Tính theo tiền đầu tư (không gồm hàng hóa / thiết bị).
+          </p>
+
+          {loading ? (
+            <div className="h-56 animate-pulse rounded-2xl bg-slate-100" />
+          ) : pieData.length === 0 ? (
+            <div className="py-10 text-center text-sm text-slate-500">
+              Chưa có tiền đầu tư.
+            </div>
+          ) : (
+            <>
+              <div className="h-64 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={48}
+                      outerRadius={88}
+                      paddingAngle={2}
+                    >
+                      {pieData.map((entry, index) => (
+                        <Cell
+                          key={entry.name}
+                          fill={PIE_COLORS[index % PIE_COLORS.length]}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(value, name, props) => [
+                        `${formatCurrency(value)} (${(props?.payload?.percent || 0).toFixed(1)}%)`,
+                        name,
+                      ]}
                     />
-                    <span className="truncate font-medium">{s.name}</span>
-                  </span>
-                  <span className="money shrink-0 font-bold text-slate-800">
-                    {s.percent.toFixed(1)}% · <Money amount={s.value} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </>
-        )}
-      </section>
+                    <Legend
+                      verticalAlign="bottom"
+                      formatter={(value) => (
+                        <span className="text-xs text-slate-700">{value}</span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              <ul className="mt-2 space-y-2 border-t border-slate-100 pt-3">
+                {shares.map((s, index) => (
+                  <li
+                    key={s.name}
+                    className="flex items-center justify-between gap-3 text-sm"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <span
+                        className="h-3 w-3 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: PIE_COLORS[index % PIE_COLORS.length],
+                        }}
+                        aria-hidden
+                      />
+                      <span className="truncate font-medium">{s.name}</span>
+                    </span>
+                    <span className="money shrink-0 font-bold text-slate-800">
+                      {s.percent.toFixed(1)}% · <Money amount={s.value} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      ) : null}
+
+      {canViewInvestmentCapital ? (
+        <section className="mb-4 grid grid-cols-1 gap-3">
+          <StatCard
+            label="Hàng hóa & thiết bị (tài sản quán)"
+            value={loading ? 0 : assets.total}
+            tone="success"
+          />
+        </section>
+      ) : null}
 
       <section className="space-y-3">
-        <h2 className="section-title">Lịch sử góp vốn</h2>
+        <h2 className="section-title">
+          {canViewInvestmentCapital ? "Lịch sử góp vốn & tài sản" : "Lịch sử nhập"}
+        </h2>
         {loading ? (
           <div className="card-panel h-24 animate-pulse bg-white/80" />
-        ) : investments.length === 0 ? (
+        ) : visibleRows.length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
-            Chưa có lần góp vốn nào.
+            {canViewInvestmentCapital
+              ? "Chưa có lần góp vốn nào."
+              : "Chưa có hàng hóa / thiết bị."}
           </div>
         ) : (
-          investments.map((row) => (
+          visibleRows.map((row) => (
             <article key={row.id} className="card-panel space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -428,17 +546,11 @@ function CapitalContent() {
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <span
-                  className={cn(
-                    "chip",
-                    row.type === "equipment"
-                      ? "bg-amber-50 text-amber-800 ring-1 ring-amber-100"
-                      : "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
-                  )}
-                >
-                  {row.type === "equipment" ? "Thiết bị" : "Tiền mặt"}
+                <span className={cn("chip", typeChipClass(row.type))}>
+                  {investmentTypeLabel(row.type)}
                 </span>
-                {row.type === "equipment" && row.equipmentName ? (
+                {(row.type === "equipment" || row.type === "goods") &&
+                row.equipmentName ? (
                   <span className="chip bg-slate-50 text-slate-700 ring-1 ring-slate-200">
                     {row.equipmentName}
                   </span>

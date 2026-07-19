@@ -14,12 +14,12 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-/** Quản lý: vận hành + đối soát + vốn + nhân viên */
+/** Quản lý: dòng tiền quán + hàng hóa/thiết bị (không tiền đầu tư) */
 const managerLinks = [
   { href: "/manager/pos", label: "POS", icon: Store },
   { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/admin/users", label: "Nhân viên", icon: Users },
+  { href: "/dashboard/capital", label: "Hàng hóa", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 

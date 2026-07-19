@@ -42,7 +42,7 @@ function parseMonthInput(value) {
 }
 
 function MonthlyContent() {
-  const { canManageShop } = useAuth();
+  const { canManageShop, canViewInvestmentCapital } = useAuth();
   const { showToast } = useToast();
   const now = new Date();
   const [monthValue, setMonthValue] = useState(
@@ -242,54 +242,62 @@ function MonthlyContent() {
             </div>
           </section>
 
-          {/* Khối 3 */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-brand-700" aria-hidden />
-              <h2 className="section-title">Bảng chia cổ tức</h2>
-            </div>
-
-            {report.isLoss ? (
-              <div className="card-panel border-rose-100 bg-rose-50 text-center text-sm font-semibold text-rose-700">
-                Tháng này lỗ, không chia
+          {/* Khối 3 — chỉ Chủ ĐT / SA (có tiền đầu tư) */}
+          {canViewInvestmentCapital ? (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-brand-700" aria-hidden />
+                <h2 className="section-title">Bảng chia cổ tức</h2>
               </div>
-            ) : null}
 
-            {report.investorShares.length === 0 ? (
-              <div className="card-panel text-sm text-slate-500">
-                Chưa có dữ liệu vốn góp. Vào mục Vốn để khai báo trước.
-              </div>
-            ) : (
-              report.investorShares.map((row) => (
-                <article key={row.name} className="card-panel space-y-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate font-bold text-slate-900">
-                        {row.name}
-                      </p>
-                      <p className="text-xs text-slate-500">
-                        Tỷ lệ sở hữu:{" "}
-                        <strong>{row.ownershipPercent.toFixed(1)}%</strong>
-                        {" · "}
-                        Vốn: <Money amount={row.capital} />
+              {report.isLoss ? (
+                <div className="card-panel border-rose-100 bg-rose-50 text-center text-sm font-semibold text-rose-700">
+                  Tháng này lỗ, không chia
+                </div>
+              ) : null}
+
+              {report.investorShares.length === 0 ? (
+                <div className="card-panel text-sm text-slate-500">
+                  Chưa có dữ liệu tiền đầu tư. Vào mục Vốn để khai báo trước.
+                </div>
+              ) : (
+                report.investorShares.map((row) => (
+                  <article key={row.name} className="card-panel space-y-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-900">
+                          {row.name}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          Tỷ lệ sở hữu:{" "}
+                          <strong>{row.ownershipPercent.toFixed(1)}%</strong>
+                          {" · "}
+                          Vốn: <Money amount={row.capital} />
+                        </p>
+                      </div>
+                      <p
+                        className={cn(
+                          "money shrink-0 text-lg font-extrabold",
+                          report.isLoss ? "text-rose-600" : "text-emerald-700"
+                        )}
+                      >
+                        <Money amount={row.dividend} />
                       </p>
                     </div>
-                    <p
-                      className={cn(
-                        "money shrink-0 text-lg font-extrabold",
-                        report.isLoss ? "text-rose-600" : "text-emerald-700"
-                      )}
-                    >
-                      <Money amount={row.dividend} />
+                    <p className="text-[11px] text-slate-400">
+                      Thực nhận = LN ròng ×{" "}
+                      {(row.ownershipRatio * 100).toFixed(1)}%
                     </p>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    Thực nhận = LN ròng × {(row.ownershipRatio * 100).toFixed(1)}%
-                  </p>
-                </article>
-              ))
-            )}
-          </section>
+                  </article>
+                ))
+              )}
+            </section>
+          ) : (
+            <section className="card-panel text-sm text-slate-600">
+              Bạn xem được kết quả kinh doanh và dòng tiền quán. Tiền đầu tư /
+              bảng chia cổ tức chỉ Chủ đầu tư và Super Admin xem được.
+            </section>
+          )}
         </>
       )}
     </AppShell>

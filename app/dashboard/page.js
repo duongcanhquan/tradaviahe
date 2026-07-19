@@ -32,7 +32,7 @@ import { formatCurrency } from "@/lib/utils";
 
 function DashboardContent() {
   const { showToast } = useToast();
-  const { canManageShop } = useAuth();
+  const { canManageShop, canViewInvestmentCapital } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -155,7 +155,9 @@ function DashboardContent() {
         >
           <span className="flex items-center gap-2">
             <Landmark className="h-5 w-5" aria-hidden />
-            Quản lý vốn góp & cổ phần
+            {canViewInvestmentCapital
+              ? "Vốn đầu tư · Hàng hóa · Thiết bị"
+              : "Hàng hóa & thiết bị"}
           </span>
           <span className="text-sm font-medium text-white/80">Mở →</span>
         </Link>

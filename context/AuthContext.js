@@ -5,12 +5,14 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebas
 import { auth } from "@/lib/firebase";
 import { ensureUserProfile } from "@/lib/users";
 import {
+  canManageAssets,
   canManageEmployees,
   canManageShop,
   canManageSystem,
   canManageUsers,
   canOperateShop,
   canViewDashboard,
+  canViewInvestmentCapital,
   homePathForRole,
 } from "@/lib/roles";
 
@@ -90,6 +92,8 @@ export function AuthProvider({ children }) {
       canManageEmployees: canManageEmployees(role),
       canManageSystem: canManageSystem(role),
       canManageShop: canManageShop(role),
+      canManageAssets: canManageAssets(role),
+      canViewInvestmentCapital: canViewInvestmentCapital(role),
       canOperateShop: canOperateShop(role),
       canViewDashboard: canViewDashboard(role),
       homePath: homePathForRole(role),

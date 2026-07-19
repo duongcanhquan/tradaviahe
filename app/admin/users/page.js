@@ -365,9 +365,10 @@ function AdminUsersContent() {
         </div>
       ) : actorRole === "manager" ? (
         <div className="card-panel mb-4 border-brand-100 bg-brand-50 text-sm text-brand-900">
-          <p className="font-bold">Quản lý — nhân viên & vận hành</p>
+          <p className="font-bold">Quản lý — dòng tiền quán & nhân viên</p>
           <p className="mt-1 text-brand-800/80">
-            Nhập/xuất hàng, chi tiêu, nhập tiền, và quản lý nhân viên.
+            Kiểm soát thu/chi quán, nhập hàng hóa/thiết bị, quản lý nhân viên.
+            Không xem tiền đầu tư của cổ đông.
           </p>
         </div>
       ) : null}
