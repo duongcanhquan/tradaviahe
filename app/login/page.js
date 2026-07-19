@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
-  ensureDefaultSuperAdmin,
   loginAsDefaultSuperAdmin,
   SUPERADMIN_DEFAULT_PASSWORD,
   SUPERADMIN_USERNAME,
@@ -16,14 +15,9 @@ function friendlyAuthError(error) {
   const code = error?.code || "";
   const msg = String(error?.message || "");
 
-  if (
-    msg.includes("Nhập tên đăng nhập") ||
-    msg.includes("không gõ email") ||
-    msg.includes("chữ không dấu")
-  ) {
+  if (msg.includes("Nhập tên đăng nhập") || msg.includes("đã đổi")) {
     return msg;
   }
-
   if (
     code === "auth/user-not-found" ||
     code === "auth/invalid-credential" ||
@@ -31,19 +25,15 @@ function friendlyAuthError(error) {
     code === "auth/invalid-login-credentials" ||
     code === "auth/invalid-email"
   ) {
-    return "Sai tên hoặc mật khẩu. Thử canhquan / canhquan, hoặc bấm “Vào Super Admin”.";
+    return "Sai tên hoặc mật khẩu. Nhân viên: hỏi quản lý tên đã tạo. Admin: thử canhquan / canhquan hoặc nút xanh bên dưới.";
   }
-
   if (code === "auth/too-many-requests") {
-    return "Thử quá nhiều lần — đợi vài phút rồi thử lại.";
+    return "Thử quá nhiều lần — đợi rồi thử lại.";
   }
-
-  if (code === "permission-denied" || msg.includes("permission")) {
-    return "Firestore chặn ghi dữ liệu. Kiểm tra Rules cho phép user đã login ghi users/.";
+  if (code === "auth/network-request-failed") {
+    return "Mất mạng — kiểm tra kết nối rồi thử lại.";
   }
-
-  // Không hiện lỗi Firebase kiểu “email…” ra UI
-  return "Không đăng nhập được. Dùng tên tài khoản (không cần email), hoặc bấm “Vào Super Admin”.";
+  return "Không đăng nhập được. Gõ TÊN tài khoản (không gõ email) + mật khẩu.";
 }
 
 function LoginForm() {
@@ -51,10 +41,10 @@ function LoginForm() {
   const { showToast } = useToast();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [identifier, setIdentifier] = useState(SUPERADMIN_USERNAME);
-  const [password, setPassword] = useState(SUPERADMIN_DEFAULT_PASSWORD);
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [bootstrapping, setBootstrapping] = useState(false);
+  const [quickLoading, setQuickLoading] = useState(false);
 
   useEffect(() => {
     if (authLoading || !user) return;
@@ -62,89 +52,13 @@ function LoginForm() {
     router.replace(next || homePathForRole(role));
   }, [authLoading, role, router, searchParams, user]);
 
-  const goHome = () => {
-    showToast("Đăng nhập thành công", "success");
-    router.replace(searchParams.get("next") || "/");
-  };
-
-  const handleBootstrap = async () => {
-    setBootstrapping(true);
-    try {
-      const result = await ensureDefaultSuperAdmin();
-      if (result.created || result.reason === "created") {
-        showToast("Đã tạo Super Admin — đang đăng nhập…", "success");
-        setIdentifier(SUPERADMIN_USERNAME);
-        setPassword(SUPERADMIN_DEFAULT_PASSWORD);
-        await login(SUPERADMIN_USERNAME, SUPERADMIN_DEFAULT_PASSWORD);
-        goHome();
-        return;
-      }
-      if (result.reason === "already_exists") {
-        showToast("Super Admin đã sẵn sàng — đăng nhập canhquan / canhquan", "info");
-        setIdentifier(SUPERADMIN_USERNAME);
-        setPassword(SUPERADMIN_DEFAULT_PASSWORD);
-      } else if (result.reason === "auth_exists_login") {
-        showToast(
-          result.message ||
-            "Tài khoản canhquan đã có — nhập mật khẩu hiện tại (hoặc mật khẩu mặc định canhquan)",
-          "info"
-        );
-        setIdentifier(SUPERADMIN_USERNAME);
-      }
-    } catch (error) {
-      console.error(error);
-      showToast(friendlyAuthError(error), "error");
-    } finally {
-      setBootstrapping(false);
-    }
-  };
-
-  /** Một chạm: tạo (nếu cần) + đăng nhập Super Admin */
-  const handleQuickSuperAdmin = async () => {
-    setBootstrapping(true);
-    try {
-      await loginAsDefaultSuperAdmin();
-      setIdentifier(SUPERADMIN_USERNAME);
-      setPassword(SUPERADMIN_DEFAULT_PASSWORD);
-      goHome();
-    } catch (error) {
-      console.error(error);
-      // Mật khẩu đã đổi — thử form thường / khởi tạo
-      if (
-        error?.code === "auth/wrong-password" ||
-        error?.code === "auth/invalid-credential" ||
-        error?.code === "auth/invalid-login-credentials"
-      ) {
-        showToast(
-          "Mật khẩu Super Admin đã đổi. Nhập tên canhquan + mật khẩu hiện tại.",
-          "info"
-        );
-        setIdentifier(SUPERADMIN_USERNAME);
-        setPassword("");
-      } else {
-        showToast(friendlyAuthError(error), "error");
-      }
-    } finally {
-      setBootstrapping(false);
-    }
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     try {
-      const name = identifier.trim();
-      // Super Admin: tự bootstrap nhẹ trước khi login
-      if (name.toLowerCase() === SUPERADMIN_USERNAME) {
-        try {
-          await ensureDefaultSuperAdmin();
-        } catch {
-          // bỏ qua — vẫn thử login
-        }
-      }
-
-      await login(name, password);
-      goHome();
+      await login(identifier, password);
+      showToast("Đăng nhập thành công", "success");
+      // Redirect do useEffect khi AuthContext cập nhật
     } catch (error) {
       console.error(error);
       showToast(friendlyAuthError(error), "error");
@@ -152,6 +66,25 @@ function LoginForm() {
       setLoading(false);
     }
   };
+
+  const handleQuickAdmin = async () => {
+    setQuickLoading(true);
+    try {
+      await loginAsDefaultSuperAdmin();
+      setIdentifier(SUPERADMIN_USERNAME);
+      setPassword(SUPERADMIN_DEFAULT_PASSWORD);
+      showToast("Đã vào Super Admin", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(friendlyAuthError(error), "error");
+      setIdentifier(SUPERADMIN_USERNAME);
+      setPassword("");
+    } finally {
+      setQuickLoading(false);
+    }
+  };
+
+  const busy = loading || quickLoading || authLoading;
 
   return (
     <div className="relative flex min-h-dvh flex-col justify-end overflow-hidden bg-brand-800 px-4 pb-10 pt-16">
@@ -166,16 +99,15 @@ function LoginForm() {
             Trà Đá App
           </h1>
           <p className="mt-3 max-w-sm text-sm text-blue-100">
-            Đăng nhập bằng <strong>tên tài khoản</strong> — không cần email.
+            Chỉ cần <strong>tên đăng nhập</strong> + mật khẩu.
             <br />
-            Super Admin: <strong>canhquan</strong> / <strong>canhquan</strong>
+            Không dùng email.
           </p>
         </div>
 
         <form
           onSubmit={handleSubmit}
           className="rounded-[28px] bg-white p-5 shadow-2xl shadow-brand-900/30"
-          autoComplete="on"
         >
           <label className="mb-4 block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
@@ -190,14 +122,15 @@ function LoginForm() {
               autoCorrect="off"
               spellCheck={false}
               inputMode="text"
+              enterKeyHint="next"
               value={identifier}
-              onChange={(e) => {
-                // Chặn @ — chỉ giữ tên
-                const v = e.target.value.replace(/@.*/g, "").replace(/\s/g, "");
-                setIdentifier(v);
-              }}
-              className="field-input"
-              placeholder="canhquan"
+              onChange={(e) =>
+                setIdentifier(
+                  e.target.value.replace(/@.*/g, "").replace(/\s/g, "")
+                )
+              }
+              className="field-input text-lg"
+              placeholder="vd: nhanvien1"
             />
           </label>
 
@@ -212,40 +145,38 @@ function LoginForm() {
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="field-input"
-              placeholder="canhquan"
+              className="field-input text-lg"
+              placeholder="••••••••"
             />
           </label>
 
           <button
             type="submit"
-            disabled={loading || bootstrapping}
-            className="touch-btn h-14 w-full bg-brand-700 text-white"
+            disabled={busy}
+            className="touch-btn h-16 w-full bg-brand-700 text-lg text-white disabled:opacity-60"
           >
-            {loading ? "Đang đăng nhập..." : "Đăng nhập"}
+            {loading ? "Đang vào..." : "Đăng nhập"}
           </button>
 
-          <button
-            type="button"
-            disabled={loading || bootstrapping}
-            onClick={handleQuickSuperAdmin}
-            className="touch-btn mt-3 h-14 w-full bg-emerald-600 text-white"
-          >
-            {bootstrapping ? "Đang xử lý..." : "Vào Super Admin (canhquan)"}
-          </button>
+          <div className="my-4 h-px bg-slate-100" />
 
+          <p className="mb-2 text-center text-xs font-semibold text-slate-500">
+            Dành cho Super Admin lần đầu
+          </p>
           <button
             type="button"
-            disabled={loading || bootstrapping}
-            onClick={handleBootstrap}
-            className="touch-btn mt-3 h-12 w-full border border-slate-200 bg-slate-50 text-slate-800"
+            disabled={busy}
+            onClick={handleQuickAdmin}
+            className="touch-btn h-14 w-full bg-emerald-600 text-white disabled:opacity-60"
           >
-            Khởi tạo lại Super Admin
+            {quickLoading
+              ? "Đang vào..."
+              : "Vào Super Admin (canhquan)"}
           </button>
 
           <p className="mt-4 text-center text-xs leading-relaxed text-slate-500">
-            Chỉ gõ <strong>canhquan</strong> — đừng gõ email.
-            Nếu lần đầu, bấm nút xanh <strong>Vào Super Admin</strong>.
+            Nhân viên / quản lý: dùng đúng <strong>tên</strong> Admin đã tạo
+            (không phải email).
           </p>
         </form>
       </div>

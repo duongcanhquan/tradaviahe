@@ -5,6 +5,10 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebas
 import { auth } from "@/lib/firebase";
 import { ensureUserProfile } from "@/lib/users";
 import {
+  extractUsername,
+  usernameToEmail,
+} from "@/lib/authIdentity";
+import {
   canCloseShift,
   canEnterIncome,
   canManageAssets,
@@ -19,6 +23,19 @@ import {
 } from "@/lib/roles";
 
 const AuthContext = createContext(null);
+
+function fallbackProfile(firebaseUser) {
+  const email = firebaseUser?.email || "";
+  const username = extractUsername(email) || "user";
+  return {
+    uid: firebaseUser.uid,
+    email,
+    username,
+    name: username,
+    role: username === "canhquan" ? "superadmin" : "employee",
+    active: true,
+  };
+}
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -35,18 +52,22 @@ export function AuthProvider({ children }) {
         }
 
         setUser(firebaseUser);
-        const data = await ensureUserProfile(firebaseUser);
-
-        if (data.blocked) {
-          await signOut(auth);
-          setUser(null);
-          setProfile(null);
-          return;
+        try {
+          const data = await ensureUserProfile(firebaseUser);
+          if (data.blocked) {
+            await signOut(auth);
+            setUser(null);
+            setProfile(null);
+            return;
+          }
+          setProfile(data);
+        } catch (profileError) {
+          // Firestore lỗi vẫn cho vào app với hồ sơ tạm — không kẹt màn login
+          console.error("Auth profile fetch error:", profileError);
+          setProfile(fallbackProfile(firebaseUser));
         }
-
-        setProfile(data);
       } catch (error) {
-        console.error("Auth profile fetch error:", error);
+        console.error("Auth state error:", error);
         setProfile(null);
       } finally {
         setLoading(false);
@@ -56,16 +77,13 @@ export function AuthProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
+  /** Đăng nhập bằng TÊN — map sang email nội bộ, không hỏi email */
   const login = async (identifier, password) => {
-    const { resolveLoginIdentifier, usernameToEmail, extractUsername } =
-      await import("@/lib/authIdentity");
-    // Map tên → email nội bộ phía sau (user không cần biết)
-    let authEmail;
-    try {
-      authEmail = await resolveLoginIdentifier(identifier);
-    } catch {
-      authEmail = usernameToEmail(extractUsername(identifier));
+    const username = extractUsername(identifier);
+    if (!username) {
+      throw new Error("Nhập tên đăng nhập");
     }
+    const authEmail = usernameToEmail(username);
     const credential = await signInWithEmailAndPassword(
       auth,
       authEmail,
@@ -97,7 +115,6 @@ export function AuthProvider({ children }) {
       logout,
       changePassword,
       isSuperAdmin: role === "superadmin",
-      /** Chỉ đúng role quản lý (không gồm SA/investor) */
       isManager: role === "manager",
       isEmployee: role === "employee",
       isInvestor: role === "investor",
