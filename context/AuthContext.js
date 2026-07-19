@@ -57,9 +57,20 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (identifier, password) => {
-    const { resolveLoginIdentifier } = await import("@/lib/authIdentity");
-    const email = await resolveLoginIdentifier(identifier);
-    const credential = await signInWithEmailAndPassword(auth, email, password);
+    const { resolveLoginIdentifier, usernameToEmail, extractUsername } =
+      await import("@/lib/authIdentity");
+    // Map tên → email nội bộ phía sau (user không cần biết)
+    let authEmail;
+    try {
+      authEmail = await resolveLoginIdentifier(identifier);
+    } catch {
+      authEmail = usernameToEmail(extractUsername(identifier));
+    }
+    const credential = await signInWithEmailAndPassword(
+      auth,
+      authEmail,
+      password
+    );
     return credential.user;
   };
 
