@@ -67,13 +67,16 @@ function LoginForm() {
     } catch (error) {
       console.error(error);
       const code = error?.code || "";
-      if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
+      const msg = error?.message || "";
+      if (msg.includes("không dùng email")) {
+        showToast("Chỉ cần tên đăng nhập, không dùng email", "error");
+      } else if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
         showToast(
           "Sai tài khoản. Bấm “Khởi tạo Super Admin” nếu lần đầu dùng app",
           "error"
         );
       } else {
-        showToast("Tài khoản hoặc mật khẩu không đúng", "error");
+        showToast("Tên đăng nhập hoặc mật khẩu không đúng", "error");
       }
     } finally {
       setLoading(false);
@@ -103,14 +106,15 @@ function LoginForm() {
         >
           <label className="mb-4 block">
             <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Tài khoản
+              Tên đăng nhập
             </span>
             <input
               type="text"
               required
               autoComplete="username"
+              inputMode="text"
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
+              onChange={(e) => setIdentifier(e.target.value.replace(/@.*$/, ""))}
               className="field-input"
               placeholder="canhquan"
             />

@@ -117,12 +117,15 @@ function SettingsContent() {
 
   const ensureUserProfile = async () => {
     try {
+      const username =
+        profile?.username || user.email?.split("@")[0] || "user";
       await setDoc(
         doc(db, "users", user.uid),
         {
           uid: user.uid,
           email: user.email,
-          name: profile?.name || user.email?.split("@")[0] || "Người dùng",
+          username,
+          name: profile?.name || username || "Người dùng",
           role: profile?.role || "manager",
         },
         { merge: true }
@@ -167,7 +170,9 @@ function SettingsContent() {
       <section className="card-panel mb-4 space-y-2">
         <p className="text-sm text-slate-500">Đang đăng nhập</p>
         <p className="text-lg font-bold">{profile?.name || "—"}</p>
-        <p className="text-sm text-slate-600">{profile?.email}</p>
+        <p className="text-sm text-slate-600">
+          @{profile?.username || profile?.email?.split("@")[0] || "—"}
+        </p>
         <p className="inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
           Vai trò: {roleLabel(profile?.role)}
         </p>

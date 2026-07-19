@@ -4,8 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Briefcase,
   Crown,
+  Eye,
+  EyeOff,
+  KeyRound,
   Pencil,
   Plus,
+  RefreshCw,
   Shield,
   Trash2,
   UserCog,
@@ -17,9 +21,12 @@ import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
+import { defaultPasswordForUsername } from "@/lib/authIdentity";
 import {
   createManagedUser,
   deleteManagedUser,
+  resetAllManagedPasswords,
+  resetManagedUserPassword,
   subscribeUsers,
   updateManagedUser,
 } from "@/lib/users";
@@ -32,7 +39,7 @@ import { cn } from "@/lib/utils";
 
 const emptyForm = {
   name: "",
-  email: "",
+  username: "",
   password: "",
   role: "employee",
   phone: "",
@@ -47,6 +54,26 @@ function roleBadgeClass(role) {
   return "bg-slate-100 text-slate-700";
 }
 
+function PasswordReveal({ value }) {
+  const [show, setShow] = useState(false);
+  if (!value) {
+    return <span className="text-slate-400">Chưa lưu MK</span>;
+  }
+  return (
+    <span className="inline-flex items-center gap-2 font-mono text-sm">
+      <span className="max-w-[140px] truncate">{show ? value : "••••••••"}</span>
+      <button
+        type="button"
+        onClick={() => setShow((s) => !s)}
+        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition active:scale-95"
+        aria-label={show ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
+      >
+        {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+      </button>
+    </span>
+  );
+}
+
 function AdminUsersContent() {
   const { user, profile, isSuperAdmin } = useAuth();
   const { showToast } = useToast();
@@ -58,6 +85,8 @@ function AdminUsersContent() {
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [resettingId, setResettingId] = useState(null);
+  const [resettingAll, setResettingAll] = useState(false);
 
   useEffect(() => {
     const unsub = subscribeUsers(
@@ -100,8 +129,8 @@ function AdminUsersContent() {
     setEditing(row);
     setForm({
       name: row.name || "",
-      email: row.email || "",
-      password: "",
+      username: row.username || row.email?.split("@")[0] || "",
+      password: row.password || "",
       role: row.role === "superadmin" ? "superadmin" : row.role || "employee",
       phone: row.phone || "",
       note: row.note || "",
@@ -124,9 +153,9 @@ function AdminUsersContent() {
     }
     if (
       !editing &&
-      (!form.email.trim() || !form.password || form.password.length < 6)
+      (!form.username.trim() || !form.password || form.password.length < 6)
     ) {
-      showToast("Email và mật khẩu (≥6 ký tự) bắt buộc khi thêm mới", "error");
+      showToast("Tên đăng nhập và mật khẩu (≥6 ký tự) bắt buộc", "error");
       return;
     }
 
@@ -159,7 +188,7 @@ function AdminUsersContent() {
         showToast("Đã cập nhật người dùng", "success");
       } else {
         await createManagedUser({
-          email: form.email,
+          username: form.username,
           password: form.password,
           name: form.name,
           role: form.role,
@@ -176,9 +205,7 @@ function AdminUsersContent() {
       const code = error?.code || "";
       const msg = error?.message || "";
       if (code === "auth/email-already-in-use") {
-        showToast("Email đã tồn tại trên Auth", "error");
-      } else if (code === "auth/invalid-email") {
-        showToast("Email không hợp lệ", "error");
+        showToast("Tên đăng nhập đã tồn tại trên Auth", "error");
       } else if (code === "auth/weak-password") {
         showToast("Mật khẩu quá yếu", "error");
       } else if (msg) {
@@ -200,9 +227,8 @@ function AdminUsersContent() {
       showToast("Không thể xóa Super Admin", "error");
       return;
     }
-    const ok = window.confirm(
-      `Xóa "${row.name || row.email}" khỏi hệ thống?\n(Hồ sơ Firestore sẽ bị xóa; tài khoản Auth có thể vẫn còn.)`
-    );
+    const label = row.name || row.username || row.email;
+    const ok = window.confirm(`Xóa "${label}" khỏi hệ thống?`);
     if (!ok) return;
 
     setDeletingId(id);
@@ -217,6 +243,52 @@ function AdminUsersContent() {
     }
   };
 
+  const handleResetOne = async (row) => {
+    const id = row.uid || row.id;
+    const username = row.username || row.email?.split("@")[0] || "";
+    const next = defaultPasswordForUsername(username);
+    const ok = window.confirm(
+      `Reset mật khẩu của "${row.name || username}" về "${next}"?`
+    );
+    if (!ok) return;
+
+    setResettingId(id);
+    try {
+      await resetManagedUserPassword(id, next, { users });
+      showToast(`Đã reset MK → ${next}`, "success");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Reset mật khẩu thất bại", "error");
+    } finally {
+      setResettingId(null);
+    }
+  };
+
+  const handleResetAll = async () => {
+    const ok = window.confirm(
+      `Reset mật khẩu TẤT CẢ ${users.length} tài khoản về tên đăng nhập (hoặc tên+số nếu <6 ký tự)?\nKhông thể hoàn tác.`
+    );
+    if (!ok) return;
+
+    setResettingAll(true);
+    try {
+      const result = await resetAllManagedPasswords({ users });
+      if (result.failed.length === 0) {
+        showToast(`Đã reset ${result.ok.length} mật khẩu`, "success");
+      } else {
+        showToast(
+          `OK ${result.ok.length}, lỗi ${result.failed.length}: ${result.failed[0]?.reason || ""}`,
+          "error"
+        );
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Reset tất cả thất bại", "error");
+    } finally {
+      setResettingAll(false);
+    }
+  };
+
   return (
     <AppShell title="Admin" subtitle="Phân quyền · Nhân viên · Chủ đầu tư">
       {isSuperAdmin ? (
@@ -225,12 +297,22 @@ function AdminUsersContent() {
           <div className="min-w-0 text-sm">
             <p className="font-bold text-violet-900">Bạn là Super Admin duy nhất</p>
             <p className="mt-1 text-violet-800/80">
-              {profile?.name || profile?.email} — có toàn quyền thêm nhân viên,
-              quản lý, chủ đầu tư. Không thể tạo thêm Super Admin khác.
+              {profile?.name || profile?.username} — xem mật khẩu, reset từng
+              người hoặc reset tất cả. Đăng nhập chỉ cần tên tài khoản + mật khẩu.
             </p>
           </div>
         </div>
       ) : null}
+
+      <button
+        type="button"
+        disabled={resettingAll || users.length === 0}
+        onClick={handleResetAll}
+        className="touch-btn mb-4 h-12 w-full gap-2 border border-rose-200 bg-rose-50 text-rose-800 disabled:opacity-40"
+      >
+        <RefreshCw className={cn("h-5 w-5", resettingAll && "animate-spin")} />
+        {resettingAll ? "Đang reset tất cả..." : "Reset tất cả mật khẩu"}
+      </button>
 
       <section className="mb-4 grid grid-cols-2 gap-2">
         {[
@@ -311,6 +393,7 @@ function AdminUsersContent() {
             const id = row.uid || row.id;
             const isSelf = id === user.uid;
             const isSA = row.role === "superadmin";
+            const username = row.username || row.email?.split("@")[0] || "—";
             return (
               <article key={id} className="card-panel space-y-3">
                 <div className="flex items-start justify-between gap-3">
@@ -323,7 +406,13 @@ function AdminUsersContent() {
                         </span>
                       ) : null}
                     </p>
-                    <p className="truncate text-sm text-slate-500">{row.email}</p>
+                    <p className="truncate text-sm text-slate-500">
+                      @{username}
+                    </p>
+                    <div className="mt-1 flex items-center gap-2 text-slate-600">
+                      <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <PasswordReveal value={row.password} />
+                    </div>
                     {row.phone ? (
                       <p className="text-xs text-slate-400">{row.phone}</p>
                     ) : null}
@@ -343,20 +432,29 @@ function AdminUsersContent() {
                   <p className="text-xs text-slate-500">{row.note}</p>
                 ) : null}
 
-                <div className="flex gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
                     onClick={() => openEdit(row)}
-                    className="touch-btn h-12 flex-1 gap-2 bg-slate-900 text-white"
+                    className="touch-btn h-12 gap-1 bg-slate-900 text-white"
                   >
                     <Pencil className="h-4 w-4" />
                     Sửa
                   </button>
                   <button
                     type="button"
+                    disabled={resettingId === id}
+                    onClick={() => handleResetOne(row)}
+                    className="touch-btn h-12 gap-1 bg-amber-600 text-white disabled:opacity-40"
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    {resettingId === id ? "..." : "Reset MK"}
+                  </button>
+                  <button
+                    type="button"
                     disabled={isSelf || isSA || deletingId === id}
                     onClick={() => handleDelete(row)}
-                    className="touch-btn h-12 flex-1 gap-2 bg-rose-600 text-white disabled:opacity-40"
+                    className="touch-btn h-12 gap-1 bg-rose-600 text-white disabled:opacity-40"
                   >
                     <Trash2 className="h-4 w-4" />
                     {deletingId === id ? "..." : "Xóa"}
@@ -441,27 +539,29 @@ function AdminUsersContent() {
                 <>
                   <label className="block">
                     <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Email đăng nhập
+                      Tên đăng nhập
                     </span>
                     <input
-                      type="email"
+                      type="text"
                       required
+                      autoComplete="off"
                       className="field-input"
-                      value={form.email}
+                      value={form.username}
                       onChange={(e) =>
-                        setForm((f) => ({ ...f, email: e.target.value }))
+                        setForm((f) => ({ ...f, username: e.target.value }))
                       }
-                      placeholder="email@example.com"
+                      placeholder="vd: nhanvien1"
                     />
                   </label>
                   <label className="block">
                     <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Mật khẩu tạm
+                      Mật khẩu
                     </span>
                     <input
-                      type="password"
+                      type="text"
                       required
                       minLength={6}
+                      autoComplete="new-password"
                       className="field-input"
                       value={form.password}
                       onChange={(e) =>
@@ -472,11 +572,20 @@ function AdminUsersContent() {
                   </label>
                 </>
               ) : (
-                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  Email:{" "}
-                  <strong className="text-slate-700">{form.email}</strong>
-                  <br />
-                  (Không đổi email / mật khẩu tại đây)
+                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                  <p>
+                    Tên đăng nhập:{" "}
+                    <strong className="text-slate-900">@{form.username}</strong>
+                  </p>
+                  <p className="mt-1">
+                    Mật khẩu:{" "}
+                    <strong className="font-mono text-slate-900">
+                      {form.password || "—"}
+                    </strong>
+                  </p>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Dùng nút Reset MK trên danh sách để đặt lại mật khẩu.
+                  </p>
                 </div>
               )}
 

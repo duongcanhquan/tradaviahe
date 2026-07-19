@@ -18,16 +18,16 @@ const shopOpsLinks = [
   { href: "/manager/pos", label: "POS", icon: Store },
   { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/monthly", label: "Tháng", icon: CalendarDays },
   { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
+  { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 const superAdminLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "POS", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/monthly", label: "Tháng", icon: CalendarDays },
   { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
+  { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 const employeeLinks = [

@@ -19,6 +19,7 @@
 # misc
 .DS_Store
 *.pem
+.github-data/
 
 # debug
 npm-debug.log*
