@@ -27,6 +27,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { DiscrepancyBadge, Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
+import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
 import { formatCurrency } from "@/lib/utils";
 
@@ -259,6 +260,50 @@ function DashboardContent() {
         </div>
       </section>
 
+      <section className="mb-6 space-y-3">
+        <h2 className="section-title">Thu gần đây · ai nhập</h2>
+        {loading ? (
+          <div className="card-panel h-20 animate-pulse bg-white/80" />
+        ) : transactions.filter((t) => t.type === "income").length === 0 ? (
+          <div className="card-panel text-sm text-slate-500">
+            Chưa có khoản thu tháng này.
+          </div>
+        ) : (
+          transactions
+            .filter((t) => t.type === "income")
+            .slice(0, 15)
+            .map((row) => {
+              const ms = row.timestamp?.toMillis?.() ?? 0;
+              const timeLabel = ms
+                ? new Date(ms).toLocaleString("vi-VN", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "—";
+              return (
+                <article key={row.id} className="card-panel space-y-1">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-slate-900">
+                        {row.note || row.category || "Thu"}
+                      </p>
+                      <p className="text-xs text-slate-500">{timeLabel}</p>
+                      <p className="mt-1 text-xs font-semibold text-brand-800">
+                        Nhập bởi: {formatActorLabel(row)}
+                      </p>
+                    </div>
+                    <p className="money shrink-0 text-base font-extrabold text-emerald-700">
+                      <Money amount={row.amount} />
+                    </p>
+                  </div>
+                </article>
+              );
+            })
+        )}
+      </section>
+
       <section className="space-y-3">
         <h2 className="section-title">Lịch sử chốt ca</h2>
         {loading ? (
@@ -275,6 +320,18 @@ function DashboardContent() {
                   <p className="text-lg font-bold">{report.date}</p>
                   <p className="text-xs text-slate-500">
                     {report.status || "đã chốt"}
+                    {report.checkedByName || report.checkedByUsername ? (
+                      <>
+                        {" · "}
+                        Chốt bởi:{" "}
+                        <strong>
+                          {formatActorLabel({
+                            createdByName: report.checkedByName,
+                            createdByUsername: report.checkedByUsername,
+                          })}
+                        </strong>
+                      </>
+                    ) : null}
                   </p>
                 </div>
                 <DiscrepancyBadge value={report.discrepancy} />

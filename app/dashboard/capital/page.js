@@ -25,6 +25,7 @@ import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
+import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   createInvestment,
   filterInvestmentsForRole,
@@ -63,7 +64,7 @@ function typeChipClass(type) {
 }
 
 function CapitalContent() {
-  const { user, canManageShop, canViewInvestmentCapital } = useAuth();
+  const { user, profile, canManageShop, canViewInvestmentCapital } = useAuth();
   const { showToast } = useToast();
 
   const [investments, setInvestments] = useState([]);
@@ -191,13 +192,17 @@ function CapitalContent() {
 
     setSaving(true);
     try {
+      const actor = actorFields(user, profile);
       await createInvestment({
         investorName,
         type,
         amount,
         equipmentName,
         note,
-        createdBy: user.uid,
+        createdBy: actor.createdBy,
+        createdByName: actor.createdByName,
+        createdByUsername: actor.createdByUsername,
+        createdByRole: actor.createdByRole,
       });
       showToast(
         type === "cash" ? "Đã lưu tiền đầu tư" : "Đã lưu hàng hóa / thiết bị",
@@ -558,6 +563,11 @@ function CapitalContent() {
               </div>
               {row.note ? (
                 <p className="text-xs text-slate-500">{row.note}</p>
+              ) : null}
+              {row.createdByName || row.createdByUsername ? (
+                <p className="text-xs font-medium text-brand-800">
+                  Nhập bởi: {formatActorLabel(row)}
+                </p>
               ) : null}
             </article>
           ))

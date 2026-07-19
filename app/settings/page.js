@@ -17,6 +17,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { SharedQrSheet } from "@/components/SharedQr";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
+import { actorFields } from "@/lib/audit";
 import { db } from "@/lib/firebase";
 import { formatCurrency } from "@/lib/utils";
 import { roleLabel } from "@/lib/roles";
@@ -37,6 +38,7 @@ function SettingsContent() {
     canManageUsers,
     canManageEmployees,
     canOperateShop,
+    isEmployee,
     user,
   } = useAuth();
   const { showToast } = useToast();
@@ -147,9 +149,9 @@ function SettingsContent() {
         type: "expense",
         category: expenseCategory,
         timestamp: serverTimestamp(),
-        createdBy: user.uid,
         note: expenseNote || "",
         paymentMethod: "cash",
+        ...actorFields(user, profile),
       });
       setExpenseAmount("");
       setExpenseNote("");
@@ -268,22 +270,31 @@ function SettingsContent() {
         </Link>
       ) : null}
 
-      <section className="card-panel mb-4 space-y-3">
-        <h2 className="font-bold">Hồ sơ Firestore</h2>
-        <p className="text-sm text-slate-500">
-          Document <code>users/{user?.uid}</code> dùng role:{" "}
-          <code>superadmin</code>, <code>manager</code>, <code>employee</code>,
-          hoặc <code>investor</code>.
-        </p>
-        <button
-          type="button"
-          onClick={ensureUserProfile}
-          className="touch-btn h-12 w-full gap-2 bg-slate-900 text-white"
-        >
-          <UserPlus className="h-5 w-5" />
-          Đồng bộ hồ sơ hiện tại
-        </button>
-      </section>
+      {isEmployee ? (
+        <section className="card-panel mb-4 text-sm text-slate-600">
+          Tài khoản nhân viên: chỉ <strong>nhập tiền thu</strong> (POS), xem QR
+          và đổi mật khẩu. Mọi khoản thu đều ghi tên người nhập trên báo cáo.
+        </section>
+      ) : null}
+
+      {!isEmployee ? (
+        <section className="card-panel mb-4 space-y-3">
+          <h2 className="font-bold">Hồ sơ Firestore</h2>
+          <p className="text-sm text-slate-500">
+            Document <code>users/{user?.uid}</code> dùng role:{" "}
+            <code>superadmin</code>, <code>manager</code>, <code>employee</code>,
+            hoặc <code>investor</code>.
+          </p>
+          <button
+            type="button"
+            onClick={ensureUserProfile}
+            className="touch-btn h-12 w-full gap-2 bg-slate-900 text-white"
+          >
+            <UserPlus className="h-5 w-5" />
+            Đồng bộ hồ sơ hiện tại
+          </button>
+        </section>
+      ) : null}
 
       {canManageShop ? (
         <>

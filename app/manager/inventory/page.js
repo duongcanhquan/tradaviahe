@@ -16,7 +16,7 @@ import {
 import { todayKey } from "@/lib/utils";
 
 function InventoryContent() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [endStocks, setEndStocks] = useState({});
@@ -102,8 +102,14 @@ function InventoryContent() {
         systemRevenue: result.systemRevenue,
         discrepancy: result.discrepancy,
         checkedBy: user.uid,
+        checkedByName: profile?.name || profile?.username || "",
+        checkedByUsername: profile?.username || "",
+        checkedByRole: profile?.role || null,
       });
-      showToast(`Đã gửi chốt ca ngày ${todayKey()}`, "success");
+      showToast(
+        `Đã gửi chốt ca ${todayKey()} · ${profile?.name || profile?.username || ""}`,
+        "success"
+      );
       setResult(null);
     } catch (error) {
       console.error(error);
@@ -262,7 +268,7 @@ function InventoryContent() {
 
 export default function InventoryPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "employee", "investor"]}>
+    <ProtectedRoute allowRoles={["manager", "investor"]}>
       <InventoryContent />
     </ProtectedRoute>
   );

@@ -18,10 +18,11 @@ import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
 import { subscribeGlobalSettings } from "@/lib/settings";
-import { cn, dateInfoCode } from "@/lib/utils";
+import { actorFields, formatActorLabel } from "@/lib/audit";
+import { cn, dateInfoCode, formatCurrency } from "@/lib/utils";
 
 function PosContent() {
-  const { user, profile } = useAuth();
+  const { user, profile, isEmployee } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState({});
@@ -30,6 +31,7 @@ function PosContent() {
   const [showQr, setShowQr] = useState(false);
   const [tab, setTab] = useState("menu");
   const [bank, setBank] = useState(DEFAULT_BANK);
+  const [recentIncome, setRecentIncome] = useState([]);
 
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("name"));
@@ -55,6 +57,25 @@ function PosContent() {
     );
     return () => unsub();
   }, []);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "transactions"),
+      orderBy("timestamp", "desc")
+    );
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter((t) => t.type === "income")
+          .slice(0, isEmployee ? 12 : 8);
+        setRecentIncome(rows);
+      },
+      () => setRecentIncome([])
+    );
+    return () => unsub();
+  }, [isEmployee]);
 
   const cartItems = useMemo(() => {
     return products
@@ -91,21 +112,24 @@ function PosContent() {
         .map((item) => `${item.name} x${item.qty}`)
         .join(", ");
 
+      const actor = actorFields(user, profile);
       await addDoc(collection(db, "transactions"), {
         amount: total,
         type: "income",
         category: "bán hàng",
         timestamp: serverTimestamp(),
-        createdBy: user.uid,
         note,
         paymentMethod,
-        createdByName: profile?.name || profile?.email || "",
+        ...actor,
       });
 
       setCart({});
       setShowQr(false);
       setTab("menu");
-      showToast("Đã ghi nhận doanh thu", "success");
+      showToast(
+        `Đã ghi nhận thu · ${actor.createdByName || actor.createdByUsername}`,
+        "success"
+      );
       return true;
     } catch (error) {
       console.error(error);
@@ -125,7 +149,13 @@ function PosContent() {
   return (
     <AppShell
       title="Bán hàng"
-      subtitle={loading ? "Đang tải thực đơn..." : `${products.length} món · chạm để thêm`}
+      subtitle={
+        loading
+          ? "Đang tải thực đơn..."
+          : isEmployee
+            ? `Nhập tiền thu · ${profile?.name || profile?.username || "NV"}`
+            : `${products.length} món · chạm để thêm`
+      }
       dense={tab === "cart" && cartItems.length > 0}
     >
       <div
@@ -306,6 +336,52 @@ function PosContent() {
           )}
         </div>
       )}
+
+      <section className="mt-6 space-y-3">
+        <h2 className="section-title">
+          {isEmployee ? "Thu gần đây (theo dõi thao tác)" : "Thu gần đây"}
+        </h2>
+        {recentIncome.length === 0 ? (
+          <div className="card-panel text-sm text-slate-500">
+            Chưa có khoản thu nào.
+          </div>
+        ) : (
+          recentIncome.map((row) => {
+            const ms = row.timestamp?.toMillis?.() ?? 0;
+            const timeLabel = ms
+              ? new Date(ms).toLocaleString("vi-VN", {
+                  day: "2-digit",
+                  month: "2-digit",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "—";
+            return (
+              <article key={row.id} className="card-panel space-y-1">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-900">
+                      {row.note || row.category || "Thu"}
+                    </p>
+                    <p className="text-xs text-slate-500">{timeLabel}</p>
+                    <p className="mt-1 text-xs font-medium text-brand-800">
+                      Nhập bởi: {formatActorLabel(row)}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="money text-base font-extrabold text-emerald-700">
+                      {formatCurrency(row.amount)}
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      {row.paymentMethod === "banking" ? "QR/CK" : "Tiền mặt"}
+                    </p>
+                  </div>
+                </div>
+              </article>
+            );
+          })
+        )}
+      </section>
 
       {showQr ? (
         <div
