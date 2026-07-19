@@ -384,7 +384,7 @@ export default function EmployeeDesk() {
                 <div
                   key={product.id}
                   className={cn(
-                    "relative flex overflow-hidden rounded-xl bg-white ring-1 transition duration-150",
+                    "relative flex h-[4.75rem] overflow-hidden rounded-xl bg-white ring-1 transition duration-150",
                     active
                       ? "ring-2 ring-brand-700"
                       : "ring-slate-200",
@@ -393,15 +393,15 @@ export default function EmployeeDesk() {
                 >
                   {sortMode ? (
                     <>
-                      <div className="min-w-0 flex-1 px-2 py-1.5">
-                        <p className="truncate text-sm font-extrabold leading-snug text-slate-900">
+                      <div className="flex min-w-0 flex-1 flex-col justify-center px-2 py-1">
+                        <p className="truncate text-base font-extrabold leading-tight text-slate-900">
                           {product.name}
                         </p>
-                        <p className="money mt-0.5 text-xs font-bold text-brand-700">
+                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
                           <Money amount={price} />
-                        </p>
-                        <p className="text-[10px] font-semibold text-slate-400">
-                          #{index + 1}
+                          <span className="ml-1 font-semibold text-slate-400">
+                            #{index + 1}
+                          </span>
                         </p>
                       </div>
                       <div className="flex w-9 flex-col border-l border-slate-100">
@@ -432,15 +432,15 @@ export default function EmployeeDesk() {
                       <button
                         type="button"
                         onClick={() => changeQty(product.id, 1)}
-                        className="flex min-h-[4.75rem] min-w-0 flex-1 flex-col px-2 py-1.5 text-left active:bg-brand-50/80"
+                        className="flex h-full min-w-0 flex-1 flex-col justify-center px-2 py-1 text-left active:bg-brand-50/80"
                       >
                         <div className="flex items-start justify-between gap-1">
-                          <p className="line-clamp-2 min-w-0 flex-1 text-sm font-extrabold leading-snug text-slate-900">
+                          <p className="line-clamp-2 min-w-0 flex-1 text-base font-extrabold leading-tight text-slate-900">
                             {product.name}
                           </p>
                           <span
                             className={cn(
-                              "money flex h-7 min-w-[1.75rem] shrink-0 items-center justify-center rounded-lg px-1 text-sm font-extrabold",
+                              "money flex h-6 min-w-[1.5rem] shrink-0 items-center justify-center rounded-md px-1 text-xs font-extrabold",
                               active
                                 ? "bg-brand-700 text-white"
                                 : "bg-slate-100 text-slate-500"
@@ -449,7 +449,7 @@ export default function EmployeeDesk() {
                             {qty}
                           </span>
                         </div>
-                        <p className="money mt-auto pt-0.5 text-xs font-bold text-brand-700">
+                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
                           <Money amount={price} />
                         </p>
                       </button>
