@@ -15,6 +15,7 @@ import {
   Loader2,
   Minus,
   QrCode,
+  Smartphone,
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -35,11 +36,12 @@ import { cn, dateInfoCode, formatCurrency } from "@/lib/utils";
 
 /**
  * Bàn thu siêu nhanh:
- * - 4 nhóm SP (Nước uống / Đồ ăn / Đồ dùng / Dịch vụ) — mở rộng được
- * - Chạm món = +1 · Thu 1 = ghi ngay · Tiền mặt = thu cả giỏ
+ * - 4 nhóm SP — chạm món = +1
+ * - Thu tiền mặt hoặc chuyển khoản (ghi paymentMethod rõ)
+ * - QR phụ: hiện mã rồi xác nhận CK
  */
 export default function EmployeeDesk() {
-  const { user, profile } = useAuth();
+  const { user, profile, hasManagerAccess } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
@@ -239,8 +241,8 @@ export default function EmployeeDesk() {
     }
   };
 
-  /** 1 chạm: thu ngay 1 phần tiền mặt của món */
-  const quickCashOne = async (product) => {
+  /** 1 chạm: thu ngay 1 phần (tiền mặt hoặc CK) */
+  const quickPayOne = async (product, paymentMethod) => {
     if (submitting) return;
     const price = Number(product.price) || 0;
     if (price <= 0) {
@@ -253,9 +255,13 @@ export default function EmployeeDesk() {
       await writeSale({
         items: [{ ...product, qty: 1 }],
         amount: price,
-        paymentMethod: "cash",
+        paymentMethod,
       });
-      showToast(`Đã thu ${product.name} · ${formatCurrency(price)}`, "success");
+      const via = paymentMethod === "banking" ? "CK" : "TM";
+      showToast(
+        `Đã thu ${via} · ${product.name} · ${formatCurrency(price)}`,
+        "success"
+      );
     } catch (error) {
       console.error(error);
       showToast("Ghi thu thất bại — thử lại", "error");
@@ -280,8 +286,9 @@ export default function EmployeeDesk() {
       employeeMode
     >
       <p className="mb-2 text-center text-xs font-semibold text-slate-500">
-        Chạm món = +1 · <span className="text-emerald-700">Thu 1</span> = ghi ngay ·
-        Tiền mặt = thu cả giỏ
+        Chạm món = +1 ·{" "}
+        <span className="text-emerald-700">TM</span> /{" "}
+        <span className="text-brand-700">CK</span> = ghi ngay · hoặc thu cả giỏ bên dưới
       </p>
 
       {/* 4 nhóm sản phẩm */}
@@ -385,27 +392,34 @@ export default function EmployeeDesk() {
                       </div>
                     </button>
 
-                    {/* Cột thao tác nhanh */}
-                    <div className="flex w-[5.5rem] flex-col border-l border-slate-100">
+                    {/* Cột thao tác nhanh: TM / CK / − */}
+                    <div className="flex w-[4.75rem] flex-col border-l border-slate-100">
                       <button
                         type="button"
                         disabled={submitting}
-                        onClick={() => quickCashOne(product)}
+                        onClick={() => quickPayOne(product, "cash")}
                         className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-emerald-600 px-1 text-white transition active:bg-emerald-700 disabled:opacity-50"
                       >
-                        <Banknote className="h-5 w-5" aria-hidden />
-                        <span className="text-xs font-extrabold leading-tight">
-                          Thu 1
-                        </span>
+                        <Banknote className="h-4 w-4" aria-hidden />
+                        <span className="text-[11px] font-extrabold">TM</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => quickPayOne(product, "banking")}
+                        className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-brand-700 px-1 text-white transition active:bg-brand-800 disabled:opacity-50"
+                      >
+                        <Smartphone className="h-4 w-4" aria-hidden />
+                        <span className="text-[11px] font-extrabold">CK</span>
                       </button>
                       <button
                         type="button"
                         aria-label={`Giảm ${product.name}`}
                         disabled={!qty || submitting}
                         onClick={() => changeQty(product.id, -1)}
-                        className="flex h-14 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
+                        className="flex h-11 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
                       >
-                        <Minus className="h-6 w-6" />
+                        <Minus className="h-5 w-5" />
                       </button>
                     </div>
                   </div>
@@ -459,6 +473,7 @@ export default function EmployeeDesk() {
                     minute: "2-digit",
                   })
                 : "—";
+              const isCk = row.paymentMethod === "banking";
               return (
                 <div
                   key={row.id}
@@ -468,7 +483,19 @@ export default function EmployeeDesk() {
                     <p className="truncate text-sm font-semibold text-slate-800">
                       {row.note || "Thu"}
                     </p>
-                    <p className="text-xs text-slate-400">{timeLabel}</p>
+                    <p className="text-xs text-slate-400">
+                      {timeLabel}
+                      {" · "}
+                      <span
+                        className={
+                          isCk
+                            ? "font-bold text-brand-700"
+                            : "font-bold text-emerald-700"
+                        }
+                      >
+                        {isCk ? "CK" : "TM"}
+                      </span>
+                    </p>
                   </div>
                   <p className="money shrink-0 font-extrabold text-emerald-700">
                     {formatCurrency(row.amount)}
@@ -485,10 +512,10 @@ export default function EmployeeDesk() {
           </p>
         </div>
       ) : (
-        <div className="h-36" aria-hidden />
+        <div className="h-44" aria-hidden />
       )}
 
-      {/* Thanh thu cố định — nút tiền mặt chiếm ưu thế */}
+      {/* Thanh thu: Tiền mặt · Chuyển khoản · QR */}
       <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-[45] border-t border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-10px_28px_rgba(15,23,42,0.1)] backdrop-blur-md">
         <div className="mx-auto max-w-lg space-y-2">
           <div className="flex items-end justify-between px-1">
@@ -505,23 +532,18 @@ export default function EmployeeDesk() {
             </p>
           </div>
 
-          <div className="grid grid-cols-[1fr_4.5rem] gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => recordSale("cash")}
-              className={cn(
-                "touch-btn h-[4.25rem] gap-2 text-xl text-white disabled:opacity-35",
-                totalQty > 0
-                  ? "bg-emerald-600 shadow-lg shadow-emerald-600/30"
-                  : "bg-emerald-600"
-              )}
+              className="touch-btn h-[3.75rem] gap-2 bg-emerald-600 text-base text-white disabled:opacity-35"
             >
               {submitting ? (
-                <Loader2 className="h-7 w-7 animate-spin" />
+                <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <>
-                  <Banknote className="h-7 w-7" aria-hidden />
+                  <Banknote className="h-6 w-6" aria-hidden />
                   <span className="font-extrabold">Tiền mặt</span>
                 </>
               )}
@@ -529,14 +551,29 @@ export default function EmployeeDesk() {
             <button
               type="button"
               disabled={submitting || totalQty === 0}
-              onClick={() => setShowQr(true)}
-              aria-label="Thanh toán QR"
-              className="touch-btn h-[4.25rem] flex-col gap-0.5 bg-brand-700 text-white disabled:opacity-35"
+              onClick={() => recordSale("banking")}
+              className="touch-btn h-[3.75rem] gap-2 bg-brand-700 text-base text-white disabled:opacity-35"
             >
-              <QrCode className="h-6 w-6" aria-hidden />
-              <span className="text-[11px] font-bold">QR</span>
+              {submitting ? (
+                <Loader2 className="h-6 w-6 animate-spin" />
+              ) : (
+                <>
+                  <Smartphone className="h-6 w-6" aria-hidden />
+                  <span className="font-extrabold">Chuyển khoản</span>
+                </>
+              )}
             </button>
           </div>
+          <button
+            type="button"
+            disabled={submitting || totalQty === 0}
+            onClick={() => setShowQr(true)}
+            className="touch-btn h-11 w-full gap-2 border border-brand-200 bg-brand-50 text-sm font-bold text-brand-900 disabled:opacity-35"
+          >
+            <QrCode className="h-5 w-5" aria-hidden />
+            Hiện QR rồi ghi CK
+            {hasManagerAccess ? " (tuỳ chọn)" : ""}
+          </button>
         </div>
       </div>
 
