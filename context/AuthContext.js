@@ -16,6 +16,7 @@ import {
 import {
   canCloseShift,
   canEnterIncome,
+  canDeleteProductGroups,
   canManageAssets,
   canManageEmployees,
   canManageProducts,
@@ -150,6 +151,7 @@ export function AuthProvider({ children }) {
       canManageSystem: canManageSystem(role),
       canManageShop: canManageShop(role),
       canManageProducts: canManageProducts(role),
+      canDeleteProductGroups: canDeleteProductGroups(role),
       canManageAssets: canManageAssets(role),
       canViewInvestmentCapital: canViewInvestmentCapital(role),
       canViewDividends: canViewDividends(role),

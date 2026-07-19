@@ -24,19 +24,26 @@ import { actorFields, formatActorLabel } from "@/lib/audit";
 import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
 import { db } from "@/lib/firebase";
 import { subscribeGlobalSettings } from "@/lib/settings";
+import {
+  DEFAULT_PRODUCT_GROUPS,
+  ensureDefaultProductGroups,
+  filterProductsByGroup,
+  subscribeProductGroups,
+} from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
 import { cn, dateInfoCode, formatCurrency } from "@/lib/utils";
 
 /**
- * Bàn thu siêu nhanh (ít món — trà đá, nước ngọt…):
- * - Chạm món = +1 (ô to, số lượng hiện lớn)
- * - Chạm "Tiền mặt" = ghi thu cả giỏ (thường 2 chạm cho 1 ly)
- * - Nút "Thu 1" trên mỗi món = 1 chạm ghi ngay 1 phần tiền mặt
+ * Bàn thu siêu nhanh:
+ * - 4 nhóm SP (Nước uống / Đồ ăn / Đồ dùng / Dịch vụ) — mở rộng được
+ * - Chạm món = +1 · Thu 1 = ghi ngay · Tiền mặt = thu cả giỏ
  */
 export default function EmployeeDesk() {
   const { user, profile } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
+  const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
+  const [activeGroupId, setActiveGroupId] = useState("drinks");
   const [cart, setCart] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -46,6 +53,25 @@ export default function EmployeeDesk() {
   const [showHistory, setShowHistory] = useState(false);
   const [flashId, setFlashId] = useState(null);
   const flashTimer = useRef(null);
+
+  useEffect(() => {
+    ensureDefaultProductGroups().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeProductGroups(
+      (rows) => {
+        const active = rows.filter((g) => g.active !== false);
+        setGroups(active.length ? active : DEFAULT_PRODUCT_GROUPS);
+        setActiveGroupId((prev) => {
+          if (active.some((g) => g.id === prev)) return prev;
+          return active[0]?.id || DEFAULT_PRODUCT_GROUPS[0].id;
+        });
+      },
+      () => setGroups(DEFAULT_PRODUCT_GROUPS)
+    );
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("name"));
@@ -103,6 +129,17 @@ export default function EmployeeDesk() {
     []
   );
 
+  const visibleProducts = useMemo(() => {
+    const inGroup = filterProductsByGroup(products, activeGroupId);
+    // Sản phẩm chưa gắn nhóm: hiện ở nhóm đầu tiên để không "mất" món cũ
+    if (activeGroupId === groups[0]?.id) {
+      const ungrouped = products.filter((p) => !p.groupId);
+      const seen = new Set(inGroup.map((p) => p.id));
+      return [...inGroup, ...ungrouped.filter((p) => !seen.has(p.id))];
+    }
+    return inGroup;
+  }, [products, activeGroupId, groups]);
+
   const cartItems = useMemo(() => {
     return products
       .filter((p) => cart[p.id] > 0)
@@ -115,7 +152,15 @@ export default function EmployeeDesk() {
 
   const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
   const totalQty = cartItems.reduce((sum, item) => sum + item.qty, 0);
-  const fewProducts = products.length > 0 && products.length <= 4;
+  const fewProducts = visibleProducts.length > 0 && visibleProducts.length <= 4;
+
+  const countInGroup = (groupId) => {
+    const n = filterProductsByGroup(products, groupId).length;
+    if (groupId === groups[0]?.id) {
+      return n + products.filter((p) => !p.groupId).length;
+    }
+    return n;
+  };
 
   const bumpFlash = (id) => {
     setFlashId(id);
@@ -223,12 +268,38 @@ export default function EmployeeDesk() {
         Tiền mặt = thu cả giỏ
       </p>
 
-      <div
-        className={cn(
-          "flex flex-col gap-3",
-          totalQty > 0 ? "pb-2" : "pb-2"
-        )}
-      >
+      {/* 4 nhóm sản phẩm */}
+      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+        {groups.map((g) => {
+          const active = activeGroupId === g.id;
+          const count = countInGroup(g.id);
+          return (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => setActiveGroupId(g.id)}
+              className={cn(
+                "touch-btn min-h-[3.25rem] flex-col gap-0 px-2 py-2 text-sm font-extrabold leading-tight",
+                active
+                  ? "bg-brand-700 text-white shadow-md"
+                  : "bg-white text-slate-700 ring-1 ring-slate-200"
+              )}
+            >
+              <span className="truncate">{g.name}</span>
+              <span
+                className={cn(
+                  "text-[11px] font-semibold",
+                  active ? "text-white/80" : "text-slate-400"
+                )}
+              >
+                {count} món
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-col gap-3 pb-2">
         {loading
           ? Array.from({ length: 3 }).map((_, i) => (
               <div
@@ -236,7 +307,7 @@ export default function EmployeeDesk() {
                 className="h-28 animate-pulse rounded-[1.5rem] bg-white/80"
               />
             ))
-          : products.map((product) => {
+          : visibleProducts.map((product) => {
               const qty = cart[product.id] || 0;
               const price = Number(product.price) || 0;
               const active = qty > 0;
@@ -329,7 +400,13 @@ export default function EmployeeDesk() {
 
       {!loading && products.length === 0 ? (
         <div className="rounded-[1.5rem] bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-          Chưa có món. Nhờ quản lý thêm (vd: Trà đá, Nước ngọt).
+          Chưa có món. Nhờ quản lý thêm ở Món giá.
+        </div>
+      ) : null}
+
+      {!loading && products.length > 0 && visibleProducts.length === 0 ? (
+        <div className="rounded-[1.5rem] bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+          Nhóm này chưa có món. Chọn nhóm khác hoặc thêm món ở Món giá.
         </div>
       ) : null}
 

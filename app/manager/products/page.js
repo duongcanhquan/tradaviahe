@@ -15,6 +15,14 @@ import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
+  createProductGroup,
+  deleteProductGroup,
+  ensureDefaultProductGroups,
+  groupsByIdMap,
+  subscribeProductGroups,
+  updateProductGroup,
+} from "@/lib/productGroups";
+import {
   COST_MODE,
   PRODUCT_KIND,
   PRODUCT_UNITS,
@@ -38,22 +46,32 @@ const emptyForm = {
   price: "",
   cost: "",
   costMode: COST_MODE.MANUAL,
+  groupId: "drinks",
   inStock: "0",
   active: true,
   recipe: [],
 };
 
 function ProductsContent() {
-  const { canManageProducts, role } = useAuth();
+  const { canManageProducts, canDeleteProductGroups, role } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("finished");
+  const [groupFilter, setGroupFilter] = useState("all");
   const [open, setOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [saving, setSaving] = useState(false);
   const [seeding, setSeeding] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [editingGroup, setEditingGroup] = useState(null);
+  const [savingGroup, setSavingGroup] = useState(false);
+
+  useEffect(() => {
+    ensureDefaultProductGroups().catch(() => {});
+  }, []);
 
   useEffect(() => {
     const unsub = subscribeProducts(
@@ -70,7 +88,19 @@ function ProductsContent() {
     return () => unsub();
   }, [showToast]);
 
+  useEffect(() => {
+    const unsub = subscribeProductGroups(
+      (rows) => setGroups(rows.filter((g) => g.active !== false)),
+      (error) => {
+        console.error(error);
+        showToast("Không tải được nhóm SP", "error");
+      }
+    );
+    return () => unsub();
+  }, [showToast]);
+
   const byId = useMemo(() => productsByIdMap(products), [products]);
+  const groupMap = useMemo(() => groupsByIdMap(groups), [groups]);
 
   const ingredients = useMemo(
     () => products.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT),
@@ -82,7 +112,12 @@ function ProductsContent() {
     [products]
   );
 
-  const list = tab === "ingredient" ? ingredients : finished;
+  const list = useMemo(() => {
+    const base = tab === "ingredient" ? ingredients : finished;
+    if (tab !== "finished" || groupFilter === "all") return base;
+    if (groupFilter === "none") return base.filter((p) => !p.groupId);
+    return base.filter((p) => p.groupId === groupFilter);
+  }, [tab, ingredients, finished, groupFilter]);
 
   const openCreate = (kind) => {
     setEditingId(null);
@@ -91,6 +126,7 @@ function ProductsContent() {
       kind,
       unit: kind === PRODUCT_KIND.INGREDIENT ? "g" : "ly",
       costMode: COST_MODE.MANUAL,
+      groupId: groups[0]?.id || "drinks",
     });
     setOpen(true);
   };
@@ -107,6 +143,7 @@ function ProductsContent() {
       cost: row.cost != null ? String(Math.round(Number(row.cost) || 0)) : "",
       costMode:
         row.costMode === COST_MODE.RECIPE ? COST_MODE.RECIPE : COST_MODE.MANUAL,
+      groupId: row.groupId || groups[0]?.id || "drinks",
       inStock: row.inStock != null ? String(row.inStock) : "0",
       active: row.active !== false,
       recipe: Array.isArray(row.recipe)
@@ -157,6 +194,8 @@ function ProductsContent() {
             ? recipePreviewCost
             : Number(form.cost) || 0,
         costMode: form.costMode,
+        groupId:
+          form.kind === PRODUCT_KIND.FINISHED ? form.groupId || null : null,
         inStock: Number(form.inStock) || 0,
         active: form.active,
         recipe:
@@ -199,11 +238,50 @@ function ProductsContent() {
     setSeeding(true);
     try {
       await seedDefaultCatalog();
-      showToast("Đã tạo danh mục mẫu (NL + công thức Trà đá)", "success");
+      showToast("Đã tạo nhóm + NL + Trà đá mẫu", "success");
     } catch (error) {
       showToast(error?.message || "Seed thất bại", "error");
     } finally {
       setSeeding(false);
+    }
+  };
+
+  const handleSaveGroup = async (e) => {
+    e.preventDefault();
+    setSavingGroup(true);
+    try {
+      if (editingGroup) {
+        await updateProductGroup(editingGroup.id, { name: groupName });
+        showToast("Đã sửa nhóm", "success");
+      } else {
+        await createProductGroup({
+          name: groupName,
+          sortOrder: groups.length,
+        });
+        showToast("Đã thêm nhóm", "success");
+      }
+      setGroupName("");
+      setEditingGroup(null);
+    } catch (error) {
+      showToast(error?.message || "Lưu nhóm thất bại", "error");
+    } finally {
+      setSavingGroup(false);
+    }
+  };
+
+  const handleDeleteGroup = async (g) => {
+    if (!canDeleteProductGroups) {
+      showToast("Chỉ Admin (Cổ đông / Super Admin) được xóa nhóm", "error");
+      return;
+    }
+    if (!window.confirm(`Xóa nhóm “${g.name}”? Món trong nhóm sẽ thành chưa gắn nhóm.`)) {
+      return;
+    }
+    try {
+      await deleteProductGroup(g.id, { products });
+      showToast("Đã xóa nhóm", "info");
+    } catch (error) {
+      showToast(error?.message || "Xóa nhóm thất bại", "error");
     }
   };
 
@@ -222,16 +300,16 @@ function ProductsContent() {
       title="Món & giá"
       subtitle={
         role === "manager"
-          ? "Quản lý — giá bán · nhập · công thức"
-          : "Admin — giá bán · nhập · công thức"
+          ? "Nhóm SP · giá bán · công thức"
+          : "Admin — nhóm SP · giá · công thức"
       }
     >
-      <div className="mb-4 grid grid-cols-2 gap-2">
+      <div className="mb-4 grid grid-cols-3 gap-2">
         <button
           type="button"
           onClick={() => setTab("finished")}
           className={cn(
-            "touch-btn h-12 text-sm",
+            "touch-btn h-12 px-1 text-xs sm:text-sm",
             tab === "finished"
               ? "bg-brand-700 text-white"
               : "bg-white text-slate-700 ring-1 ring-slate-200"
@@ -243,7 +321,7 @@ function ProductsContent() {
           type="button"
           onClick={() => setTab("ingredient")}
           className={cn(
-            "touch-btn h-12 text-sm",
+            "touch-btn h-12 px-1 text-xs sm:text-sm",
             tab === "ingredient"
               ? "bg-brand-700 text-white"
               : "bg-white text-slate-700 ring-1 ring-slate-200"
@@ -251,24 +329,70 @@ function ProductsContent() {
         >
           Nguyên liệu ({ingredients.length})
         </button>
-      </div>
-
-      <div className="mb-4 flex gap-2">
         <button
           type="button"
-          onClick={() =>
-            openCreate(
-              tab === "ingredient"
-                ? PRODUCT_KIND.INGREDIENT
-                : PRODUCT_KIND.FINISHED
-            )
-          }
-          className="touch-btn h-12 flex-1 gap-2 bg-emerald-600 text-white"
+          onClick={() => setTab("groups")}
+          className={cn(
+            "touch-btn h-12 px-1 text-xs sm:text-sm",
+            tab === "groups"
+              ? "bg-brand-700 text-white"
+              : "bg-white text-slate-700 ring-1 ring-slate-200"
+          )}
         >
-          <Plus className="h-5 w-5" />
-          {tab === "ingredient" ? "Thêm nguyên liệu" : "Thêm món bán"}
+          Nhóm SP ({groups.length})
         </button>
       </div>
+
+      {tab !== "groups" ? (
+        <div className="mb-4 flex gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              openCreate(
+                tab === "ingredient"
+                  ? PRODUCT_KIND.INGREDIENT
+                  : PRODUCT_KIND.FINISHED
+              )
+            }
+            className="touch-btn h-12 flex-1 gap-2 bg-emerald-600 text-white"
+          >
+            <Plus className="h-5 w-5" />
+            {tab === "ingredient" ? "Thêm nguyên liệu" : "Thêm món bán"}
+          </button>
+        </div>
+      ) : null}
+
+      {tab === "finished" ? (
+        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
+          <button
+            type="button"
+            onClick={() => setGroupFilter("all")}
+            className={cn(
+              "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
+              groupFilter === "all"
+                ? "bg-brand-700 text-white"
+                : "bg-white text-slate-600 ring-1 ring-slate-200"
+            )}
+          >
+            Tất cả
+          </button>
+          {groups.map((g) => (
+            <button
+              key={g.id}
+              type="button"
+              onClick={() => setGroupFilter(g.id)}
+              className={cn(
+                "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
+                groupFilter === g.id
+                  ? "bg-brand-700 text-white"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200"
+              )}
+            >
+              {g.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {products.length === 0 && !loading ? (
         <button
@@ -282,12 +406,97 @@ function ProductsContent() {
         </button>
       ) : null}
 
+      {tab === "groups" ? (
+        <section className="mb-6 space-y-3">
+          <p className="text-xs leading-relaxed text-slate-500">
+            POS chia theo nhóm (mặc định: Nước uống, Đồ ăn, Đồ dùng, Dịch vụ).
+            Thêm/sửa được; <strong>xóa chỉ Admin</strong> (Cổ đông / Super Admin).
+          </p>
+
+          <form onSubmit={handleSaveGroup} className="flex gap-2">
+            <input
+              className="field-input flex-1"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              placeholder={editingGroup ? "Đổi tên nhóm" : "Tên nhóm mới"}
+              required
+            />
+            <button
+              type="submit"
+              disabled={savingGroup}
+              className="touch-btn h-12 shrink-0 bg-emerald-600 px-4 text-white"
+            >
+              {editingGroup ? "Lưu" : "Thêm"}
+            </button>
+            {editingGroup ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingGroup(null);
+                  setGroupName("");
+                }}
+                className="touch-btn h-12 shrink-0 bg-slate-100 px-3 text-slate-700"
+              >
+                Hủy
+              </button>
+            ) : null}
+          </form>
+
+          {groups.map((g) => (
+            <div
+              key={g.id}
+              className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"
+            >
+              <div className="min-w-0">
+                <p className="truncate font-extrabold text-slate-900">{g.name}</p>
+                <p className="text-xs text-slate-400">
+                  {finished.filter((p) => p.groupId === g.id).length} món · thứ tự{" "}
+                  {g.sortOrder ?? 0}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="button"
+                  aria-label="Sửa nhóm"
+                  onClick={() => {
+                    setEditingGroup(g);
+                    setGroupName(g.name);
+                  }}
+                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
+                {canDeleteProductGroups ? (
+                  <button
+                    type="button"
+                    aria-label="Xóa nhóm"
+                    onClick={() => handleDeleteGroup(g)}
+                    className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+
+          {!canDeleteProductGroups ? (
+            <p className="text-xs text-slate-400">
+              Quản lý được thêm/sửa nhóm. Xóa nhóm cần quyền Admin.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {tab !== "groups" ? (
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
         {tab === "ingredient"
           ? "Nhập giá mua / đơn vị (vd: trà khô 2đ/g). Thành phẩm dùng công thức sẽ tự cộng cost."
-          : "Giá bán dùng khi thu tiền. Cost = nhập tay hoặc tính từ nhiều nguyên liệu."}
+          : "Chọn nhóm SP (Nước uống / Đồ ăn…). Giá bán dùng khi thu tiền."}
       </p>
+      ) : null}
 
+      {tab !== "groups" ? (
       <div className="space-y-3 pb-8">
         {loading
           ? Array.from({ length: 3 }).map((_, i) => (
@@ -299,6 +508,9 @@ function ProductsContent() {
           : list.map((row) => {
               const cost = resolveUnitCost(row, byId);
               const margin = marginOf(row, byId);
+              const groupLabel = row.groupId
+                ? groupMap[row.groupId]?.name || row.groupId
+                : "Chưa nhóm";
               return (
                 <div
                   key={row.id}
@@ -310,6 +522,9 @@ function ProductsContent() {
                         {row.name}
                       </p>
                       <p className="text-xs font-medium text-slate-400">
+                        {row.kind !== PRODUCT_KIND.INGREDIENT
+                          ? `${groupLabel} · `
+                          : ""}
                         Đơn vị: {row.unit || "—"} · Tồn: {row.inStock ?? 0}
                         {row.kind !== PRODUCT_KIND.INGREDIENT &&
                         row.costMode === COST_MODE.RECIPE
@@ -409,6 +624,7 @@ function ProductsContent() {
           </p>
         ) : null}
       </div>
+      ) : null}
 
       {open ? (
         <div
@@ -484,6 +700,28 @@ function ProductsContent() {
                 />
               </label>
             </div>
+
+            {form.kind === PRODUCT_KIND.FINISHED ? (
+              <label className="mb-3 block">
+                <span className="mb-1 block text-sm font-semibold">
+                  Nhóm sản phẩm (POS)
+                </span>
+                <select
+                  className="field-input"
+                  value={form.groupId || ""}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, groupId: e.target.value }))
+                  }
+                  required
+                >
+                  {groups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
 
             {form.kind === PRODUCT_KIND.INGREDIENT ? (
               <label className="mb-3 block">
