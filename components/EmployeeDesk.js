@@ -45,10 +45,9 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
 /**
  * Bàn thu siêu nhanh (POS):
- * - Nhóm SP gọn trên cùng
- * - Mỗi món: chạm / + / − để chỉnh số lượng — ưu tiên SL
- * - Thu TM / CK bằng nút lớn ở thanh dưới (không nút bé trên từng món)
- * - Nhập CK theo ngày nằm ở Đối soát
+ * - Danh mục nhóm nằm trong header (nút nhỏ) — ưu tiên diện tích món
+ * - Mỗi món: chạm / + / − chỉnh SL
+ * - Thanh dưới: TM · CK · QR một hàng
  */
 export default function EmployeeDesk() {
   const { user, profile, role, canDeleteSales, canManageProducts } = useAuth();
@@ -305,63 +304,68 @@ export default function EmployeeDesk() {
 
   const displayName = profile?.name || profile?.username || "Nhân viên";
 
-  return (
-    <AppShell title="Thu tiền" subtitle={displayName} dense employeeMode>
-      {/* Nhóm SP + sắp xếp — tối giản */}
-      <div className="sticky top-0 z-10 -mx-1 mb-1.5 bg-slate-100/95 px-1 pb-1.5 pt-0.5 backdrop-blur-sm">
-        <div className="flex items-center gap-1.5">
-          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {groups.map((g) => {
-              const active = activeGroupId === g.id;
-              const count = countInGroup(g.id);
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => setActiveGroupId(g.id)}
-                  className={cn(
-                    "touch-btn h-8 shrink-0 gap-1 px-2.5 text-[11px] font-extrabold",
-                    active
-                      ? "bg-brand-700 text-white shadow-sm"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
-                >
-                  <span className="whitespace-nowrap">{g.name}</span>
-                  <span
-                    className={cn(
-                      "rounded px-1 text-[10px] font-bold",
-                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
-                    )}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {canManageProducts ? (
+  const groupHeader = (
+    <div className="flex items-center gap-1">
+      <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        {groups.map((g) => {
+          const active = activeGroupId === g.id;
+          return (
             <button
+              key={g.id}
               type="button"
-              onClick={() => setSortMode((v) => !v)}
+              onClick={() => setActiveGroupId(g.id)}
               className={cn(
-                "touch-btn h-8 shrink-0 px-2.5 text-[11px] font-extrabold",
-                sortMode
-                  ? "bg-amber-500 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200"
+                "h-7 shrink-0 rounded-lg px-2 text-[10px] font-extrabold leading-none transition active:scale-95",
+                active
+                  ? "bg-brand-700 text-white"
+                  : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
               )}
             >
-              {sortMode ? "Xong" : "Thứ tự"}
+              {g.name}
+              <span
+                className={cn(
+                  "ml-1 opacity-80",
+                  active ? "text-white" : "text-slate-400"
+                )}
+              >
+                {countInGroup(g.id)}
+              </span>
             </button>
-          ) : null}
-        </div>
-        {sortMode ? (
-          <p className="mt-1 text-[10px] font-semibold text-amber-800">
-            ↑↓ đưa món gọi nhiều lên trên
-          </p>
-        ) : null}
+          );
+        })}
       </div>
+      {canManageProducts ? (
+        <button
+          type="button"
+          onClick={() => setSortMode((v) => !v)}
+          className={cn(
+            "h-7 shrink-0 rounded-lg px-2 text-[10px] font-extrabold",
+            sortMode
+              ? "bg-amber-500 text-white"
+              : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+          )}
+        >
+          {sortMode ? "Xong" : "TT"}
+        </button>
+      ) : null}
+    </div>
+  );
 
-      {/* Lưới 2×4 gọn — ưu tiên ≥8 món trên màn */}
+  return (
+    <AppShell
+      title="Thu tiền"
+      subtitle={displayName}
+      dense
+      employeeMode
+      headerExtra={groupHeader}
+    >
+      {sortMode ? (
+        <p className="mb-1 text-[10px] font-semibold text-amber-800">
+          ↑↓ đưa món gọi nhiều lên trên
+        </p>
+      ) : null}
+
+      {/* Lưới món — tối đa diện tích màn hình */}
       <div className="grid grid-cols-2 gap-1.5 pb-1">
         {loading
           ? Array.from({ length: 8 }).map((_, i) => (
