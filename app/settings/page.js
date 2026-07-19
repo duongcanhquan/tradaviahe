@@ -6,12 +6,19 @@ import {
   addDoc,
   collection,
   doc,
-  getDocs,
   serverTimestamp,
   setDoc,
 } from "firebase/firestore";
 import Link from "next/link";
-import { KeyRound, LogOut, PackagePlus, QrCode, UserCog, UserPlus } from "lucide-react";
+import {
+  KeyRound,
+  LogOut,
+  Package,
+  PackagePlus,
+  QrCode,
+  UserCog,
+  UserPlus,
+} from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { SharedQrSheet } from "@/components/SharedQr";
@@ -19,15 +26,8 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { actorFields } from "@/lib/audit";
 import { db } from "@/lib/firebase";
-import { formatCurrency } from "@/lib/utils";
+import { seedDefaultCatalog } from "@/lib/products";
 import { roleLabel } from "@/lib/roles";
-
-const SAMPLE_PRODUCTS = [
-  { name: "Trà đá", price: 5000, cost: 1000, inStock: 100 },
-  { name: "Trà chanh", price: 10000, cost: 3000, inStock: 50 },
-  { name: "Cà phê đá", price: 15000, cost: 5000, inStock: 40 },
-  { name: "Nước ngọt", price: 12000, cost: 8000, inStock: 30 },
-];
 
 function SettingsContent() {
   const {
@@ -101,18 +101,11 @@ function SettingsContent() {
   const seedProducts = async () => {
     setSeeding(true);
     try {
-      const existing = await getDocs(collection(db, "products"));
-      if (!existing.empty) {
-        showToast("Đã có sản phẩm, không seed lại", "info");
-        return;
-      }
-      await Promise.all(
-        SAMPLE_PRODUCTS.map((p) => addDoc(collection(db, "products"), p))
-      );
-      showToast("Đã thêm sản phẩm mẫu", "success");
+      await seedDefaultCatalog();
+      showToast("Đã tạo danh mục mẫu (NL + công thức)", "success");
     } catch (error) {
       console.error(error);
-      showToast("Seed sản phẩm thất bại", "error");
+      showToast(error?.message || "Seed sản phẩm thất bại", "error");
     } finally {
       setSeeding(false);
     }
@@ -358,6 +351,14 @@ function SettingsContent() {
 
       {canManageShop ? (
         <>
+          <Link
+            href="/manager/products"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
+          >
+            <Package className="h-5 w-5" />
+            Món & giá — nhập / bán / công thức cost
+          </Link>
+
           <section className="card-panel mb-4 space-y-3">
             <h2 className="font-bold">Dữ liệu mẫu</h2>
             <button
@@ -367,15 +368,12 @@ function SettingsContent() {
               className="touch-btn h-12 w-full gap-2 bg-brand-700 text-white disabled:opacity-50"
             >
               <PackagePlus className="h-5 w-5" />
-              {seeding ? "Đang seed..." : "Seed sản phẩm mẫu"}
+              {seeding ? "Đang seed..." : "Seed NL + Trà đá (công thức)"}
             </button>
-            <ul className="space-y-1 text-xs text-slate-500">
-              {SAMPLE_PRODUCTS.map((p) => (
-                <li key={p.name}>
-                  {p.name} — {formatCurrency(p.price)} · tồn {p.inStock}
-                </li>
-              ))}
-            </ul>
+            <p className="text-xs text-slate-500">
+              Tạo nguyên liệu (trà, đường, ly…) và thành phẩm có giá bán + cost
+              (công thức hoặc nhập tay). Chỉ khi chưa có sản phẩm.
+            </p>
           </section>
 
           <section className="card-panel mb-4">

@@ -9,6 +9,7 @@ import { DiscrepancyBadge, Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
+import { isSellable } from "@/lib/products";
 import {
   calculateReconciliation,
   submitDailyReport,
@@ -32,7 +33,9 @@ function InventoryContent() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        const list = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .filter(isSellable);
         setProducts(list);
         setEndStocks((prev) => {
           const next = { ...prev };

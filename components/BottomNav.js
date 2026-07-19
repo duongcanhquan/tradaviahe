@@ -9,6 +9,7 @@ import {
   Settings,
   UserCog,
   Landmark,
+  Package,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
@@ -17,8 +18,8 @@ import { cn } from "@/lib/utils";
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
+  { href: "/manager/products", label: "Món giá", icon: Package },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/capital", label: "Hàng hóa", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
@@ -26,7 +27,7 @@ const managerLinks = [
 const investorLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
+  { href: "/manager/products", label: "Món giá", icon: Package },
   { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
@@ -35,7 +36,7 @@ const investorLinks = [
 const superAdminLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
+  { href: "/manager/products", label: "Món giá", icon: Package },
   { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];

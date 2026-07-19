@@ -24,6 +24,7 @@ import { actorFields, formatActorLabel } from "@/lib/audit";
 import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
 import { db } from "@/lib/firebase";
 import { subscribeGlobalSettings } from "@/lib/settings";
+import { isSellable } from "@/lib/products";
 import { cn, dateInfoCode, formatCurrency } from "@/lib/utils";
 
 /**
@@ -51,7 +52,11 @@ export default function EmployeeDesk() {
     const unsub = onSnapshot(
       q,
       (snap) => {
-        setProducts(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setProducts(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter(isSellable)
+        );
         setLoading(false);
       },
       (error) => {
