@@ -9,33 +9,32 @@ import {
   Settings,
   UserCog,
   Landmark,
-  Users,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-/** Quản lý: dòng tiền quán + hàng hóa/thiết bị (không tiền đầu tư) */
+/** Quản lý = quyền quản lý + quyền nhân viên (thu tiền) */
 const managerLinks = [
-  { href: "/manager/pos", label: "POS", icon: Store },
+  { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/dashboard/capital", label: "Hàng hóa", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
-/** Chủ đầu tư: toàn hệ thống (không gồm Admin MK) */
+/** Chủ đầu tư = Admin + quản lý + nhân viên + vốn đầu tư */
 const investorLinks = [
-  { href: "/manager/pos", label: "POS", icon: Store },
-  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
+  { href: "/admin/users", label: "Admin", icon: UserCog },
+  { href: "/manager/pos", label: "Thu tiền", icon: Store },
+  { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
   { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
-  { href: "/admin/users", label: "Người dùng", icon: Users },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
-/** Super Admin: + Admin người dùng */
+/** Super Admin: mọi quyền */
 const superAdminLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
-  { href: "/manager/pos", label: "POS", icon: Store },
+  { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },

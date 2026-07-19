@@ -25,6 +25,7 @@ import {
   canViewDashboard,
   canViewInvestmentCapital,
   homePathForRole,
+  roleAtLeast,
 } from "@/lib/roles";
 
 const AuthContext = createContext(null);
@@ -137,6 +138,10 @@ export function AuthProvider({ children }) {
       isManager: role === "manager",
       isEmployee: role === "employee",
       isInvestor: role === "investor",
+      /** Kế thừa: Chủ ĐT có quyền admin; Quản lý có quyền nhân viên */
+      hasAdminAccess: canManageUsers(role),
+      hasManagerAccess: roleAtLeast(role, "manager"),
+      hasEmployeeAccess: roleAtLeast(role, "employee"),
       canManageUsers: canManageUsers(role),
       canManageEmployees: canManageEmployees(role),
       canManageSystem: canManageSystem(role),

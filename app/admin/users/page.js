@@ -341,7 +341,7 @@ function AdminUsersContent() {
       ? "Nhân viên"
       : "Người dùng";
   const pageSubtitle = canManageUsers
-    ? "Phân quyền · Xem/reset mật khẩu"
+    ? "Admin · Phân quyền · Xem/reset mật khẩu"
     : actorRole === "manager"
       ? "Thêm · Sửa · Xóa nhân viên"
       : "Quản lý toàn hệ thống";
@@ -375,18 +375,18 @@ function AdminUsersContent() {
         </div>
       ) : actorRole === "investor" ? (
         <div className="card-panel mb-4 border-amber-200 bg-amber-50 text-sm text-amber-900">
-          <p className="font-bold">Chủ đầu tư — quản lý toàn hệ thống</p>
+          <p className="font-bold">Chủ đầu tư — Admin + quản lý</p>
           <p className="mt-1 text-amber-800/80">
-            Thêm/sửa quản lý, nhân viên, chủ đầu tư. Xem vốn đầu tư ban đầu ở mục Vốn.
-            Quyền xem/reset mật khẩu thuộc Super Admin.
+            Toàn quyền quản lý quán, vốn đầu tư, thêm/sửa người dùng, xem/reset
+            mật khẩu (trừ Super Admin). Cũng có quyền nhân viên (thu tiền).
           </p>
         </div>
       ) : actorRole === "manager" ? (
         <div className="card-panel mb-4 border-brand-100 bg-brand-50 text-sm text-brand-900">
-          <p className="font-bold">Quản lý — dòng tiền quán & nhân viên</p>
+          <p className="font-bold">Quản lý — quán + quyền nhân viên</p>
           <p className="mt-1 text-brand-800/80">
-            Kiểm soát thu/chi quán, nhập hàng hóa/thiết bị, quản lý nhân viên.
-            Không xem tiền đầu tư của cổ đông.
+            Kiểm soát thu/chi, hàng hóa/thiết bị, quản lý nhân viên, và thu tiền
+            POS như nhân viên. Không xem tiền đầu tư / Admin MK.
           </p>
         </div>
       ) : null}
