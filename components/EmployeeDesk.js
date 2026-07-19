@@ -17,6 +17,7 @@ import {
   Plus,
   QrCode,
   Smartphone,
+  Trash2,
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -33,6 +34,7 @@ import {
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
+import { deleteSaleTransaction } from "@/lib/sales";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
 /**
@@ -43,7 +45,7 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
  * - Nhập CK theo ngày nằm ở Đối soát
  */
 export default function EmployeeDesk() {
-  const { user, profile } = useAuth();
+  const { user, profile, role, canDeleteSales } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
@@ -56,6 +58,7 @@ export default function EmployeeDesk() {
   const [myRecent, setMyRecent] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [flashId, setFlashId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const flashTimer = useRef(null);
 
   useEffect(() => {
@@ -244,6 +247,24 @@ export default function EmployeeDesk() {
       showToast("Ghi thu thất bại — thử lại", "error");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleDeleteSale = async (row) => {
+    if (!canDeleteSales || !row?.id) return;
+    const ok = window.confirm(
+      `Xóa "${row.note || "khoản thu"}" · ${formatCurrency(row.amount)}?\nChỉ xóa khi ghi nhầm.`
+    );
+    if (!ok) return;
+    setDeletingId(row.id);
+    try {
+      await deleteSaleTransaction(row.id, role);
+      showToast("Đã xóa khoản thu", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Xóa thất bại", "error");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -438,7 +459,7 @@ export default function EmployeeDesk() {
               return (
                 <div
                   key={row.id}
-                  className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100"
+                  className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-800">
@@ -458,9 +479,26 @@ export default function EmployeeDesk() {
                       </span>
                     </p>
                   </div>
-                  <p className="money shrink-0 font-extrabold text-emerald-700">
-                    {formatCurrency(row.amount)}
-                  </p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <p className="money font-extrabold text-emerald-700">
+                      {formatCurrency(row.amount)}
+                    </p>
+                    {canDeleteSales ? (
+                      <button
+                        type="button"
+                        aria-label="Xóa khoản thu"
+                        disabled={deletingId === row.id}
+                        onClick={() => handleDeleteSale(row)}
+                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
+                      >
+                        {deletingId === row.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               );
             })

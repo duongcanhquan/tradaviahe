@@ -18,6 +18,7 @@ import {
   Landmark,
   Package,
   Percent,
+  Trash2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import BankingByDateForm from "@/components/BankingByDateForm";
@@ -27,6 +28,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
+import { deleteSaleTransaction } from "@/lib/sales";
 import {
   DEFAULT_PRODUCT_GROUPS,
   ensureDefaultProductGroups,
@@ -61,10 +63,12 @@ function filterTxInRange(rows, from, to) {
 function DashboardContent() {
   const { showToast } = useToast();
   const {
+    role,
     canViewInvestmentCapital,
     canViewDividends,
     canManageSystem,
     canCloseShift,
+    canDeleteSales,
   } = useAuth();
   const [allTx, setAllTx] = useState([]);
   const [products, setProducts] = useState([]);
@@ -72,6 +76,26 @@ function DashboardContent() {
   const [loadingTx, setLoadingTx] = useState(true);
   const [loadingStock, setLoadingStock] = useState(true);
   const [period, setPeriod] = useState("day");
+  const [deletingId, setDeletingId] = useState(null);
+
+  const handleDeleteSale = async (row) => {
+    if (!canDeleteSales || !row?.id) return;
+    const label = row.note || "khoản thu";
+    const ok = window.confirm(
+      `Xóa "${label}" · ${formatCurrency(row.amount)}?\nChỉ xóa khi ghi nhầm.`
+    );
+    if (!ok) return;
+    setDeletingId(row.id);
+    try {
+      await deleteSaleTransaction(row.id, role);
+      showToast("Đã xóa khoản thu", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Xóa thất bại", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   useEffect(() => {
     ensureDefaultProductGroups().catch(() => {});
@@ -606,9 +630,22 @@ function DashboardContent() {
                       </span>
                     </p>
                   </div>
-                  <p className="money shrink-0 text-base font-extrabold text-emerald-700">
-                    <Money amount={row.amount} />
-                  </p>
+                  <div className="flex shrink-0 flex-col items-end gap-2">
+                    <p className="money text-base font-extrabold text-emerald-700">
+                      <Money amount={row.amount} />
+                    </p>
+                    {canDeleteSales ? (
+                      <button
+                        type="button"
+                        disabled={deletingId === row.id}
+                        onClick={() => handleDeleteSale(row)}
+                        className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                        {deletingId === row.id ? "Đang xóa…" : "Xóa"}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               </article>
             );
