@@ -23,11 +23,11 @@ const managerLinks = [
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
-/** Chủ đầu tư = Admin + quản lý + nhân viên + vốn đầu tư */
+/** Cổ đông = Admin + vận hành + vốn/cổ tức */
 const investorLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/admin/products", label: "Món giá", icon: Package },
+  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
@@ -36,7 +36,7 @@ const investorLinks = [
 const superAdminLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/admin/products", label: "Món giá", icon: Package },
+  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
@@ -72,8 +72,12 @@ export default function BottomNav() {
         {links.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/dashboard"
-              ? pathname === "/dashboard"
-              : pathname === href || pathname?.startsWith(`${href}/`);
+              ? pathname === "/dashboard" ||
+                (pathname?.startsWith("/dashboard/") &&
+                  !pathname?.startsWith("/dashboard/capital"))
+              : href === "/dashboard/capital"
+                ? pathname === href || pathname?.startsWith(`${href}/`)
+                : pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <li key={href} className="min-w-0 flex-1">
               <Link

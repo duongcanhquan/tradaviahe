@@ -59,7 +59,9 @@ function LoginForm() {
   useEffect(() => {
     if (authLoading || !user) return;
     const next = searchParams.get("next");
-    router.replace(next || homePathForRole(role));
+    const safeNext =
+      next && next.startsWith("/") && !next.startsWith("//") ? next : null;
+    router.replace(safeNext || homePathForRole(role));
   }, [authLoading, role, router, searchParams, user]);
 
   // Prefill + tự đăng nhập lại nếu máy đã ghi nhớ

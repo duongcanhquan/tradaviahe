@@ -143,7 +143,7 @@ function ProductsContent() {
       cost: row.cost != null ? String(Math.round(Number(row.cost) || 0)) : "",
       costMode:
         row.costMode === COST_MODE.RECIPE ? COST_MODE.RECIPE : COST_MODE.MANUAL,
-      groupId: row.groupId || groups[0]?.id || "drinks",
+      groupId: row.groupId || "",
       inStock: row.inStock != null ? String(row.inStock) : "0",
       active: row.active !== false,
       recipe: Array.isArray(row.recipe)
@@ -195,7 +195,9 @@ function ProductsContent() {
             : Number(form.cost) || 0,
         costMode: form.costMode,
         groupId:
-          form.kind === PRODUCT_KIND.FINISHED ? form.groupId || null : null,
+          form.kind === PRODUCT_KIND.FINISHED
+            ? form.groupId || null
+            : null,
         inStock: Number(form.inStock) || 0,
         active: form.active,
         recipe:
@@ -224,9 +226,27 @@ function ProductsContent() {
   };
 
   const handleDelete = async (row) => {
-    if (!window.confirm(`Xóa “${row.name}”?`)) return;
+    if (row.kind === PRODUCT_KIND.INGREDIENT) {
+      const used = finished.some(
+        (p) =>
+          p.costMode === COST_MODE.RECIPE &&
+          Array.isArray(p.recipe) &&
+          p.recipe.some((l) => l.productId === row.id)
+      );
+      if (used) {
+        const ok = window.confirm(
+          `“${row.name}” đang dùng trong công thức. Xóa sẽ làm cost lệch — vẫn xóa?`
+        );
+        if (!ok) return;
+      } else if (!window.confirm(`Xóa “${row.name}”?`)) {
+        return;
+      }
+    } else if (!window.confirm(`Xóa “${row.name}”?`)) {
+      return;
+    }
     try {
       await deleteProduct(row.id);
+      await recomputeRecipeCosts();
       showToast("Đã xóa", "info");
     } catch (error) {
       console.error(error);
@@ -391,6 +411,18 @@ function ProductsContent() {
               {g.name}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => setGroupFilter("none")}
+            className={cn(
+              "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
+              groupFilter === "none"
+                ? "bg-brand-700 text-white"
+                : "bg-white text-slate-600 ring-1 ring-slate-200"
+            )}
+          >
+            Chưa nhóm
+          </button>
         </div>
       ) : null}
 
@@ -602,7 +634,7 @@ function ProductsContent() {
                       {row.recipe.map((line) => {
                         const ing = byId[line.productId];
                         return (
-                          <li key={`${row.id}-${line.productId}`}>
+                          <li key={`${row.id}-${line.productId}-${line.qty}`}>
                             {ing?.name || "?"} × {line.qty} {ing?.unit || ""}
                             {ing
                               ? ` (= ${formatCurrency(
@@ -702,25 +734,40 @@ function ProductsContent() {
             </div>
 
             {form.kind === PRODUCT_KIND.FINISHED ? (
-              <label className="mb-3 block">
-                <span className="mb-1 block text-sm font-semibold">
-                  Nhóm sản phẩm (POS)
-                </span>
-                <select
-                  className="field-input"
-                  value={form.groupId || ""}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, groupId: e.target.value }))
-                  }
-                  required
-                >
-                  {groups.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {g.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <>
+                <label className="mb-3 block">
+                  <span className="mb-1 block text-sm font-semibold">
+                    Nhóm sản phẩm (POS)
+                  </span>
+                  <select
+                    className="field-input"
+                    value={form.groupId || ""}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, groupId: e.target.value }))
+                    }
+                  >
+                    <option value="">Chưa nhóm</option>
+                    {groups.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {g.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="mb-3 flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={form.active}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, active: e.target.checked }))
+                    }
+                    className="h-5 w-5 accent-brand-700"
+                  />
+                  <span className="text-sm font-semibold text-slate-800">
+                    Đang bán trên POS
+                  </span>
+                </label>
+              </>
             ) : null}
 
             {form.kind === PRODUCT_KIND.INGREDIENT ? (

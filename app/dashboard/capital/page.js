@@ -28,6 +28,7 @@ import { db } from "@/lib/firebase";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   createInvestment,
+  filterInvestmentsForRole,
   isAssetInvestment,
   investmentTypeLabel,
   listCapitalInvestments,
@@ -212,7 +213,11 @@ function CapitalContent() {
   useEffect(() => {
     const unsub = subscribeInvestments(
       (list) => {
-        setInvestments(list);
+        setInvestments(
+          filterInvestmentsForRole(list, {
+            canViewCapital: canViewInvestmentCapital,
+          })
+        );
         setLoading(false);
       },
       (error) => {
@@ -222,7 +227,7 @@ function CapitalContent() {
       }
     );
     return () => unsub();
-  }, [showToast]);
+  }, [showToast, canViewInvestmentCapital]);
 
   useEffect(() => {
     const unsub = onSnapshot(

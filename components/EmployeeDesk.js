@@ -8,6 +8,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 import {
   Banknote,
@@ -27,7 +28,6 @@ import { subscribeGlobalSettings } from "@/lib/settings";
 import {
   DEFAULT_PRODUCT_GROUPS,
   ensureDefaultProductGroups,
-  filterProductsByGroup,
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
@@ -104,16 +104,22 @@ export default function EmployeeDesk() {
 
   useEffect(() => {
     if (!user?.uid) return;
+    // Chỉ giao dịch của mình — sort phía client
     const q = query(
       collection(db, "transactions"),
-      orderBy("timestamp", "desc")
+      where("createdBy", "==", user.uid)
     );
     const unsub = onSnapshot(
       q,
       (snap) => {
         const rows = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((t) => t.type === "income" && t.createdBy === user.uid)
+          .filter((t) => t.type === "income")
+          .sort(
+            (a, b) =>
+              (b.timestamp?.toMillis?.() || 0) -
+              (a.timestamp?.toMillis?.() || 0)
+          )
           .slice(0, 6);
         setMyRecent(rows);
       },
@@ -129,16 +135,26 @@ export default function EmployeeDesk() {
     []
   );
 
+  const knownGroupIds = useMemo(
+    () => new Set(groups.map((g) => g.id)),
+    [groups]
+  );
+
+  const isUngroupedProduct = (p) =>
+    !p.groupId || !knownGroupIds.has(p.groupId);
+
   const visibleProducts = useMemo(() => {
-    const inGroup = filterProductsByGroup(products, activeGroupId);
-    // Sản phẩm chưa gắn nhóm: hiện ở nhóm đầu tiên để không "mất" món cũ
+    const inGroup = products.filter((p) => p.groupId === activeGroupId);
+    // Món chưa nhóm / nhóm đã xóa: hiện ở nhóm đầu để không mất món
     if (activeGroupId === groups[0]?.id) {
-      const ungrouped = products.filter((p) => !p.groupId);
+      const ungrouped = products.filter(
+        (p) => !p.groupId || !knownGroupIds.has(p.groupId)
+      );
       const seen = new Set(inGroup.map((p) => p.id));
       return [...inGroup, ...ungrouped.filter((p) => !seen.has(p.id))];
     }
     return inGroup;
-  }, [products, activeGroupId, groups]);
+  }, [products, activeGroupId, groups, knownGroupIds]);
 
   const cartItems = useMemo(() => {
     return products
@@ -155,9 +171,9 @@ export default function EmployeeDesk() {
   const fewProducts = visibleProducts.length > 0 && visibleProducts.length <= 4;
 
   const countInGroup = (groupId) => {
-    const n = filterProductsByGroup(products, groupId).length;
+    const n = products.filter((p) => p.groupId === groupId).length;
     if (groupId === groups[0]?.id) {
-      return n + products.filter((p) => !p.groupId).length;
+      return n + products.filter(isUngroupedProduct).length;
     }
     return n;
   };

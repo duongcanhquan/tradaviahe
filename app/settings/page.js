@@ -115,17 +115,15 @@ function SettingsContent() {
     try {
       const username =
         profile?.username || user.email?.split("@")[0] || "user";
-      await setDoc(
-        doc(db, "users", user.uid),
-        {
-          uid: user.uid,
-          email: user.email,
-          username,
-          name: profile?.name || username || "Người dùng",
-          role: profile?.role || "manager",
-        },
-        { merge: true }
-      );
+      const payload = {
+        uid: user.uid,
+        email: user.email,
+        username,
+        name: profile?.name || username || "Người dùng",
+      };
+      // Không tự gán role cao hơn — giữ role hiện có nếu đã có
+      if (profile?.role) payload.role = profile.role;
+      await setDoc(doc(db, "users", user.uid), payload, { merge: true });
       showToast("Đã đồng bộ hồ sơ users", "success");
     } catch (error) {
       console.error(error);
@@ -356,7 +354,7 @@ function SettingsContent() {
             className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
           >
             <Package className="h-5 w-5" />
-            Setup món & giá để bán
+            Setup món · giá · nhóm SP
           </Link>
 
           <section className="card-panel mb-4 space-y-3">

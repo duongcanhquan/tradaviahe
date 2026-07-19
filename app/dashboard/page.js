@@ -29,7 +29,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
-import { sumGoodsIncomeByMethod } from "@/lib/receipts";
+import { isGoodsIncome, sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { formatCurrency } from "@/lib/utils";
 
 function DashboardContent() {
@@ -302,16 +302,22 @@ function DashboardContent() {
       </section>
 
       <section className="mb-6 space-y-3">
-        <h2 className="section-title">Thu gần đây · ai nhập</h2>
+        <h2 className="section-title">
+          {canViewDividends ? "Thu gần đây · ai nhập" : "Thu hàng hóa gần đây"}
+        </h2>
         {loading ? (
           <div className="card-panel h-20 animate-pulse bg-white/80" />
-        ) : transactions.filter((t) => t.type === "income").length === 0 ? (
+        ) : transactions.filter((t) =>
+            canViewDividends ? t.type === "income" : isGoodsIncome(t)
+          ).length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
             Chưa có khoản thu tháng này.
           </div>
         ) : (
           transactions
-            .filter((t) => t.type === "income")
+            .filter((t) =>
+              canViewDividends ? t.type === "income" : isGoodsIncome(t)
+            )
             .slice(0, 15)
             .map((row) => {
               const ms = row.timestamp?.toMillis?.() ?? 0;
