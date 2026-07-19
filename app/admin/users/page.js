@@ -378,18 +378,18 @@ function AdminUsersContent() {
         </div>
       ) : actorRole === "investor" ? (
         <div className="card-panel mb-4 border-amber-200 bg-amber-50 text-sm text-amber-900">
-          <p className="font-bold">Chủ đầu tư — Admin + quản lý</p>
+          <p className="font-bold">Cổ đông — xem & cập nhật hệ thống</p>
           <p className="mt-1 text-amber-800/80">
-            Setup món/giá, vốn đầu tư, người dùng, xem/reset mật khẩu (trừ Super
-            Admin). Có quyền nhân viên (thu tiền).
+            Vốn / cổ tức / tiền nhận (TM hoặc CK tài khoản), món giá, người dùng,
+            vận hành quán. Không đổi MK Super Admin.
           </p>
         </div>
       ) : actorRole === "manager" ? (
         <div className="card-panel mb-4 border-brand-100 bg-brand-50 text-sm text-brand-900">
-          <p className="font-bold">Quản lý — quán + món/giá + nhân viên</p>
+          <p className="font-bold">Quản lý — quán + món/giá + thu hàng hóa</p>
           <p className="mt-1 text-brand-800/80">
-            Setup món bán & giá, thu/chi, hàng hóa/thiết bị, nhân viên, POS.
-            Không xem tiền đầu tư / Admin MK.
+            Setup món/giá, POS, nhân viên, tồn kho. Chỉ xem tổng thu hàng hóa —
+            không cổ tức / chia lãi / vốn góp cổ đông.
           </p>
         </div>
       ) : null}

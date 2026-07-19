@@ -29,11 +29,16 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
+import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { formatCurrency } from "@/lib/utils";
 
 function DashboardContent() {
   const { showToast } = useToast();
-  const { canManageShop, canViewInvestmentCapital } = useAuth();
+  const {
+    canViewInvestmentCapital,
+    canViewDividends,
+    canManageSystem,
+  } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -105,10 +110,12 @@ function DashboardContent() {
     const expense = transactions
       .filter((t) => t.type === "expense")
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
+    const goods = sumGoodsIncomeByMethod(transactions);
     return {
       income,
       expense,
       profit: income - expense,
+      goods,
     };
   }, [transactions]);
 
@@ -137,7 +144,14 @@ function DashboardContent() {
   }, [reports]);
 
   return (
-    <AppShell title="Đối soát" subtitle="Thu · Chi · Chênh lệch quỹ">
+    <AppShell
+      title="Đối soát"
+      subtitle={
+        canViewDividends
+          ? "Thu · Chi · Cổ tức · Chênh lệch quỹ"
+          : "Thu hàng hóa · Chốt ca (không cổ tức)"
+      }
+    >
       <div className="mb-4 grid grid-cols-1 gap-2">
         <Link
           href="/dashboard/monthly"
@@ -145,7 +159,9 @@ function DashboardContent() {
         >
           <span className="flex items-center gap-2">
             <CalendarDays className="h-5 w-5" aria-hidden />
-            Tổng kết tháng & chia cổ tức
+            {canViewDividends
+              ? "Tổng kết tháng · cổ tức · tiền nhận"
+              : "Tổng thu hàng hóa theo tháng"}
           </span>
           <span className="text-sm font-medium text-white/80">Mở →</span>
         </Link>
@@ -163,37 +179,62 @@ function DashboardContent() {
           <span className="text-sm font-medium text-white/80">Mở →</span>
         </Link>
 
-        {canManageShop ? (
+        {canViewDividends && canManageSystem ? (
           <Link
             href="/dashboard/settings"
             className="touch-btn h-12 w-full justify-between border border-slate-200 bg-white px-5 text-slate-800"
           >
             <span className="flex items-center gap-2">
               <Percent className="h-5 w-5 text-brand-700" aria-hidden />
-              % Quỹ đối ngoại
+              % Quỹ đối ngoại (chia lãi)
             </span>
             <span className="text-sm text-slate-400">Cấu hình →</span>
           </Link>
         ) : null}
       </div>
 
-      <section className="mb-4 grid grid-cols-1 gap-3">
-        <StatCard
-          label="Tổng thu tháng này"
-          value={loading ? 0 : totals.income}
-          tone="success"
-        />
-        <StatCard
-          label="Tổng chi tháng này"
-          value={loading ? 0 : totals.expense}
-          tone="danger"
-        />
-        <StatCard
-          label="Lợi nhuận tháng này"
-          value={loading ? 0 : totals.profit}
-          tone="brand"
-        />
-      </section>
+      {canViewDividends ? (
+        <section className="mb-4 grid grid-cols-1 gap-3">
+          <StatCard
+            label="Tổng thu tháng này"
+            value={loading ? 0 : totals.income}
+            tone="success"
+          />
+          <StatCard
+            label="Tổng chi tháng này"
+            value={loading ? 0 : totals.expense}
+            tone="danger"
+          />
+          <StatCard
+            label="Lợi nhuận tháng này"
+            value={loading ? 0 : totals.profit}
+            tone="brand"
+          />
+        </section>
+      ) : (
+        <section className="mb-4 grid grid-cols-1 gap-3">
+          <StatCard
+            label="Tổng thu hàng hóa tháng này"
+            value={loading ? 0 : totals.goods.total}
+            tone="success"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard
+              label="Tiền mặt"
+              value={loading ? 0 : totals.goods.cash}
+              tone="brand"
+            />
+            <StatCard
+              label="Chuyển khoản"
+              value={loading ? 0 : totals.goods.banking}
+              tone="brand"
+            />
+          </div>
+          <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
+            Quản lý không xem cổ tức / chia lãi. Phần đó thuộc Cổ đông.
+          </p>
+        </section>
+      )}
 
       <section className="card-panel mb-4">
         <h2 className="section-title mb-1">Chênh lệch 7 ngày</h2>

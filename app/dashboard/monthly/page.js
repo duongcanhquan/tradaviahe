@@ -5,10 +5,12 @@ import Link from "next/link";
 import { collection, onSnapshot } from "firebase/firestore";
 import { format } from "date-fns";
 import {
+  Banknote,
   CalendarDays,
   Loader2,
   Percent,
   Settings2,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -17,16 +19,25 @@ import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
-import { subscribeInvestments } from "@/lib/investments";
+import { subscribeInvestments, summarizeInvestments } from "@/lib/investments";
 import {
   calculateMonthlyReport,
   filterTransactionsByMonth,
 } from "@/lib/monthly";
 import {
+  RECEIPT_METHODS,
+  addShareholderReceipt,
+  deleteShareholderReceipt,
+  monthKeyFromParts,
+  subscribeReceiptsByMonth,
+  sumGoodsIncomeByMethod,
+  summarizeReceipts,
+} from "@/lib/receipts";
+import {
   DEFAULT_RELATION_FUND_PERCENT,
   subscribeGlobalSettings,
 } from "@/lib/settings";
-import { cn } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 
 function monthInputValue(year, monthIndex) {
   return `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
@@ -42,7 +53,13 @@ function parseMonthInput(value) {
 }
 
 function MonthlyContent() {
-  const { canManageShop, canViewInvestmentCapital } = useAuth();
+  const {
+    user,
+    profile,
+    canViewDividends,
+    canManageShareholderReceipts,
+    canManageSystem,
+  } = useAuth();
   const { showToast } = useToast();
   const now = new Date();
   const [monthValue, setMonthValue] = useState(
@@ -50,17 +67,26 @@ function MonthlyContent() {
   );
   const [transactions, setTransactions] = useState([]);
   const [investments, setInvestments] = useState([]);
+  const [receipts, setReceipts] = useState([]);
   const [relationFundPercent, setRelationFundPercent] = useState(
     DEFAULT_RELATION_FUND_PERCENT
   );
   const [loadingTx, setLoadingTx] = useState(true);
   const [loadingInv, setLoadingInv] = useState(true);
   const [loadingSettings, setLoadingSettings] = useState(true);
+  const [loadingReceipts, setLoadingReceipts] = useState(true);
+  const [savingReceipt, setSavingReceipt] = useState(false);
+
+  const [receiptName, setReceiptName] = useState("");
+  const [receiptAmount, setReceiptAmount] = useState("");
+  const [receiptMethod, setReceiptMethod] = useState("banking");
+  const [receiptNote, setReceiptNote] = useState("");
 
   const { year, monthIndex } = useMemo(
     () => parseMonthInput(monthValue),
     [monthValue]
   );
+  const monthKey = monthKeyFromParts(year, monthIndex);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -79,7 +105,12 @@ function MonthlyContent() {
   }, [showToast]);
 
   useEffect(() => {
-    const unsub = subscribeInvestments(
+    if (!canViewDividends) {
+      setLoadingInv(false);
+      setLoadingSettings(false);
+      return undefined;
+    }
+    const unsubInv = subscribeInvestments(
       (list) => {
         setInvestments(list);
         setLoadingInv(false);
@@ -90,11 +121,7 @@ function MonthlyContent() {
         setLoadingInv(false);
       }
     );
-    return () => unsub();
-  }, [showToast]);
-
-  useEffect(() => {
-    const unsub = subscribeGlobalSettings(
+    const unsubSettings = subscribeGlobalSettings(
       (settings) => {
         setRelationFundPercent(settings.relationFundPercent);
         setLoadingSettings(false);
@@ -105,29 +132,121 @@ function MonthlyContent() {
         setLoadingSettings(false);
       }
     );
+    return () => {
+      unsubInv();
+      unsubSettings();
+    };
+  }, [canViewDividends, showToast]);
+
+  useEffect(() => {
+    if (!canManageShareholderReceipts) {
+      setLoadingReceipts(false);
+      return undefined;
+    }
+    setLoadingReceipts(true);
+    const unsub = subscribeReceiptsByMonth(
+      monthKey,
+      (rows) => {
+        setReceipts(rows);
+        setLoadingReceipts(false);
+      },
+      (error) => {
+        console.error(error);
+        showToast("Không tải được tiền đã nhận", "error");
+        setLoadingReceipts(false);
+      }
+    );
     return () => unsub();
-  }, [showToast]);
+  }, [canManageShareholderReceipts, monthKey, showToast]);
 
   const monthTx = useMemo(
     () => filterTransactionsByMonth(transactions, year, monthIndex),
     [transactions, year, monthIndex]
   );
 
-  const report = useMemo(
-    () =>
-      calculateMonthlyReport({
-        transactions: monthTx,
-        investments,
-        relationFundPercent,
-      }),
-    [monthTx, investments, relationFundPercent]
+  const goodsIncome = useMemo(
+    () => sumGoodsIncomeByMethod(monthTx),
+    [monthTx]
   );
 
-  const loading = loadingTx || loadingInv || loadingSettings;
+  const report = useMemo(
+    () =>
+      canViewDividends
+        ? calculateMonthlyReport({
+            transactions: monthTx,
+            investments,
+            relationFundPercent,
+          })
+        : null,
+    [canViewDividends, monthTx, investments, relationFundPercent]
+  );
+
+  const investorNames = useMemo(() => {
+    const { shares } = summarizeInvestments(investments);
+    return shares.map((s) => s.name).filter(Boolean);
+  }, [investments]);
+
+  useEffect(() => {
+    if (!receiptName && investorNames[0]) {
+      setReceiptName(investorNames[0]);
+    }
+  }, [investorNames, receiptName]);
+
+  const receiptSummary = useMemo(
+    () => summarizeReceipts(receipts),
+    [receipts]
+  );
+
+  const loading = canViewDividends
+    ? loadingTx || loadingInv || loadingSettings
+    : loadingTx;
+
   const monthLabel = format(new Date(year, monthIndex, 1), "MM/yyyy");
 
+  const handleAddReceipt = async (e) => {
+    e.preventDefault();
+    setSavingReceipt(true);
+    try {
+      await addShareholderReceipt({
+        monthKey,
+        investorName: receiptName,
+        amount: receiptAmount,
+        method: receiptMethod,
+        note: receiptNote,
+        user,
+        profile,
+      });
+      setReceiptAmount("");
+      setReceiptNote("");
+      showToast("Đã ghi tiền nhận", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Ghi thất bại", "error");
+    } finally {
+      setSavingReceipt(false);
+    }
+  };
+
+  const handleDeleteReceipt = async (id) => {
+    if (!window.confirm("Xóa dòng tiền nhận này?")) return;
+    try {
+      await deleteShareholderReceipt(id);
+      showToast("Đã xóa", "info");
+    } catch (error) {
+      console.error(error);
+      showToast("Xóa thất bại", "error");
+    }
+  };
+
   return (
-    <AppShell title="Tổng kết tháng" subtitle={`Báo cáo ${monthLabel}`}>
+    <AppShell
+      title={canViewDividends ? "Tổng kết tháng" : "Thu hàng hóa"}
+      subtitle={
+        canViewDividends
+          ? `Cổ đông · ${monthLabel}`
+          : `Quản lý · chỉ tổng thu món · ${monthLabel}`
+      }
+    >
       <section className="card-panel mb-4 space-y-3">
         <label className="block">
           <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -142,13 +261,13 @@ function MonthlyContent() {
           />
         </label>
 
-        {canManageShop ? (
+        {canViewDividends && canManageSystem ? (
           <Link
             href="/dashboard/settings"
             className="touch-btn h-12 w-full gap-2 border border-slate-200 bg-slate-50 text-slate-800"
           >
             <Settings2 className="h-5 w-5" aria-hidden />
-            Cấu hình % quỹ đối ngoại
+            Cấu hình % quỹ đối ngoại (trước chia lãi)
           </Link>
         ) : null}
       </section>
@@ -156,11 +275,45 @@ function MonthlyContent() {
       {loading ? (
         <div className="card-panel flex items-center justify-center gap-2 py-16 text-slate-500">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Đang tính báo cáo...
+          Đang tải...
         </div>
+      ) : !canViewDividends ? (
+        /* —— Quản lý: chỉ thu hàng hóa —— */
+        <section className="space-y-3">
+          <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-6 text-white shadow-md">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
+              Tổng thu hàng hóa tháng này
+            </p>
+            <p className="money mt-2 text-4xl font-extrabold leading-none">
+              <Money amount={goodsIncome.total} />
+            </p>
+            <p className="mt-3 text-sm text-white/85">
+              Chỉ doanh thu bán món — không gồm cổ tức / chia lãi
+            </p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+              <p className="text-xs font-semibold text-slate-500">Tiền mặt</p>
+              <p className="money mt-1 text-xl font-extrabold text-slate-900">
+                <Money amount={goodsIncome.cash} />
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+              <p className="text-xs font-semibold text-slate-500">Chuyển khoản</p>
+              <p className="money mt-1 text-xl font-extrabold text-brand-800">
+                <Money amount={goodsIncome.banking} />
+              </p>
+            </div>
+          </div>
+
+          <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
+            Cổ tức, chia lãi và vốn góp chỉ Cổ đông / Super Admin xem và cập nhật.
+          </p>
+        </section>
       ) : (
+        /* —— Cổ đông / SA —— */
         <>
-          {/* Khối 1 */}
           <section className="card-panel mb-4 space-y-3">
             <h2 className="section-title">Kết quả kinh doanh</h2>
 
@@ -176,9 +329,6 @@ function MonthlyContent() {
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-rose-50 px-4 py-3">
               <span className="text-sm font-medium text-rose-800">
                 Tổng chi phí
-                <span className="mt-0.5 block text-[11px] font-normal text-rose-600/80">
-                  Gồm chi phí đối ngoại tiền mặt
-                </span>
               </span>
               <span className="money text-lg font-extrabold text-rose-700">
                 <Money amount={report.totalExpenses} />
@@ -207,7 +357,6 @@ function MonthlyContent() {
             </div>
           </section>
 
-          {/* Khối 2 */}
           <section className="card-panel mb-4 space-y-3">
             <div className="flex items-center gap-2">
               <Percent className="h-5 w-5 text-brand-700" aria-hidden />
@@ -242,62 +391,222 @@ function MonthlyContent() {
             </div>
           </section>
 
-          {/* Khối 3 — chỉ Chủ ĐT / SA (có tiền đầu tư) */}
-          {canViewInvestmentCapital ? (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Wallet className="h-5 w-5 text-brand-700" aria-hidden />
-                <h2 className="section-title">Bảng chia cổ tức</h2>
+          <section className="mb-6 space-y-3">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-brand-700" aria-hidden />
+              <h2 className="section-title">Bảng chia cổ tức</h2>
+            </div>
+
+            {report.isLoss ? (
+              <div className="card-panel border-rose-100 bg-rose-50 text-center text-sm font-semibold text-rose-700">
+                Tháng này lỗ, không chia
               </div>
+            ) : null}
 
-              {report.isLoss ? (
-                <div className="card-panel border-rose-100 bg-rose-50 text-center text-sm font-semibold text-rose-700">
-                  Tháng này lỗ, không chia
-                </div>
-              ) : null}
-
-              {report.investorShares.length === 0 ? (
-                <div className="card-panel text-sm text-slate-500">
-                  Chưa có dữ liệu tiền đầu tư. Vào mục Vốn để khai báo trước.
-                </div>
-              ) : (
-                report.investorShares.map((row) => (
-                  <article key={row.name} className="card-panel space-y-2">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="truncate font-bold text-slate-900">
-                          {row.name}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          Tỷ lệ sở hữu:{" "}
-                          <strong>{row.ownershipPercent.toFixed(1)}%</strong>
-                          {" · "}
-                          Vốn: <Money amount={row.capital} />
-                        </p>
-                      </div>
-                      <p
-                        className={cn(
-                          "money shrink-0 text-lg font-extrabold",
-                          report.isLoss ? "text-rose-600" : "text-emerald-700"
-                        )}
-                      >
-                        <Money amount={row.dividend} />
+            {report.investorShares.length === 0 ? (
+              <div className="card-panel text-sm text-slate-500">
+                Chưa có dữ liệu tiền đầu tư. Vào mục Vốn để khai báo trước.
+              </div>
+            ) : (
+              report.investorShares.map((row) => (
+                <article key={row.name} className="card-panel space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-slate-900">
+                        {row.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Tỷ lệ sở hữu:{" "}
+                        <strong>{row.ownershipPercent.toFixed(1)}%</strong>
+                        {" · "}
+                        Vốn: <Money amount={row.capital} />
                       </p>
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      Thực nhận = LN ròng ×{" "}
-                      {(row.ownershipRatio * 100).toFixed(1)}%
+                    <p
+                      className={cn(
+                        "money shrink-0 text-lg font-extrabold",
+                        report.isLoss ? "text-rose-600" : "text-emerald-700"
+                      )}
+                    >
+                      <Money amount={row.dividend} />
                     </p>
-                  </article>
-                ))
+                  </div>
+                </article>
+              ))
+            )}
+          </section>
+
+          {/* Tiền cổ đông đã nhận — TM hoặc CK vào tài khoản */}
+          {canManageShareholderReceipts ? (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Banknote className="h-5 w-5 text-emerald-700" aria-hidden />
+                <h2 className="section-title">Tiền cổ đông đã nhận</h2>
+              </div>
+              <p className="text-sm text-slate-500">
+                Khách trả tiền mặt hoặc chuyển khoản — cổ đông cập nhật số đã
+                nhận vào tay / tài khoản theo tháng.
+              </p>
+
+              <form
+                onSubmit={handleAddReceipt}
+                className="card-panel space-y-3"
+              >
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold">
+                    Cổ đông
+                  </span>
+                  {investorNames.length ? (
+                    <select
+                      className="field-input"
+                      value={receiptName}
+                      onChange={(e) => setReceiptName(e.target.value)}
+                      required
+                    >
+                      {investorNames.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      className="field-input"
+                      value={receiptName}
+                      onChange={(e) => setReceiptName(e.target.value)}
+                      placeholder="Tên cổ đông"
+                      required
+                    />
+                  )}
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold">
+                    Số tiền nhận
+                  </span>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    className="field-input"
+                    value={receiptAmount}
+                    onChange={(e) => setReceiptAmount(e.target.value)}
+                    placeholder="vd: 500000"
+                  />
+                </label>
+
+                <div className="grid grid-cols-2 gap-2">
+                  {RECEIPT_METHODS.map((m) => (
+                    <button
+                      key={m.value}
+                      type="button"
+                      onClick={() => setReceiptMethod(m.value)}
+                      className={cn(
+                        "touch-btn h-12 text-sm",
+                        receiptMethod === m.value
+                          ? "bg-emerald-600 text-white"
+                          : "bg-slate-100 text-slate-700"
+                      )}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+
+                <label className="block">
+                  <span className="mb-1 block text-sm font-semibold">
+                    Ghi chú
+                  </span>
+                  <input
+                    className="field-input"
+                    value={receiptNote}
+                    onChange={(e) => setReceiptNote(e.target.value)}
+                    placeholder="vd: CK về STK ACB"
+                  />
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={savingReceipt}
+                  className="touch-btn h-14 w-full bg-brand-700 text-white disabled:opacity-50"
+                >
+                  {savingReceipt ? "Đang lưu..." : "Cập nhật tiền nhận"}
+                </button>
+              </form>
+
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-2xl bg-slate-50 px-3 py-3">
+                  <p className="text-[11px] text-slate-500">Tổng nhận</p>
+                  <p className="money font-extrabold">
+                    <Money amount={receiptSummary.total} />
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 px-3 py-3">
+                  <p className="text-[11px] text-emerald-700/80">Tiền mặt</p>
+                  <p className="money font-extrabold text-emerald-800">
+                    <Money amount={receiptSummary.cash} />
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-brand-50 px-3 py-3">
+                  <p className="text-[11px] text-brand-700/80">Tài khoản</p>
+                  <p className="money font-extrabold text-brand-800">
+                    <Money amount={receiptSummary.banking} />
+                  </p>
+                </div>
+              </div>
+
+              {loadingReceipts ? (
+                <p className="text-center text-sm text-slate-400">Đang tải...</p>
+              ) : receipts.length === 0 ? (
+                <p className="text-center text-sm text-slate-500">
+                  Chưa có dòng nhận tháng này
+                </p>
+              ) : (
+                receipts.map((row) => {
+                  const ms = row.timestamp?.toMillis?.() || 0;
+                  return (
+                    <div
+                      key={row.id}
+                      className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-900">
+                          {row.investorName}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {row.method === "banking"
+                            ? "Chuyển khoản / TK"
+                            : "Tiền mặt"}
+                          {row.note ? ` · ${row.note}` : ""}
+                          {ms
+                            ? ` · ${new Date(ms).toLocaleString("vi-VN", {
+                                day: "2-digit",
+                                month: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}`
+                            : ""}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-2">
+                        <p className="money font-extrabold text-emerald-700">
+                          {formatCurrency(row.amount)}
+                        </p>
+                        <button
+                          type="button"
+                          aria-label="Xóa"
+                          onClick={() => handleDeleteReceipt(row.id)}
+                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </section>
-          ) : (
-            <section className="card-panel text-sm text-slate-600">
-              Bạn xem được kết quả kinh doanh và dòng tiền quán. Tiền đầu tư /
-              bảng chia cổ tức chỉ Chủ đầu tư và Super Admin xem được.
-            </section>
-          )}
+          ) : null}
         </>
       )}
     </AppShell>

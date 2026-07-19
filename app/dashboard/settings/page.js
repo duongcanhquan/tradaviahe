@@ -262,7 +262,7 @@ function FundSettingsContent() {
 
 export default function DashboardSettingsPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "investor"]}>
+    <ProtectedRoute allowRoles={["investor", "superadmin"]}>
       <FundSettingsContent />
     </ProtectedRoute>
   );
