@@ -14,6 +14,7 @@ import {
   Banknote,
   Loader2,
   Minus,
+  Plus,
   QrCode,
   Smartphone,
   X,
@@ -37,7 +38,8 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 /**
  * Bàn thu siêu nhanh (POS):
  * - Nhóm SP gọn trên cùng
- * - Ưu tiên diện tích cho món — chạm = +1, TM/CK ghi ngay
+ * - Mỗi món: chạm / + / − để chỉnh số lượng — ưu tiên SL
+ * - Thu TM / CK bằng nút lớn ở thanh dưới (không nút bé trên từng món)
  * - Nhập CK theo ngày nằm ở Chốt ca / Đối soát
  */
 export default function EmployeeDesk() {
@@ -245,34 +247,6 @@ export default function EmployeeDesk() {
     }
   };
 
-  const quickPayOne = async (product, paymentMethod) => {
-    if (submitting) return;
-    const price = Number(product.price) || 0;
-    if (price <= 0) {
-      showToast("Món chưa có giá", "error");
-      return;
-    }
-    setSubmitting(true);
-    bumpFlash(product.id);
-    try {
-      await writeSale({
-        items: [{ ...product, qty: 1 }],
-        amount: price,
-        paymentMethod,
-      });
-      const via = paymentMethod === "banking" ? "CK" : "TM";
-      showToast(
-        `Đã thu ${via} · ${product.name} · ${formatCurrency(price)}`,
-        "success"
-      );
-    } catch (error) {
-      console.error(error);
-      showToast("Ghi thu thất bại — thử lại", "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   const qrUrl = buildVietQrUrl({
     ...bank,
     amount: total,
@@ -342,16 +316,17 @@ export default function EmployeeDesk() {
                   )}
                 >
                   <div className="flex items-stretch">
+                    {/* Chạm lớn: +1 số lượng */}
                     <button
                       type="button"
                       onClick={() => changeQty(product.id, 1)}
                       className={cn(
-                        "min-h-[6.75rem] flex-1 cursor-pointer px-3.5 py-3 text-left active:bg-brand-50/80",
-                        fewProducts && "min-h-[8rem] py-4"
+                        "min-h-[5.75rem] flex-1 cursor-pointer px-3.5 py-3 text-left active:bg-brand-50/80",
+                        fewProducts && "min-h-[7.25rem] py-4"
                       )}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
+                      <div className="flex items-center gap-3">
+                        <div className="min-w-0 flex-1">
                           <p
                             className={cn(
                               "font-extrabold leading-tight text-slate-900",
@@ -362,11 +337,16 @@ export default function EmployeeDesk() {
                           </p>
                           <p className="money mt-1 text-base font-bold text-brand-700">
                             <Money amount={price} />
+                            {qty > 0 ? (
+                              <span className="ml-2 text-sm font-semibold text-slate-500">
+                                · {formatCurrency(price * qty)}
+                              </span>
+                            ) : null}
                           </p>
                         </div>
                         <div
                           className={cn(
-                            "flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl transition",
+                            "flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl transition",
                             active
                               ? "bg-brand-700 text-white"
                               : "bg-slate-100 text-slate-500"
@@ -375,40 +355,32 @@ export default function EmployeeDesk() {
                           <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">
                             SL
                           </span>
-                          <span className="money text-2xl font-extrabold leading-none">
+                          <span className="money text-3xl font-extrabold leading-none">
                             {qty}
                           </span>
                         </div>
                       </div>
                     </button>
 
-                    <div className="flex w-[4.5rem] flex-col border-l border-slate-100">
+                    {/* Cột số lượng: − / + */}
+                    <div className="flex w-[3.75rem] flex-col border-l border-slate-100">
                       <button
                         type="button"
+                        aria-label={`Thêm ${product.name}`}
                         disabled={submitting}
-                        onClick={() => quickPayOne(product, "cash")}
-                        className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-emerald-600 px-1 text-white transition active:bg-emerald-700 disabled:opacity-50"
+                        onClick={() => changeQty(product.id, 1)}
+                        className="flex flex-1 items-center justify-center bg-brand-700 text-white transition active:bg-brand-800 disabled:opacity-50"
                       >
-                        <Banknote className="h-4 w-4" aria-hidden />
-                        <span className="text-[11px] font-extrabold">TM</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={submitting}
-                        onClick={() => quickPayOne(product, "banking")}
-                        className="flex flex-1 flex-col items-center justify-center gap-0.5 bg-brand-700 px-1 text-white transition active:bg-brand-800 disabled:opacity-50"
-                      >
-                        <Smartphone className="h-4 w-4" aria-hidden />
-                        <span className="text-[11px] font-extrabold">CK</span>
+                        <Plus className="h-6 w-6" strokeWidth={2.75} />
                       </button>
                       <button
                         type="button"
                         aria-label={`Giảm ${product.name}`}
                         disabled={!qty || submitting}
                         onClick={() => changeQty(product.id, -1)}
-                        className="flex h-10 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
+                        className="flex flex-1 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
                       >
-                        <Minus className="h-5 w-5" />
+                        <Minus className="h-6 w-6" strokeWidth={2.75} />
                       </button>
                     </div>
                   </div>
@@ -547,7 +519,7 @@ export default function EmployeeDesk() {
               ) : (
                 <>
                   <Smartphone className="h-5 w-5" aria-hidden />
-                  <span className="font-extrabold">CK (giỏ)</span>
+                  <span className="font-extrabold">Chuyển khoản</span>
                 </>
               )}
             </button>
