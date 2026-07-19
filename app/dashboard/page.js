@@ -157,7 +157,7 @@ function DashboardContent() {
           <span className="flex items-center gap-2">
             <Landmark className="h-5 w-5" aria-hidden />
             {canViewInvestmentCapital
-              ? "Vốn đầu tư · Hàng hóa · Thiết bị"
+              ? "Ghi nhận vốn đầu tư & tài sản"
               : "Hàng hóa & thiết bị"}
           </span>
           <span className="text-sm font-medium text-white/80">Mở →</span>

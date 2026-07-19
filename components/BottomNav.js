@@ -27,7 +27,7 @@ const managerLinks = [
 const investorLinks = [
   { href: "/manager/pos", label: "POS", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
+  { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/admin/users", label: "Người dùng", icon: Users },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
@@ -37,7 +37,7 @@ const superAdminLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "POS", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
+  { href: "/dashboard/capital", label: "Vốn ĐT", icon: Landmark },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
