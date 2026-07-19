@@ -12,6 +12,7 @@ import {
 } from "firebase/firestore";
 import {
   Banknote,
+  CalendarDays,
   Loader2,
   Minus,
   QrCode,
@@ -32,12 +33,21 @@ import {
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
-import { cn, dateInfoCode, formatCurrency } from "@/lib/utils";
+import {
+  cn,
+  dateInfoCode,
+  formatCurrency,
+  inputValueToDateKey,
+  timestampForBusinessDate,
+  todayInputValue,
+  todayKey,
+} from "@/lib/utils";
 
 /**
  * Bàn thu siêu nhanh:
  * - 4 nhóm SP — chạm món = +1
  * - Thu tiền mặt hoặc chuyển khoản (ghi paymentMethod rõ)
+ * - CK: gõ số tiền + chọn ngày nghiệp vụ
  * - QR phụ: hiện mã rồi xác nhận CK
  */
 export default function EmployeeDesk() {
@@ -55,6 +65,11 @@ export default function EmployeeDesk() {
   const [showHistory, setShowHistory] = useState(false);
   const [flashId, setFlashId] = useState(null);
   const flashTimer = useRef(null);
+  /** Ngày gắn cho mọi khoản CK (input yyyy-MM-dd) */
+  const [ckDate, setCkDate] = useState(todayInputValue);
+  const [ckAmount, setCkAmount] = useState("");
+  const [ckNote, setCkNote] = useState("");
+  const [showCkForm, setShowCkForm] = useState(true);
 
   useEffect(() => {
     ensureDefaultProductGroups().catch(() => {});
@@ -197,14 +212,29 @@ export default function EmployeeDesk() {
     if (delta > 0) bumpFlash(id);
   };
 
-  const writeSale = async ({ items, amount, paymentMethod }) => {
-    const note = items.map((item) => `${item.name} x${item.qty}`).join(", ");
+  const writeSale = async ({
+    items,
+    amount,
+    paymentMethod,
+    note: noteOverride,
+  }) => {
+    const note =
+      noteOverride ||
+      items.map((item) => `${item.name} x${item.qty}`).join(", ");
     const actor = actorFields(user, profile);
+    const isBanking = paymentMethod === "banking";
+    const businessDate = isBanking
+      ? inputValueToDateKey(ckDate)
+      : todayKey();
     await addDoc(collection(db, "transactions"), {
       amount,
       type: "income",
       category: "bán hàng",
-      timestamp: serverTimestamp(),
+      // CK theo ngày chọn; TM luôn thời điểm hiện tại
+      timestamp: isBanking
+        ? timestampForBusinessDate(ckDate)
+        : serverTimestamp(),
+      businessDate,
       note,
       paymentMethod,
       ...actor,
@@ -226,7 +256,13 @@ export default function EmployeeDesk() {
     setShowQr(false);
     try {
       await writeSale({ ...snapshot, paymentMethod });
-      showToast(`Đã thu ${formatCurrency(snapshot.amount)}`, "success");
+      const via = paymentMethod === "banking" ? "CK" : "TM";
+      const dayHint =
+        paymentMethod === "banking" ? ` · ${inputValueToDateKey(ckDate)}` : "";
+      showToast(
+        `Đã thu ${via}${dayHint} · ${formatCurrency(snapshot.amount)}`,
+        "success"
+      );
     } catch (error) {
       console.error(error);
       setCart(
@@ -258,13 +294,51 @@ export default function EmployeeDesk() {
         paymentMethod,
       });
       const via = paymentMethod === "banking" ? "CK" : "TM";
+      const dayHint =
+        paymentMethod === "banking" ? ` · ${inputValueToDateKey(ckDate)}` : "";
       showToast(
-        `Đã thu ${via} · ${product.name} · ${formatCurrency(price)}`,
+        `Đã thu ${via}${dayHint} · ${product.name} · ${formatCurrency(price)}`,
         "success"
       );
     } catch (error) {
       console.error(error);
       showToast("Ghi thu thất bại — thử lại", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /** Gõ số tiền CK + chọn ngày (không cần giỏ món) */
+  const recordCkTyped = async () => {
+    if (submitting) return;
+    const amount = Number(String(ckAmount).replace(/\D/g, "")) || 0;
+    if (amount <= 0) {
+      showToast("Nhập số tiền CK > 0", "error");
+      return;
+    }
+    if (!ckDate) {
+      showToast("Chọn ngày nhận CK", "error");
+      return;
+    }
+    const dayKey = inputValueToDateKey(ckDate);
+    const note = String(ckNote || "").trim() || `Thu CK ngày ${dayKey}`;
+    setSubmitting(true);
+    try {
+      await writeSale({
+        items: [],
+        amount,
+        paymentMethod: "banking",
+        note,
+      });
+      setCkAmount("");
+      setCkNote("");
+      showToast(
+        `Đã ghi CK · ${dayKey} · ${formatCurrency(amount)}`,
+        "success"
+      );
+    } catch (error) {
+      console.error(error);
+      showToast("Ghi CK thất bại — thử lại", "error");
     } finally {
       setSubmitting(false);
     }
@@ -288,8 +362,92 @@ export default function EmployeeDesk() {
       <p className="mb-2 text-center text-xs font-semibold text-slate-500">
         Chạm món = +1 ·{" "}
         <span className="text-emerald-700">TM</span> /{" "}
-        <span className="text-brand-700">CK</span> = ghi ngay · hoặc thu cả giỏ bên dưới
+        <span className="text-brand-700">CK</span> = ghi ngay · CK có thể gõ số + chọn ngày
       </p>
+
+      {/* Nhập CK theo ngày — gõ số tiền, chọn ngày */}
+      <section className="mb-3 rounded-[1.5rem] bg-white p-3 shadow-sm ring-1 ring-brand-100">
+        <button
+          type="button"
+          onClick={() => setShowCkForm((v) => !v)}
+          className="flex w-full items-center justify-between gap-2 text-left"
+        >
+          <span className="flex items-center gap-2 text-sm font-extrabold text-brand-900">
+            <CalendarDays className="h-4 w-4" aria-hidden />
+            Nhập CK theo ngày
+          </span>
+          <span className="text-xs font-semibold text-slate-400">
+            {showCkForm ? "Thu gọn" : "Mở"}
+          </span>
+        </button>
+
+        {showCkForm ? (
+          <div className="mt-3 space-y-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Ngày nhận CK
+              </span>
+              <input
+                type="date"
+                className="field-input"
+                max={todayInputValue()}
+                value={ckDate}
+                onChange={(e) => setCkDate(e.target.value || todayInputValue())}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Số tiền chuyển khoản
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="field-input money text-xl font-extrabold"
+                placeholder="0"
+                value={ckAmount}
+                onChange={(e) =>
+                  setCkAmount(e.target.value.replace(/[^\d]/g, ""))
+                }
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                Ghi chú (tuỳ chọn)
+              </span>
+              <input
+                type="text"
+                className="field-input"
+                placeholder="VD: CK khách / app NH"
+                value={ckNote}
+                onChange={(e) => setCkNote(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={submitting || !ckAmount}
+              onClick={recordCkTyped}
+              className="touch-btn h-12 w-full gap-2 bg-brand-700 text-sm font-extrabold text-white disabled:opacity-35"
+            >
+              {submitting ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <>
+                  <Smartphone className="h-5 w-5" aria-hidden />
+                  Ghi CK ngày {inputValueToDateKey(ckDate)}
+                </>
+              )}
+            </button>
+            <p className="text-[11px] font-medium text-slate-400">
+              Ngày này cũng áp dụng khi bấm CK trên món / giỏ bên dưới.
+            </p>
+          </div>
+        ) : (
+          <p className="mt-1 text-xs font-semibold text-slate-500">
+            Ngày CK đang chọn:{" "}
+            <span className="text-brand-800">{inputValueToDateKey(ckDate)}</span>
+          </p>
+        )}
+      </section>
 
       {/* 4 nhóm sản phẩm */}
       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -474,6 +632,7 @@ export default function EmployeeDesk() {
                   })
                 : "—";
               const isCk = row.paymentMethod === "banking";
+              const dayLabel = row.businessDate || null;
               return (
                 <div
                   key={row.id}
@@ -484,6 +643,7 @@ export default function EmployeeDesk() {
                       {row.note || "Thu"}
                     </p>
                     <p className="text-xs text-slate-400">
+                      {dayLabel ? `${dayLabel} · ` : ""}
                       {timeLabel}
                       {" · "}
                       <span
@@ -512,13 +672,13 @@ export default function EmployeeDesk() {
           </p>
         </div>
       ) : (
-        <div className="h-44" aria-hidden />
+        <div className="h-52" aria-hidden />
       )}
 
       {/* Thanh thu: Tiền mặt · Chuyển khoản · QR */}
       <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-[45] border-t border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-10px_28px_rgba(15,23,42,0.1)] backdrop-blur-md">
         <div className="mx-auto max-w-lg space-y-2">
-          <div className="flex items-end justify-between px-1">
+          <div className="flex items-end justify-between gap-2 px-1">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                 Cần thu
@@ -527,9 +687,14 @@ export default function EmployeeDesk() {
                 <Money amount={total} />
               </p>
             </div>
-            <p className="pb-1 text-base font-extrabold text-slate-600">
-              {totalQty > 0 ? `${totalQty} phần` : "Chạm món"}
-            </p>
+            <div className="pb-1 text-right">
+              <p className="text-base font-extrabold text-slate-600">
+                {totalQty > 0 ? `${totalQty} phần` : "Chạm món"}
+              </p>
+              <p className="text-[11px] font-bold text-brand-700">
+                CK → {inputValueToDateKey(ckDate)}
+              </p>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -592,6 +757,9 @@ export default function EmployeeDesk() {
                 </h2>
                 <p className="money mt-1 text-2xl font-extrabold text-brand-800">
                   <Money amount={total} />
+                </p>
+                <p className="mt-1 text-xs font-semibold text-brand-700">
+                  Ghi CK vào ngày {inputValueToDateKey(ckDate)}
                 </p>
               </div>
               <button

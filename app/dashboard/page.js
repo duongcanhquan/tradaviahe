@@ -412,6 +412,7 @@ function DashboardContent() {
                 })
               : "—";
             const isCk = row.paymentMethod === "banking";
+            const dayLabel = row.businessDate || null;
             return (
               <article key={row.id} className="card-panel space-y-1">
                 <div className="flex items-start justify-between gap-3">
@@ -419,7 +420,10 @@ function DashboardContent() {
                     <p className="truncate text-sm font-bold text-slate-900">
                       {row.note || row.category || "Thu"}
                     </p>
-                    <p className="text-xs text-slate-500">{timeLabel}</p>
+                    <p className="text-xs text-slate-500">
+                      {dayLabel ? `Ngày ${dayLabel} · ` : ""}
+                      {timeLabel}
+                    </p>
                     <p className="mt-1 text-xs font-semibold text-brand-800">
                       Nhập bởi: {formatActorLabel(row)}
                       {" · "}
