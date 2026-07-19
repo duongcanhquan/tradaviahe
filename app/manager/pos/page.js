@@ -11,6 +11,7 @@ import {
 } from "firebase/firestore";
 import { Minus, Plus, ShoppingCart, Banknote, QrCode, X, Loader2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import EmployeeDesk from "@/components/EmployeeDesk";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
@@ -22,7 +23,7 @@ import { actorFields, formatActorLabel } from "@/lib/audit";
 import { cn, dateInfoCode, formatCurrency } from "@/lib/utils";
 
 function PosContent() {
-  const { user, profile, isEmployee } = useAuth();
+  const { user, profile } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [cart, setCart] = useState({});
@@ -69,13 +70,13 @@ function PosContent() {
         const rows = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter((t) => t.type === "income")
-          .slice(0, isEmployee ? 12 : 8);
+          .slice(0, 8);
         setRecentIncome(rows);
       },
       () => setRecentIncome([])
     );
     return () => unsub();
-  }, [isEmployee]);
+  }, []);
 
   const cartItems = useMemo(() => {
     return products
@@ -152,9 +153,7 @@ function PosContent() {
       subtitle={
         loading
           ? "Đang tải thực đơn..."
-          : isEmployee
-            ? `Nhập tiền thu · ${profile?.name || profile?.username || "NV"}`
-            : `${products.length} món · chạm để thêm`
+          : `${products.length} món · chạm để thêm`
       }
       dense={tab === "cart" && cartItems.length > 0}
     >
@@ -338,9 +337,7 @@ function PosContent() {
       )}
 
       <section className="mt-6 space-y-3">
-        <h2 className="section-title">
-          {isEmployee ? "Thu gần đây (theo dõi thao tác)" : "Thu gần đây"}
-        </h2>
+        <h2 className="section-title">Thu gần đây</h2>
         {recentIncome.length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
             Chưa có khoản thu nào.
@@ -439,10 +436,16 @@ function PosContent() {
   );
 }
 
+function PosGate() {
+  const { isEmployee } = useAuth();
+  if (isEmployee) return <EmployeeDesk />;
+  return <PosContent />;
+}
+
 export default function PosPage() {
   return (
     <ProtectedRoute allowRoles={["manager", "employee", "investor"]}>
-      <PosContent />
+      <PosGate />
     </ProtectedRoute>
   );
 }

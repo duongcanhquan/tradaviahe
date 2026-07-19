@@ -168,6 +168,75 @@ function SettingsContent() {
     // no-op placeholder for future investor preferences
   }, []);
 
+  if (isEmployee) {
+    return (
+      <AppShell title="Tài khoản" subtitle="Nhân viên" employeeMode>
+        <section className="card-panel mb-4 space-y-1 text-center">
+          <p className="text-xl font-extrabold text-slate-900">
+            {profile?.name || "—"}
+          </p>
+          <p className="text-sm text-slate-500">
+            @{profile?.username || "—"} · Nhân viên
+          </p>
+        </section>
+
+        <section className="card-panel mb-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-brand-700" aria-hidden />
+            <h2 className="section-title">Đổi mật khẩu</h2>
+          </div>
+          <form onSubmit={handleChangePassword} className="space-y-3">
+            <input
+              type="password"
+              required
+              autoComplete="current-password"
+              className="field-input"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="Mật khẩu hiện tại"
+            />
+            <input
+              type="password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+              className="field-input"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Mật khẩu mới (≥6 ký tự)"
+            />
+            <input
+              type="password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+              className="field-input"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Nhập lại mật khẩu mới"
+            />
+            <button
+              type="submit"
+              disabled={changingPass}
+              className="touch-btn h-14 w-full bg-slate-900 text-white"
+            >
+              {changingPass ? "Đang đổi..." : "Lưu mật khẩu"}
+            </button>
+          </form>
+        </section>
+
+        <button
+          type="button"
+          onClick={handleLogout}
+          className="touch-btn h-16 w-full gap-2 border-2 border-slate-200 bg-white text-base font-bold text-slate-800"
+        >
+          <LogOut className="h-6 w-6" />
+          Đăng xuất
+        </button>
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell title="Cài đặt" subtitle="Tài khoản & tiện ích">
       <section className="card-panel mb-4 space-y-2">
@@ -270,31 +339,22 @@ function SettingsContent() {
         </Link>
       ) : null}
 
-      {isEmployee ? (
-        <section className="card-panel mb-4 text-sm text-slate-600">
-          Tài khoản nhân viên: chỉ <strong>nhập tiền thu</strong> (POS), xem QR
-          và đổi mật khẩu. Mọi khoản thu đều ghi tên người nhập trên báo cáo.
-        </section>
-      ) : null}
-
-      {!isEmployee ? (
-        <section className="card-panel mb-4 space-y-3">
-          <h2 className="font-bold">Hồ sơ Firestore</h2>
-          <p className="text-sm text-slate-500">
-            Document <code>users/{user?.uid}</code> dùng role:{" "}
-            <code>superadmin</code>, <code>manager</code>, <code>employee</code>,
-            hoặc <code>investor</code>.
-          </p>
-          <button
-            type="button"
-            onClick={ensureUserProfile}
-            className="touch-btn h-12 w-full gap-2 bg-slate-900 text-white"
-          >
-            <UserPlus className="h-5 w-5" />
-            Đồng bộ hồ sơ hiện tại
-          </button>
-        </section>
-      ) : null}
+      <section className="card-panel mb-4 space-y-3">
+        <h2 className="font-bold">Hồ sơ Firestore</h2>
+        <p className="text-sm text-slate-500">
+          Document <code>users/{user?.uid}</code> dùng role:{" "}
+          <code>superadmin</code>, <code>manager</code>, <code>employee</code>,
+          hoặc <code>investor</code>.
+        </p>
+        <button
+          type="button"
+          onClick={ensureUserProfile}
+          className="touch-btn h-12 w-full gap-2 bg-slate-900 text-white"
+        >
+          <UserPlus className="h-5 w-5" />
+          Đồng bộ hồ sơ hiện tại
+        </button>
+      </section>
 
       {canManageShop ? (
         <>

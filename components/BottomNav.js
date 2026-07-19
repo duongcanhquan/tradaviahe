@@ -41,10 +41,10 @@ const superAdminLinks = [
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
-/** Nhân viên: chỉ nhập thu + QR (FAB) + đổi MK */
+/** Nhân viên: tối giản — màn thu + tài khoản */
 const employeeLinks = [
-  { href: "/manager/pos", label: "Thu", icon: Store },
-  { href: "/settings", label: "Cài đặt", icon: Settings },
+  { href: "/manager/pos", label: "Thu tiền", icon: Store },
+  { href: "/settings", label: "Tài khoản", icon: Settings },
 ];
 
 function linksForRole(role) {
