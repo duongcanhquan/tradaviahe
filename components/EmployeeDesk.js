@@ -40,7 +40,7 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
  * - Nhóm SP gọn trên cùng
  * - Mỗi món: chạm / + / − để chỉnh số lượng — ưu tiên SL
  * - Thu TM / CK bằng nút lớn ở thanh dưới (không nút bé trên từng món)
- * - Nhập CK theo ngày nằm ở Chốt ca / Đối soát
+ * - Nhập CK theo ngày nằm ở Đối soát
  */
 export default function EmployeeDesk() {
   const { user, profile } = useAuth();

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Store,
-  ClipboardCheck,
   BarChart3,
   Settings,
   UserCog,
@@ -17,7 +16,6 @@ import { cn } from "@/lib/utils";
 /** Quản lý = quyền quản lý + quyền nhân viên (thu tiền) */
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
   { href: "/manager/products", label: "Món giá", icon: Package },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/settings", label: "Cài đặt", icon: Settings },

@@ -12,7 +12,7 @@ import {
 } from "@/lib/utils";
 
 /**
- * Form gõ CK theo ngày — dùng ở Chốt ca / Đối soát (không đặt trên POS).
+ * Form gõ CK theo ngày — dùng ở Đối soát (không đặt trên POS).
  */
 export default function BankingByDateForm({ className = "" }) {
   const { user, profile } = useAuth();

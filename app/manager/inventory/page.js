@@ -1,33 +1,46 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
-import { Calculator, Loader2, Send } from "lucide-react";
+import { Loader2, Package, Save } from "lucide-react";
 import AppShell from "@/components/AppShell";
-import BankingByDateForm from "@/components/BankingByDateForm";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { DiscrepancyBadge, Money } from "@/components/StatusBadges";
-import { useAuth } from "@/context/AuthContext";
+import { Money } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
-import { isSellable } from "@/lib/products";
 import {
-  calculateReconciliation,
-  submitDailyReport,
-} from "@/lib/reports";
-import { todayKey } from "@/lib/utils";
+  DEFAULT_PRODUCT_GROUPS,
+  ensureDefaultProductGroups,
+  subscribeProductGroups,
+} from "@/lib/productGroups";
+import { isSellable } from "@/lib/products";
+import { updateProductStocks } from "@/lib/reports";
+import { cn } from "@/lib/utils";
 
 function InventoryContent() {
-  const { user, profile } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
-  const [endStocks, setEndStocks] = useState({});
-  const [startCash, setStartCash] = useState("");
-  const [endCashActual, setEndCashActual] = useState("");
-  const [bankingActual, setBankingActual] = useState("");
-  const [result, setResult] = useState(null);
+  const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
+  const [stocks, setStocks] = useState({});
+  const [activeGroupId, setActiveGroupId] = useState("all");
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    ensureDefaultProductGroups().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const unsub = subscribeProductGroups(
+      (rows) => {
+        const active = rows.filter((g) => g.active !== false);
+        setGroups(active.length ? active : DEFAULT_PRODUCT_GROUPS);
+      },
+      () => setGroups(DEFAULT_PRODUCT_GROUPS)
+    );
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("name"));
@@ -38,7 +51,7 @@ function InventoryContent() {
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter(isSellable);
         setProducts(list);
-        setEndStocks((prev) => {
+        setStocks((prev) => {
           const next = { ...prev };
           list.forEach((p) => {
             if (next[p.id] === undefined) next[p.id] = String(p.inStock ?? 0);
@@ -56,162 +69,157 @@ function InventoryContent() {
     return () => unsub();
   }, [showToast]);
 
-  const previewRows = useMemo(() => {
-    return products.map((product) => {
-      const start = Number(product.inStock) || 0;
-      const end = Number(endStocks[product.id] ?? start) || 0;
-      const sold = Math.max(0, start - end);
-      return {
-        id: product.id,
-        name: product.name,
-        start,
-        end,
-        sold,
-        revenue: sold * (Number(product.price) || 0),
-      };
-    });
-  }, [endStocks, products]);
+  const knownGroupIds = useMemo(
+    () => new Set(groups.map((g) => g.id)),
+    [groups]
+  );
 
-  const handleCalculate = () => {
-    try {
-      const calc = calculateReconciliation({
-        products,
-        endStocks,
-        startCash,
-        endCashActual,
-        bankingActual,
-      });
-      setResult(calc);
-      showToast("Đã tính đối chiếu", "success");
-    } catch (error) {
-      console.error(error);
-      showToast("Không tính được đối chiếu", "error");
+  const visibleProducts = useMemo(() => {
+    if (activeGroupId === "all") return products;
+    if (activeGroupId === "other") {
+      return products.filter(
+        (p) => !p.groupId || !knownGroupIds.has(p.groupId)
+      );
     }
-  };
+    return products.filter((p) => p.groupId === activeGroupId);
+  }, [products, activeGroupId, knownGroupIds]);
 
-  const handleSubmit = async () => {
-    if (!result) {
-      showToast("Hãy tính đối chiếu trước", "error");
+  const stockByGroup = useMemo(() => {
+    return groups.map((g) => {
+      const rows = products.filter((p) => p.groupId === g.id);
+      const qty = rows.reduce(
+        (sum, p) => sum + (Number(stocks[p.id] ?? p.inStock) || 0),
+        0
+      );
+      return { id: g.id, name: g.name, count: rows.length, qty };
+    });
+  }, [groups, products, stocks]);
+
+  const dirty = useMemo(() => {
+    return products.some(
+      (p) => Number(stocks[p.id]) !== Number(p.inStock ?? 0)
+    );
+  }, [products, stocks]);
+
+  const handleSave = async () => {
+    if (!dirty) {
+      showToast("Chưa đổi tồn nào", "error");
       return;
     }
-
-    setSubmitting(true);
+    setSaving(true);
     try {
-      await submitDailyReport({
-        products,
-        endStocks,
-        startCash,
-        endCashActual,
-        bankingActual,
-        systemRevenue: result.systemRevenue,
-        discrepancy: result.discrepancy,
-        checkedBy: user.uid,
-        checkedByName: profile?.name || profile?.username || "",
-        checkedByUsername: profile?.username || "",
-        checkedByRole: profile?.role || null,
-      });
-      showToast(
-        `Đã gửi chốt ca ${todayKey()} · ${profile?.name || profile?.username || ""}`,
-        "success"
-      );
-      setResult(null);
+      const n = await updateProductStocks({ products, endStocks: stocks });
+      showToast(`Đã lưu tồn kho · ${n} món`, "success");
     } catch (error) {
       console.error(error);
-      showToast("Gửi chốt ca thất bại", "error");
+      showToast("Lưu tồn thất bại", "error");
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
   return (
-    <AppShell title="Chốt ca" subtitle={`Đối soát ngày ${todayKey()}`} dense>
-      <BankingByDateForm className="mb-4" />
+    <AppShell
+      title="Tồn kho"
+      subtitle="Đối soát hàng còn theo nhóm"
+      dense
+    >
+      <p className="mb-3 text-xs text-slate-500">
+        Xem nhanh danh mục còn trong kho. Doanh thu ngày/tuần/tháng xem ở{" "}
+        <Link href="/dashboard" className="font-bold text-brand-800 underline">
+          Đối soát
+        </Link>
+        .
+      </p>
 
-      <section className="card-panel mb-4 space-y-3">
-        <h2 className="section-title">1. Tiền quỹ thực tế</h2>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        {stockByGroup.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            onClick={() => setActiveGroupId(g.id)}
+            className={cn(
+              "rounded-2xl px-3 py-2.5 text-left ring-1 transition",
+              activeGroupId === g.id
+                ? "bg-brand-700 text-white ring-brand-700"
+                : "bg-white text-slate-800 ring-slate-200"
+            )}
+          >
+            <p className="text-xs font-bold opacity-80">{g.name}</p>
+            <p className="money text-lg font-extrabold leading-tight">
+              {g.qty}
+            </p>
+            <p className="text-[11px] opacity-70">{g.count} món</p>
+          </button>
+        ))}
+      </div>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">
-            Tiền lẻ đầu ca
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            className="field-input money"
-            value={startCash}
-            onChange={(e) => {
-              setStartCash(e.target.value);
-              setResult(null);
-            }}
-            placeholder="0"
-          />
-        </label>
+      <div className="mb-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <button
+          type="button"
+          onClick={() => setActiveGroupId("all")}
+          className={cn(
+            "touch-btn h-9 shrink-0 px-3 text-xs font-extrabold",
+            activeGroupId === "all"
+              ? "bg-slate-900 text-white"
+              : "bg-white text-slate-700 ring-1 ring-slate-200"
+          )}
+        >
+          Tất cả
+        </button>
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            onClick={() => setActiveGroupId(g.id)}
+            className={cn(
+              "touch-btn h-9 shrink-0 px-3 text-xs font-extrabold",
+              activeGroupId === g.id
+                ? "bg-slate-900 text-white"
+                : "bg-white text-slate-700 ring-1 ring-slate-200"
+            )}
+          >
+            {g.name}
+          </button>
+        ))}
+      </div>
 
-        <label className="block">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">
-            Tiền mặt đếm thực tế
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            className="field-input money"
-            value={endCashActual}
-            onChange={(e) => {
-              setEndCashActual(e.target.value);
-              setResult(null);
-            }}
-            placeholder="0"
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">
-            Chuyển khoản thực tế (app NH)
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            className="field-input money"
-            value={bankingActual}
-            onChange={(e) => {
-              setBankingActual(e.target.value);
-              setResult(null);
-            }}
-            placeholder="0"
-          />
-        </label>
-      </section>
-
-      <section className="mb-4 space-y-3">
-        <h2 className="section-title">2. Tồn cuối ngày</h2>
+      <section className="mb-4 space-y-2">
         {loading ? (
           <div className="card-panel h-24 animate-pulse bg-white/80" />
+        ) : visibleProducts.length === 0 ? (
+          <div className="card-panel text-sm text-slate-500">
+            Nhóm này chưa có món.
+          </div>
         ) : (
-          products.map((product) => (
+          visibleProducts.map((product) => (
             <div key={product.id} className="card-panel">
-              <div className="mb-3">
-                <p className="font-bold text-slate-900">{product.name}</p>
-                <p className="mt-1 text-xs text-slate-500">
-                  Tồn đầu: {product.inStock ?? 0} · Giá{" "}
-                  <Money amount={product.price} />
-                </p>
+              <div className="mb-2 flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-bold text-slate-900">{product.name}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Giá <Money amount={product.price} /> · Đơn vị{" "}
+                    {product.unit || "—"}
+                  </p>
+                </div>
+                <Package className="h-4 w-4 shrink-0 text-slate-400" aria-hidden />
               </div>
               <label className="block">
-                <span className="sr-only">Tồn cuối {product.name}</span>
+                <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
+                  Tồn hiện tại
+                </span>
                 <input
                   type="number"
                   inputMode="numeric"
                   min="0"
                   className="field-input money"
-                  value={endStocks[product.id] ?? ""}
-                  onChange={(e) => {
-                    setEndStocks((prev) => ({
+                  value={stocks[product.id] ?? ""}
+                  onChange={(e) =>
+                    setStocks((prev) => ({
                       ...prev,
                       [product.id]: e.target.value,
-                    }));
-                    setResult(null);
-                  }}
-                  placeholder="Số lượng tồn cuối ngày"
+                    }))
+                  }
                 />
               </label>
             </div>
@@ -219,53 +227,21 @@ function InventoryContent() {
         )}
       </section>
 
-      {result ? (
-        <section className="card-panel mb-4 space-y-3 border-brand-100 bg-brand-50">
-          <h2 className="section-title">Kết quả đối chiếu</h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="chip bg-white text-slate-700 ring-1 ring-slate-200">
-              DT hệ thống: <Money amount={result.systemRevenue} />
-            </span>
-            <DiscrepancyBadge value={result.discrepancy} />
-          </div>
-          <div className="space-y-1 border-t border-brand-100 pt-3 text-xs text-slate-600">
-            {previewRows.map((row) => (
-              <p key={row.id} className="flex justify-between gap-3">
-                <span>
-                  {row.name}: bán {row.sold}
-                </span>
-                <span className="money font-semibold">
-                  <Money amount={row.revenue} />
-                </span>
-              </p>
-            ))}
-          </div>
-        </section>
-      ) : null}
+      <div className="h-28" aria-hidden />
 
-      <div className="h-36" aria-hidden />
-
-      <div className="sticky-action-bar space-y-2">
+      <div className="sticky-action-bar">
         <button
           type="button"
-          onClick={handleCalculate}
-          className="touch-btn h-14 w-full bg-slate-900 text-white"
+          disabled={saving || !dirty}
+          onClick={handleSave}
+          className="touch-btn h-14 w-full bg-brand-700 text-white disabled:opacity-40"
         >
-          <Calculator className="h-5 w-5" aria-hidden />
-          Tính toán đối chiếu
-        </button>
-        <button
-          type="button"
-          disabled={submitting || !result}
-          onClick={handleSubmit}
-          className="touch-btn h-14 w-full bg-brand-700 text-white"
-        >
-          {submitting ? (
+          {saving ? (
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
-            <Send className="h-5 w-5" aria-hidden />
+            <Save className="h-5 w-5" aria-hidden />
           )}
-          {submitting ? "Đang gửi..." : "Gửi chốt ca ngày"}
+          {saving ? "Đang lưu..." : "Lưu tồn kho"}
         </button>
       </div>
     </AppShell>

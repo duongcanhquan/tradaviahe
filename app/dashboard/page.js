@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import {
   startOfMonth,
   endOfMonth,
@@ -10,36 +10,29 @@ import {
   endOfDay,
   startOfWeek,
   endOfWeek,
-  subDays,
   format,
-  parse,
-  isValid,
 } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  ReferenceLine,
-} from "recharts";
-import {
   CalendarDays,
-  ClipboardCheck,
   Landmark,
+  Package,
   Percent,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import BankingByDateForm from "@/components/BankingByDateForm";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { DiscrepancyBadge, Money, StatCard } from "@/components/StatusBadges";
+import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
+import {
+  DEFAULT_PRODUCT_GROUPS,
+  ensureDefaultProductGroups,
+  subscribeProductGroups,
+} from "@/lib/productGroups";
+import { isSellable } from "@/lib/products";
 import { isGoodsIncome, sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -69,13 +62,17 @@ function DashboardContent() {
     canCloseShift,
   } = useAuth();
   const [allTx, setAllTx] = useState([]);
-  const [reports, setReports] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
   const [loadingTx, setLoadingTx] = useState(true);
-  const [loadingReports, setLoadingReports] = useState(true);
+  const [loadingStock, setLoadingStock] = useState(true);
   const [period, setPeriod] = useState("day");
 
   useEffect(() => {
-    // Không orderBy — tránh kẹt khi thiếu index / field
+    ensureDefaultProductGroups().catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const unsubTx = onSnapshot(
       collection(db, "transactions"),
       (snap) => {
@@ -92,30 +89,35 @@ function DashboardContent() {
       }
     );
 
-    const unsubReports = onSnapshot(
-      collection(db, "daily_reports"),
+    const unsubProducts = onSnapshot(
+      query(collection(db, "products"), orderBy("name")),
       (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        rows.sort((a, b) => {
-          const da = parse(a.date || "", "dd/MM/yyyy", new Date());
-          const dbDate = parse(b.date || "", "dd/MM/yyyy", new Date());
-          const ta = isValid(da) ? da.getTime() : 0;
-          const tb = isValid(dbDate) ? dbDate.getTime() : 0;
-          return tb - ta;
-        });
-        setReports(rows);
-        setLoadingReports(false);
+        setProducts(
+          snap.docs
+            .map((d) => ({ id: d.id, ...d.data() }))
+            .filter(isSellable)
+        );
+        setLoadingStock(false);
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được báo cáo chốt ca", "error");
-        setLoadingReports(false);
+        showToast("Không tải được tồn kho", "error");
+        setLoadingStock(false);
       }
+    );
+
+    const unsubGroups = subscribeProductGroups(
+      (rows) => {
+        const active = rows.filter((g) => g.active !== false);
+        setGroups(active.length ? active : DEFAULT_PRODUCT_GROUPS);
+      },
+      () => setGroups(DEFAULT_PRODUCT_GROUPS)
     );
 
     return () => {
       unsubTx();
-      unsubReports();
+      unsubProducts();
+      unsubGroups();
     };
   }, [showToast]);
 
@@ -128,19 +130,19 @@ function DashboardContent() {
         from: startOfDay(now).getTime(),
         to: endOfDay(now).getTime(),
         label: format(now, "EEEE dd/MM", { locale: vi }),
-        shortLabel: "Hôm nay",
+        shortLabel: "Tổng kết ngày",
       },
       week: {
         from: weekFrom.getTime(),
         to: weekTo.getTime(),
         label: `${format(weekFrom, "dd/MM")} – ${format(weekTo, "dd/MM")}`,
-        shortLabel: "Tuần này",
+        shortLabel: "Tổng kết tuần",
       },
       month: {
         from: startOfMonth(now).getTime(),
         to: endOfMonth(now).getTime(),
         label: format(now, "MM/yyyy"),
-        shortLabel: "Tháng này",
+        shortLabel: "Tổng kết tháng",
       },
     };
   }, []);
@@ -186,36 +188,72 @@ function DashboardContent() {
     };
   }, [monthTx]);
 
-  const chartData = useMemo(() => {
-    return Array.from({ length: 7 }).map((_, index) => {
-      const day = subDays(new Date(), 6 - index);
-      const key = format(day, "dd/MM/yyyy");
-      const report = reports.find((r) => r.date === key);
-      return {
-        date: format(day, "dd/MM"),
-        fullDate: key,
-        discrepancy: report ? Number(report.discrepancy) || 0 : 0,
-        hasReport: Boolean(report),
-        cash: report ? Number(report.endCashActual) || 0 : 0,
-        banking: report ? Number(report.bankingActual) || 0 : 0,
-      };
-    });
-  }, [reports]);
-
-  const sortedReports = useMemo(() => reports.slice(0, 12), [reports]);
-
   const recentIncome = useMemo(() => {
     return periodTx
       .filter((t) =>
         canViewDividends ? t.type === "income" : isGoodsIncome(t)
       )
-      .slice(0, 15);
+      .slice(0, 12);
   }, [periodTx, canViewDividends]);
+
+  const stockByGroup = useMemo(() => {
+    const known = new Set(groups.map((g) => g.id));
+    const rows = groups.map((g) => {
+      const items = products.filter((p) => p.groupId === g.id);
+      const qty = items.reduce((sum, p) => sum + (Number(p.inStock) || 0), 0);
+      const value = items.reduce(
+        (sum, p) =>
+          sum + (Number(p.inStock) || 0) * (Number(p.price) || 0),
+        0
+      );
+      return {
+        id: g.id,
+        name: g.name,
+        count: items.length,
+        qty,
+        value,
+      };
+    });
+    const otherItems = products.filter(
+      (p) => !p.groupId || !known.has(p.groupId)
+    );
+    if (otherItems.length) {
+      rows.push({
+        id: "other",
+        name: "Khác",
+        count: otherItems.length,
+        qty: otherItems.reduce((s, p) => s + (Number(p.inStock) || 0), 0),
+        value: otherItems.reduce(
+          (s, p) => s + (Number(p.inStock) || 0) * (Number(p.price) || 0),
+          0
+        ),
+      });
+    }
+    return rows;
+  }, [groups, products]);
+
+  const stockTotals = useMemo(() => {
+    return stockByGroup.reduce(
+      (acc, g) => ({
+        qty: acc.qty + g.qty,
+        value: acc.value + g.value,
+        count: acc.count + g.count,
+      }),
+      { qty: 0, value: 0, count: 0 }
+    );
+  }, [stockByGroup]);
+
+  const lowStock = useMemo(() => {
+    return products
+      .filter((p) => (Number(p.inStock) || 0) <= 5)
+      .sort((a, b) => (Number(a.inStock) || 0) - (Number(b.inStock) || 0))
+      .slice(0, 8);
+  }, [products]);
 
   return (
     <AppShell
       title="Đối soát"
-      subtitle="Thu TM / CK · Chốt ca · Tổng kết"
+      subtitle="Tổng kết ngày · tuần · tháng · tồn kho"
     >
       <div className="mb-4 grid grid-cols-1 gap-2">
         <Link
@@ -226,7 +264,7 @@ function DashboardContent() {
             <CalendarDays className="h-5 w-5" aria-hidden />
             {canViewDividends
               ? "Tổng kết tháng · cổ tức · tiền nhận"
-              : "Tổng thu hàng hóa theo tháng"}
+              : "Chi tiết thu hàng hóa theo tháng"}
           </span>
           <span className="text-sm font-medium text-white/80">Mở →</span>
         </Link>
@@ -237,8 +275,8 @@ function DashboardContent() {
             className="touch-btn h-14 w-full justify-between bg-slate-900 px-5 text-white"
           >
             <span className="flex items-center gap-2">
-              <ClipboardCheck className="h-5 w-5" aria-hidden />
-              Chốt ca · tồn kho & quỹ thực tế
+              <Package className="h-5 w-5" aria-hidden />
+              Tồn kho · cập nhật danh mục còn lại
             </span>
             <span className="text-sm font-medium text-white/80">Mở →</span>
           </Link>
@@ -271,9 +309,9 @@ function DashboardContent() {
         ) : null}
       </div>
 
-      {/* Doanh thu nhanh: Ngày / Tuần / Tháng */}
+      {/* Tổng kết ngày / tuần / tháng */}
       <section className="mb-4 space-y-3">
-        <h2 className="section-title">Doanh thu hàng hóa</h2>
+        <h2 className="section-title">Tổng kết doanh thu</h2>
         <p className="text-xs text-slate-500">
           Bấm Ngày · Tuần · Tháng để xem tổng tiền ngay
         </p>
@@ -361,7 +399,7 @@ function DashboardContent() {
           </div>
         ) : (
           <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
-            Quản lý xem doanh thu hàng hóa (TM/CK) theo ngày / tuần / tháng.
+            Quản lý xem tổng kết ngày / tuần / tháng (TM + CK hàng hóa).
           </p>
         )}
       </section>
@@ -370,97 +408,79 @@ function DashboardContent() {
         <BankingByDateForm className="mb-4" />
       ) : null}
 
-      <section className="card-panel mb-4">
-        <h2 className="section-title mb-1">Chênh lệch chốt ca · 7 ngày</h2>
-        <p className="mb-3 text-xs text-slate-500">
-          Lấy từ Chốt ca (TM + CK thực tế so với DT hệ thống). Chưa chốt = chưa
-          có số.
+      {/* Báo cáo tồn kho nhanh theo nhóm */}
+      <section className="mb-4 space-y-3">
+        <div className="flex items-end justify-between gap-2">
+          <h2 className="section-title mb-0">Tồn kho theo nhóm</h2>
+          {canCloseShift ? (
+            <Link
+              href="/manager/inventory"
+              className="text-xs font-bold text-brand-800"
+            >
+              Sửa tồn →
+            </Link>
+          ) : null}
+        </div>
+        <p className="text-xs text-slate-500">
+          Báo cáo nhanh danh mục còn trong kho
         </p>
-        {loadingReports ? (
-          <div className="h-40 animate-pulse rounded-2xl bg-slate-100" />
+
+        {loadingStock ? (
+          <div className="card-panel h-24 animate-pulse bg-white/80" />
         ) : (
           <>
-            <div className="h-52 w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart
-                  data={chartData}
-                  margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fontSize: 12, fill: "#64748b" }}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: "#64748b" }}
-                    tickFormatter={(v) => `${Math.round(v / 1000)}k`}
-                    width={40}
-                  />
-                  <Tooltip
-                    formatter={(value) => formatCurrency(value)}
-                    labelFormatter={(label, payload) =>
-                      payload?.[0]?.payload?.fullDate || label
-                    }
-                  />
-                  <ReferenceLine y={0} stroke="#94a3b8" strokeDasharray="4 4" />
-                  <Line
-                    type="monotone"
-                    dataKey="discrepancy"
-                    name="Chênh lệch"
-                    stroke="#1e40af"
-                    strokeWidth={3}
-                    dot={{ r: 4, fill: "#1e40af" }}
-                    activeDot={{ r: 6 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="rounded-[1.25rem] bg-slate-900 px-4 py-4 text-white">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
+                Tổng tồn
+              </p>
+              <p className="mt-1 text-3xl font-extrabold leading-none">
+                {stockTotals.qty}
+              </p>
+              <p className="mt-2 text-sm text-white/80">
+                {stockTotals.count} món · Giá trị ước tính{" "}
+                <span className="money font-bold text-white">
+                  {formatCurrency(stockTotals.value)}
+                </span>
+              </p>
             </div>
 
-            <div className="mt-3 overflow-hidden rounded-2xl border border-slate-100">
-              <table className="w-full text-left text-xs">
-                <caption className="sr-only">
-                  Bảng chênh lệch quỹ 7 ngày gần nhất
-                </caption>
-                <thead className="bg-slate-50 text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2 font-semibold">Ngày</th>
-                    <th className="px-3 py-2 font-semibold">TM</th>
-                    <th className="px-3 py-2 font-semibold">CK</th>
-                    <th className="px-3 py-2 font-semibold">Chênh</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {chartData.map((row) => (
-                    <tr key={row.fullDate} className="border-t border-slate-100">
-                      <td className="px-3 py-2 text-slate-700">
-                        {row.fullDate}
-                      </td>
-                      <td className="px-3 py-2">
-                        {row.hasReport ? (
-                          <Money amount={row.cash} />
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {row.hasReport ? (
-                          <Money amount={row.banking} />
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        {row.hasReport ? (
-                          <DiscrepancyBadge value={row.discrepancy} />
-                        ) : (
-                          <span className="text-slate-400">Chưa chốt</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="grid grid-cols-2 gap-2">
+              {stockByGroup.map((g) => (
+                <article
+                  key={g.id}
+                  className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200"
+                >
+                  <p className="text-xs font-bold text-slate-500">{g.name}</p>
+                  <p className="money mt-1 text-xl font-extrabold text-slate-900">
+                    {g.qty}
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    {g.count} món · {formatCurrency(g.value)}
+                  </p>
+                </article>
+              ))}
             </div>
+
+            {lowStock.length > 0 ? (
+              <div className="rounded-2xl bg-amber-50 px-3 py-3 ring-1 ring-amber-100">
+                <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-amber-800">
+                  Sắp hết (≤ 5)
+                </p>
+                <ul className="space-y-1.5">
+                  {lowStock.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex justify-between gap-2 text-sm text-amber-950"
+                    >
+                      <span className="truncate font-semibold">{p.name}</span>
+                      <span className="money shrink-0 font-extrabold">
+                        {Number(p.inStock) || 0}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </>
         )}
       </section>
@@ -518,65 +538,6 @@ function DashboardContent() {
               </article>
             );
           })
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="section-title">Lịch sử chốt ca</h2>
-        {loadingReports ? (
-          <div className="card-panel h-24 animate-pulse bg-white/80" />
-        ) : sortedReports.length === 0 ? (
-          <div className="card-panel space-y-2 text-sm text-slate-500">
-            <p>Chưa có báo cáo chốt ca.</p>
-            {canCloseShift ? (
-              <Link
-                href="/manager/inventory"
-                className="font-bold text-brand-800 underline"
-              >
-                Mở Chốt ca để nhập TM + CK thực tế →
-              </Link>
-            ) : null}
-          </div>
-        ) : (
-          sortedReports.map((report) => (
-            <article key={report.id} className="card-panel space-y-3">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <p className="text-lg font-bold">{report.date}</p>
-                  <p className="text-xs text-slate-500">
-                    {report.status || "đã chốt"}
-                    {report.checkedByName || report.checkedByUsername ? (
-                      <>
-                        {" · "}
-                        Chốt bởi:{" "}
-                        <strong>
-                          {formatActorLabel({
-                            createdByName: report.checkedByName,
-                            createdByUsername: report.checkedByUsername,
-                          })}
-                        </strong>
-                      </>
-                    ) : null}
-                  </p>
-                </div>
-                <DiscrepancyBadge value={report.discrepancy} />
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
-                <p>
-                  Đầu ca: <Money amount={report.startCash} />
-                </p>
-                <p>
-                  Tiền mặt cuối: <Money amount={report.endCashActual} />
-                </p>
-                <p>
-                  CK thực tế: <Money amount={report.bankingActual} />
-                </p>
-                <p>
-                  DT hệ thống: <Money amount={report.systemRevenue} />
-                </p>
-              </div>
-            </article>
-          ))
         )}
       </section>
     </AppShell>
