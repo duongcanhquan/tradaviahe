@@ -394,10 +394,10 @@ export default function EmployeeDesk() {
                   {sortMode ? (
                     <>
                       <div className="min-w-0 flex-1 px-2 py-1.5">
-                        <p className="truncate text-xs font-extrabold leading-tight text-slate-900">
+                        <p className="truncate text-sm font-extrabold leading-snug text-slate-900">
                           {product.name}
                         </p>
-                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
+                        <p className="money mt-0.5 text-xs font-bold text-brand-700">
                           <Money amount={price} />
                         </p>
                         <p className="text-[10px] font-semibold text-slate-400">
@@ -432,10 +432,10 @@ export default function EmployeeDesk() {
                       <button
                         type="button"
                         onClick={() => changeQty(product.id, 1)}
-                        className="min-w-0 flex-1 px-2 py-1.5 text-left active:bg-brand-50/80"
+                        className="flex min-h-[4.75rem] min-w-0 flex-1 flex-col px-2 py-1.5 text-left active:bg-brand-50/80"
                       >
                         <div className="flex items-start justify-between gap-1">
-                          <p className="line-clamp-2 min-w-0 flex-1 text-xs font-extrabold leading-tight text-slate-900">
+                          <p className="line-clamp-2 min-w-0 flex-1 text-sm font-extrabold leading-snug text-slate-900">
                             {product.name}
                           </p>
                           <span
@@ -449,7 +449,7 @@ export default function EmployeeDesk() {
                             {qty}
                           </span>
                         </div>
-                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
+                        <p className="money mt-auto pt-0.5 text-xs font-bold text-brand-700">
                           <Money amount={price} />
                         </p>
                       </button>
