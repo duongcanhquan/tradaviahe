@@ -27,12 +27,19 @@ Mở http://localhost:3000
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Cho phép đọc map tên đăng nhập → Auth (trước khi login)
+    match /login_index/{username} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
     match /{document=**} {
       allow read, write: if request.auth != null;
     }
   }
 }
 ```
+
+Đăng nhập chỉ cần **tên tài khoản + mật khẩu** (không dùng email). App tạo email nội bộ `tên@tradaviahe.app` phía sau.
 
 ## Modules
 - `/login` — Đăng nhập

@@ -28,6 +28,7 @@ import {
   resetAllManagedPasswords,
   resetManagedUserPassword,
   subscribeUsers,
+  syncLoginIndexes,
   updateManagedUser,
 } from "@/lib/users";
 import {
@@ -94,6 +95,7 @@ function AdminUsersContent() {
   const [deletingId, setDeletingId] = useState(null);
   const [resettingId, setResettingId] = useState(null);
   const [resettingAll, setResettingAll] = useState(false);
+  const [syncingLogin, setSyncingLogin] = useState(false);
 
   const roleOptions = useMemo(
     () => assignableRolesFor(actorRole),
@@ -291,6 +293,22 @@ function AdminUsersContent() {
     }
   };
 
+  const handleSyncLoginIndex = async () => {
+    setSyncingLogin(true);
+    try {
+      const count = await syncLoginIndexes(users);
+      showToast(
+        `Đã đồng bộ ${count} tên đăng nhập — quản lý đăng nhập bằng tên, không cần email`,
+        "success"
+      );
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Đồng bộ thất bại", "error");
+    } finally {
+      setSyncingLogin(false);
+    }
+  };
+
   const handleResetAll = async () => {
     if (!canManageUsers) return;
     const ok = window.confirm(
@@ -372,6 +390,18 @@ function AdminUsersContent() {
           </p>
         </div>
       ) : null}
+
+      <button
+        type="button"
+        disabled={syncingLogin || users.length === 0}
+        onClick={handleSyncLoginIndex}
+        className="touch-btn mb-3 h-12 w-full gap-2 border border-sky-200 bg-sky-50 text-sky-900 disabled:opacity-40"
+      >
+        <RefreshCw className={cn("h-5 w-5", syncingLogin && "animate-spin")} />
+        {syncingLogin
+          ? "Đang đồng bộ..."
+          : "Đồng bộ đăng nhập bằng tên (bỏ email)"}
+      </button>
 
       {canManageUsers ? (
         <button

@@ -68,15 +68,27 @@ function LoginForm() {
       console.error(error);
       const code = error?.code || "";
       const msg = error?.message || "";
-      if (msg.includes("không dùng email")) {
-        showToast("Chỉ cần tên đăng nhập, không dùng email", "error");
-      } else if (code === "auth/user-not-found" || code === "auth/invalid-credential") {
+      if (
+        msg.includes("Nhập tên đăng nhập") ||
+        msg.includes("không dấu") ||
+        msg.includes("a-z")
+      ) {
+        showToast(msg, "error");
+      } else if (
+        code === "auth/user-not-found" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/wrong-password" ||
+        code === "auth/invalid-email"
+      ) {
         showToast(
-          "Sai tài khoản. Bấm “Khởi tạo Super Admin” nếu lần đầu dùng app",
+          "Sai tên đăng nhập hoặc mật khẩu. Chỉ cần tên tài khoản — không cần email.",
           "error"
         );
       } else {
-        showToast("Tên đăng nhập hoặc mật khẩu không đúng", "error");
+        showToast(
+          "Không đăng nhập được. Kiểm tra tên tài khoản / mật khẩu (không dùng email).",
+          "error"
+        );
       }
     } finally {
       setLoading(false);
@@ -97,6 +109,8 @@ function LoginForm() {
           </h1>
           <p className="mt-3 max-w-xs text-sm text-blue-100">
             Super Admin: <strong>canhquan</strong> / <strong>canhquan</strong>
+            <br />
+            Chỉ cần tên tài khoản + mật khẩu — không dùng email.
           </p>
         </div>
 
@@ -110,14 +124,23 @@ function LoginForm() {
             </span>
             <input
               type="text"
+              name="username"
               required
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               inputMode="text"
               value={identifier}
-              onChange={(e) => setIdentifier(e.target.value.replace(/@.*$/, ""))}
+              onChange={(e) =>
+                setIdentifier(e.target.value.replace(/@.*$/g, "").trimStart())
+              }
               className="field-input"
-              placeholder="canhquan"
+              placeholder="vd: quanly1"
             />
+            <span className="mt-1.5 block text-xs text-slate-500">
+              Không cần email — chỉ tên tài khoản Admin đã tạo
+            </span>
           </label>
 
           <label className="mb-6 block">
@@ -126,12 +149,13 @@ function LoginForm() {
             </span>
             <input
               type="password"
+              name="password"
               required
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="field-input"
-              placeholder="canhquan"
+              placeholder="••••••••"
             />
           </label>
 

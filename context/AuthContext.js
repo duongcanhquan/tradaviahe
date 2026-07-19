@@ -58,7 +58,7 @@ export function AuthProvider({ children }) {
 
   const login = async (identifier, password) => {
     const { resolveLoginIdentifier } = await import("@/lib/authIdentity");
-    const email = resolveLoginIdentifier(identifier);
+    const email = await resolveLoginIdentifier(identifier);
     const credential = await signInWithEmailAndPassword(auth, email, password);
     return credential.user;
   };
