@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowDown,
+  ArrowUp,
   Calculator,
   Package,
   Pencil,
@@ -26,10 +28,12 @@ import {
   COST_MODE,
   PRODUCT_KIND,
   PRODUCT_UNITS,
+  comparePosOrder,
   computeRecipeCost,
   createProduct,
   deleteProduct,
   marginOf,
+  moveProductInOrder,
   productsByIdMap,
   recomputeRecipeCosts,
   resolveUnitCost,
@@ -114,10 +118,27 @@ function ProductsContent() {
 
   const list = useMemo(() => {
     const base = tab === "ingredient" ? ingredients : finished;
-    if (tab !== "finished" || groupFilter === "all") return base;
-    if (groupFilter === "none") return base.filter((p) => !p.groupId);
-    return base.filter((p) => p.groupId === groupFilter);
+    let rows = base;
+    if (tab === "finished") {
+      if (groupFilter === "none") rows = base.filter((p) => !p.groupId);
+      else if (groupFilter !== "all") {
+        rows = base.filter((p) => p.groupId === groupFilter);
+      }
+      return [...rows].sort(comparePosOrder);
+    }
+    return rows;
   }, [tab, ingredients, finished, groupFilter]);
+
+  const handleMoveProduct = async (row, direction) => {
+    try {
+      const ok = await moveProductInOrder(list, row.id, direction);
+      if (!ok) return;
+      showToast(direction === "up" ? "Đã đưa lên" : "Đã đưa xuống", "success");
+    } catch (error) {
+      console.error(error);
+      showToast("Không đổi được thứ tự", "error");
+    }
+  };
 
   const openCreate = (kind) => {
     setEditingId(null);
@@ -524,7 +545,7 @@ function ProductsContent() {
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
         {tab === "ingredient"
           ? "Nhập giá mua / đơn vị (vd: trà khô 2đ/g). Thành phẩm dùng công thức sẽ tự cộng cost."
-          : "Chọn nhóm SP (Nước uống / Đồ ăn…). Giá bán dùng khi thu tiền."}
+          : "Chọn nhóm SP. ↑↓ sắp thứ tự POS — món gọi nhiều để trên."}
       </p>
       ) : null}
 
@@ -565,6 +586,26 @@ function ProductsContent() {
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-1">
+                      {tab === "finished" ? (
+                        <>
+                          <button
+                            type="button"
+                            aria-label="Đưa lên"
+                            onClick={() => handleMoveProduct(row, "up")}
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            aria-label="Đưa xuống"
+                            onClick={() => handleMoveProduct(row, "down")}
+                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                          >
+                            <ArrowDown className="h-4 w-4" />
+                          </button>
+                        </>
+                      ) : null}
                       <button
                         type="button"
                         aria-label="Sửa"

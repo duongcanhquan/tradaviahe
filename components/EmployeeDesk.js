@@ -11,6 +11,8 @@ import {
   where,
 } from "firebase/firestore";
 import {
+  ArrowDown,
+  ArrowUp,
   Banknote,
   Loader2,
   Minus,
@@ -33,7 +35,11 @@ import {
   ensureDefaultProductGroups,
   subscribeProductGroups,
 } from "@/lib/productGroups";
-import { isSellable } from "@/lib/products";
+import {
+  comparePosOrder,
+  isSellable,
+  moveProductInOrder,
+} from "@/lib/products";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
@@ -45,7 +51,7 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
  * - Nhập CK theo ngày nằm ở Đối soát
  */
 export default function EmployeeDesk() {
-  const { user, profile, role, canDeleteSales } = useAuth();
+  const { user, profile, role, canDeleteSales, canManageProducts } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
@@ -59,6 +65,7 @@ export default function EmployeeDesk() {
   const [showHistory, setShowHistory] = useState(false);
   const [flashId, setFlashId] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [sortMode, setSortMode] = useState(false);
   const flashTimer = useRef(null);
 
   useEffect(() => {
@@ -150,15 +157,18 @@ export default function EmployeeDesk() {
     !p.groupId || !knownGroupIds.has(p.groupId);
 
   const visibleProducts = useMemo(() => {
+    let rows;
     const inGroup = products.filter((p) => p.groupId === activeGroupId);
     if (activeGroupId === groups[0]?.id) {
       const ungrouped = products.filter(
         (p) => !p.groupId || !knownGroupIds.has(p.groupId)
       );
       const seen = new Set(inGroup.map((p) => p.id));
-      return [...inGroup, ...ungrouped.filter((p) => !seen.has(p.id))];
+      rows = [...inGroup, ...ungrouped.filter((p) => !seen.has(p.id))];
+    } else {
+      rows = inGroup;
     }
-    return inGroup;
+    return [...rows].sort(comparePosOrder);
   }, [products, activeGroupId, groups, knownGroupIds]);
 
   const cartItems = useMemo(() => {
@@ -267,6 +277,26 @@ export default function EmployeeDesk() {
     }
   };
 
+  const handleMoveProduct = async (productId, direction) => {
+    if (!canManageProducts || submitting) return;
+    setSubmitting(true);
+    try {
+      const ok = await moveProductInOrder(
+        visibleProducts,
+        productId,
+        direction
+      );
+      if (ok) {
+        showToast(direction === "up" ? "Đã đưa lên" : "Đã đưa xuống", "success");
+      }
+    } catch (error) {
+      console.error(error);
+      showToast("Không đổi được thứ tự", "error");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const qrUrl = buildVietQrUrl({
     ...bank,
     amount: total,
@@ -277,49 +307,70 @@ export default function EmployeeDesk() {
 
   return (
     <AppShell title="Thu tiền" subtitle={displayName} dense employeeMode>
-      {/* Nhóm SP — hàng gọn trên cùng */}
-      <div className="sticky top-0 z-10 -mx-1 mb-2 bg-slate-100/95 px-1 pb-2 pt-0.5 backdrop-blur-sm">
-        <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {groups.map((g) => {
-            const active = activeGroupId === g.id;
-            const count = countInGroup(g.id);
-            return (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => setActiveGroupId(g.id)}
-                className={cn(
-                  "touch-btn h-9 shrink-0 gap-1.5 px-3 text-xs font-extrabold",
-                  active
-                    ? "bg-brand-700 text-white shadow-sm"
-                    : "bg-white text-slate-700 ring-1 ring-slate-200"
-                )}
-              >
-                <span className="whitespace-nowrap">{g.name}</span>
-                <span
+      {/* Nhóm SP + sắp xếp — tối giản */}
+      <div className="sticky top-0 z-10 -mx-1 mb-1.5 bg-slate-100/95 px-1 pb-1.5 pt-0.5 backdrop-blur-sm">
+        <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {groups.map((g) => {
+              const active = activeGroupId === g.id;
+              const count = countInGroup(g.id);
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => setActiveGroupId(g.id)}
                   className={cn(
-                    "rounded-md px-1 text-[10px] font-bold",
-                    active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                    "touch-btn h-8 shrink-0 gap-1 px-2.5 text-[11px] font-extrabold",
+                    active
+                      ? "bg-brand-700 text-white shadow-sm"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
                   )}
                 >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
+                  <span className="whitespace-nowrap">{g.name}</span>
+                  <span
+                    className={cn(
+                      "rounded px-1 text-[10px] font-bold",
+                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {canManageProducts ? (
+            <button
+              type="button"
+              onClick={() => setSortMode((v) => !v)}
+              className={cn(
+                "touch-btn h-8 shrink-0 px-2.5 text-[11px] font-extrabold",
+                sortMode
+                  ? "bg-amber-500 text-white"
+                  : "bg-white text-slate-600 ring-1 ring-slate-200"
+              )}
+            >
+              {sortMode ? "Xong" : "Thứ tự"}
+            </button>
+          ) : null}
         </div>
+        {sortMode ? (
+          <p className="mt-1 text-[10px] font-semibold text-amber-800">
+            ↑↓ đưa món gọi nhiều lên trên
+          </p>
+        ) : null}
       </div>
 
-      {/* Lưới 2 món / hàng — tối ưu màn hình */}
-      <div className="grid grid-cols-2 gap-2 pb-2">
+      {/* Lưới 2×4 gọn — ưu tiên ≥8 món trên màn */}
+      <div className="grid grid-cols-2 gap-1.5 pb-1">
         {loading
-          ? Array.from({ length: 6 }).map((_, i) => (
+          ? Array.from({ length: 8 }).map((_, i) => (
               <div
                 key={i}
-                className="h-[7.25rem] animate-pulse rounded-2xl bg-white/80"
+                className="h-[4.75rem] animate-pulse rounded-xl bg-white/80"
               />
             ))
-          : visibleProducts.map((product) => {
+          : visibleProducts.map((product, index) => {
               const qty = cart[product.id] || 0;
               const price = Number(product.price) || 0;
               const active = qty > 0;
@@ -329,62 +380,97 @@ export default function EmployeeDesk() {
                 <div
                   key={product.id}
                   className={cn(
-                    "relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 transition duration-150",
+                    "relative flex overflow-hidden rounded-xl bg-white ring-1 transition duration-150",
                     active
-                      ? "ring-2 ring-brand-700 shadow-md"
+                      ? "ring-2 ring-brand-700"
                       : "ring-slate-200",
                     flashing && "scale-[0.98] bg-brand-50"
                   )}
                 >
-                  {/* Chạm thân thẻ: +1 */}
-                  <button
-                    type="button"
-                    onClick={() => changeQty(product.id, 1)}
-                    className="flex min-h-[4.75rem] flex-1 flex-col px-2.5 pb-1.5 pt-2 text-left active:bg-brand-50/80"
-                  >
-                    <p className="line-clamp-2 text-sm font-extrabold leading-snug text-slate-900">
-                      {product.name}
-                    </p>
-                    <p className="money mt-1 text-sm font-bold text-brand-700">
-                      <Money amount={price} />
-                    </p>
-                    <div
-                      className={cn(
-                        "mt-auto flex h-9 w-full items-center justify-center rounded-xl",
-                        active
-                          ? "bg-brand-700 text-white"
-                          : "bg-slate-100 text-slate-500"
-                      )}
-                    >
-                      <span className="mr-1 text-[10px] font-bold uppercase opacity-80">
-                        SL
-                      </span>
-                      <span className="money text-xl font-extrabold leading-none">
-                        {qty}
-                      </span>
-                    </div>
-                  </button>
-
-                  <div className="grid grid-cols-2 border-t border-slate-100">
-                    <button
-                      type="button"
-                      aria-label={`Giảm ${product.name}`}
-                      disabled={!qty || submitting}
-                      onClick={() => changeQty(product.id, -1)}
-                      className="flex h-10 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
-                    >
-                      <Minus className="h-5 w-5" strokeWidth={2.75} />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`Thêm ${product.name}`}
-                      disabled={submitting}
-                      onClick={() => changeQty(product.id, 1)}
-                      className="flex h-10 items-center justify-center bg-brand-700 text-white transition active:bg-brand-800 disabled:opacity-50"
-                    >
-                      <Plus className="h-5 w-5" strokeWidth={2.75} />
-                    </button>
-                  </div>
+                  {sortMode ? (
+                    <>
+                      <div className="min-w-0 flex-1 px-2 py-1.5">
+                        <p className="truncate text-xs font-extrabold leading-tight text-slate-900">
+                          {product.name}
+                        </p>
+                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
+                          <Money amount={price} />
+                        </p>
+                        <p className="text-[10px] font-semibold text-slate-400">
+                          #{index + 1}
+                        </p>
+                      </div>
+                      <div className="flex w-9 flex-col border-l border-slate-100">
+                        <button
+                          type="button"
+                          aria-label="Đưa lên"
+                          disabled={submitting || index === 0}
+                          onClick={() => handleMoveProduct(product.id, "up")}
+                          className="flex flex-1 items-center justify-center bg-amber-500 text-white disabled:opacity-25"
+                        >
+                          <ArrowUp className="h-4 w-4" strokeWidth={2.75} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label="Đưa xuống"
+                          disabled={
+                            submitting || index >= visibleProducts.length - 1
+                          }
+                          onClick={() => handleMoveProduct(product.id, "down")}
+                          className="flex flex-1 items-center justify-center bg-slate-200 text-slate-700 disabled:opacity-25"
+                        >
+                          <ArrowDown className="h-4 w-4" strokeWidth={2.75} />
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => changeQty(product.id, 1)}
+                        className="min-w-0 flex-1 px-2 py-1.5 text-left active:bg-brand-50/80"
+                      >
+                        <div className="flex items-start justify-between gap-1">
+                          <p className="line-clamp-2 min-w-0 flex-1 text-xs font-extrabold leading-tight text-slate-900">
+                            {product.name}
+                          </p>
+                          <span
+                            className={cn(
+                              "money flex h-7 min-w-[1.75rem] shrink-0 items-center justify-center rounded-lg px-1 text-sm font-extrabold",
+                              active
+                                ? "bg-brand-700 text-white"
+                                : "bg-slate-100 text-slate-500"
+                            )}
+                          >
+                            {qty}
+                          </span>
+                        </div>
+                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
+                          <Money amount={price} />
+                        </p>
+                      </button>
+                      <div className="flex w-8 flex-col border-l border-slate-100">
+                        <button
+                          type="button"
+                          aria-label={`Thêm ${product.name}`}
+                          disabled={submitting}
+                          onClick={() => changeQty(product.id, 1)}
+                          className="flex flex-1 items-center justify-center bg-brand-700 text-white active:bg-brand-800 disabled:opacity-50"
+                        >
+                          <Plus className="h-4 w-4" strokeWidth={2.75} />
+                        </button>
+                        <button
+                          type="button"
+                          aria-label={`Giảm ${product.name}`}
+                          disabled={!qty || submitting}
+                          onClick={() => changeQty(product.id, -1)}
+                          className="flex flex-1 items-center justify-center bg-slate-100 text-slate-700 active:bg-slate-200 disabled:opacity-25"
+                        >
+                          <Minus className="h-4 w-4" strokeWidth={2.75} />
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
               );
             })}
@@ -403,9 +489,9 @@ export default function EmployeeDesk() {
       ) : null}
 
       {totalQty > 0 ? (
-        <div className="mt-2 rounded-xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-900 ring-1 ring-brand-100">
+        <div className="mt-1.5 truncate rounded-lg bg-brand-50 px-2 py-1 text-[11px] font-semibold text-brand-900 ring-1 ring-brand-100">
           {cartItems.map((item) => (
-            <span key={item.id} className="mr-2.5 inline-block">
+            <span key={item.id} className="mr-2 inline-block">
               {item.name} ×{item.qty}
             </span>
           ))}
@@ -415,13 +501,13 @@ export default function EmployeeDesk() {
       <button
         type="button"
         onClick={() => setShowHistory((v) => !v)}
-        className="mt-2 w-full py-1.5 text-center text-xs font-semibold text-slate-400"
+        className="mt-1 w-full py-1 text-center text-[11px] font-semibold text-slate-400"
       >
         {showHistory ? "Ẩn lịch sử" : "Lịch sử vừa thu"}
       </button>
 
       {showHistory ? (
-        <div className="mb-36 space-y-2">
+        <div className="mb-28 space-y-1.5">
           {myRecent.length === 0 ? (
             <p className="text-center text-sm text-slate-500">Chưa có khoản thu</p>
           ) : (
@@ -439,13 +525,13 @@ export default function EmployeeDesk() {
               return (
                 <div
                   key={row.id}
-                  className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-100"
+                  className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-slate-100"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-slate-800">
                       {row.note || "Thu"}
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-[11px] text-slate-400">
                       {timeLabel}
                       {" · "}
                       <span
@@ -459,8 +545,8 @@ export default function EmployeeDesk() {
                       </span>
                     </p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <p className="money font-extrabold text-emerald-700">
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <p className="money text-sm font-extrabold text-emerald-700">
                       {formatCurrency(row.amount)}
                     </p>
                     {canDeleteSales ? (
@@ -469,7 +555,7 @@ export default function EmployeeDesk() {
                         aria-label="Xóa khoản thu"
                         disabled={deletingId === row.id}
                         onClick={() => handleDeleteSale(row)}
-                        className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
+                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
                       >
                         {deletingId === row.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -491,38 +577,34 @@ export default function EmployeeDesk() {
           </p>
         </div>
       ) : (
-        <div className="h-44" aria-hidden />
+        <div className="h-28" aria-hidden />
       )}
 
-      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-[45] border-t border-slate-200 bg-white/95 px-3 py-2.5 shadow-[0_-10px_28px_rgba(15,23,42,0.1)] backdrop-blur-md">
-        <div className="mx-auto max-w-lg space-y-2">
-          <div className="flex items-end justify-between px-1">
-            <div>
-              <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                Cần thu
-              </p>
-              <p className="money text-3xl font-extrabold leading-none text-slate-900">
-                <Money amount={total} />
-              </p>
-            </div>
-            <p className="pb-0.5 text-sm font-extrabold text-slate-600">
+      {/* Thanh thu gọn: tổng + 3 nút 1 hàng */}
+      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-[45] border-t border-slate-200 bg-white/95 px-2.5 py-1.5 shadow-[0_-8px_20px_rgba(15,23,42,0.08)] backdrop-blur-md">
+        <div className="mx-auto max-w-lg space-y-1.5">
+          <div className="flex items-center justify-between px-0.5">
+            <p className="money text-2xl font-extrabold leading-none text-slate-900">
+              <Money amount={total} />
+            </p>
+            <p className="text-xs font-extrabold text-slate-500">
               {totalQty > 0 ? `${totalQty} phần` : "Chạm món"}
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-1.5">
             <button
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => recordSale("cash")}
-              className="touch-btn h-[3.5rem] gap-2 bg-emerald-600 text-base text-white disabled:opacity-35"
+              className="touch-btn h-11 flex-col gap-0 bg-emerald-600 text-[11px] font-extrabold text-white disabled:opacity-35"
             >
               {submitting ? (
-                <Loader2 className="h-6 w-6 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
-                  <Banknote className="h-5 w-5" aria-hidden />
-                  <span className="font-extrabold">Tiền mặt</span>
+                  <Banknote className="h-4 w-4" aria-hidden />
+                  Tiền mặt
                 </>
               )}
             </button>
@@ -530,27 +612,27 @@ export default function EmployeeDesk() {
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => recordSale("banking")}
-              className="touch-btn h-[3.5rem] gap-2 bg-brand-700 text-base text-white disabled:opacity-35"
+              className="touch-btn h-11 flex-col gap-0 bg-brand-700 text-[11px] font-extrabold text-white disabled:opacity-35"
             >
               {submitting ? (
-                <Loader2 className="h-6 w-6 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
-                  <Smartphone className="h-5 w-5" aria-hidden />
-                  <span className="font-extrabold">Chuyển khoản</span>
+                  <Smartphone className="h-4 w-4" aria-hidden />
+                  CK
                 </>
               )}
             </button>
+            <button
+              type="button"
+              disabled={submitting || totalQty === 0}
+              onClick={() => setShowQr(true)}
+              className="touch-btn h-11 flex-col gap-0 border border-brand-200 bg-brand-50 text-[11px] font-extrabold text-brand-900 disabled:opacity-35"
+            >
+              <QrCode className="h-4 w-4" aria-hidden />
+              Hiện QR
+            </button>
           </div>
-          <button
-            type="button"
-            disabled={submitting || totalQty === 0}
-            onClick={() => setShowQr(true)}
-            className="touch-btn h-10 w-full gap-2 border border-brand-200 bg-brand-50 text-sm font-bold text-brand-900 disabled:opacity-35"
-          >
-            <QrCode className="h-4 w-4" aria-hidden />
-            Hiện QR rồi ghi CK
-          </button>
         </div>
       </div>
 

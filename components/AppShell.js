@@ -68,7 +68,7 @@ export default function AppShell({
       <main
         className={cn(
           "mx-auto max-w-lg px-4 pt-4",
-          dense ? "pb-44" : simple ? "pb-28" : "pb-nav"
+          dense ? "pb-36" : simple ? "pb-28" : "pb-nav"
         )}
       >
         {children}
