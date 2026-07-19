@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import { Calculator, Loader2, Send } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import BankingByDateForm from "@/components/BankingByDateForm";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { DiscrepancyBadge, Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
@@ -124,6 +125,8 @@ function InventoryContent() {
 
   return (
     <AppShell title="Chốt ca" subtitle={`Đối soát ngày ${todayKey()}`} dense>
+      <BankingByDateForm className="mb-4" />
+
       <section className="card-panel mb-4 space-y-3">
         <h2 className="section-title">1. Tiền quỹ thực tế</h2>
 

@@ -12,7 +12,6 @@ import {
 } from "firebase/firestore";
 import {
   Banknote,
-  CalendarDays,
   Loader2,
   Minus,
   QrCode,
@@ -33,25 +32,16 @@ import {
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
-import {
-  cn,
-  dateInfoCode,
-  formatCurrency,
-  inputValueToDateKey,
-  timestampForBusinessDate,
-  todayInputValue,
-  todayKey,
-} from "@/lib/utils";
+import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
 /**
- * Bàn thu siêu nhanh:
- * - 4 nhóm SP — chạm món = +1
- * - Thu tiền mặt hoặc chuyển khoản (ghi paymentMethod rõ)
- * - CK: gõ số tiền + chọn ngày nghiệp vụ
- * - QR phụ: hiện mã rồi xác nhận CK
+ * Bàn thu siêu nhanh (POS):
+ * - Nhóm SP gọn trên cùng
+ * - Ưu tiên diện tích cho món — chạm = +1, TM/CK ghi ngay
+ * - Nhập CK theo ngày nằm ở Chốt ca / Đối soát
  */
 export default function EmployeeDesk() {
-  const { user, profile, hasManagerAccess } = useAuth();
+  const { user, profile } = useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
@@ -65,11 +55,6 @@ export default function EmployeeDesk() {
   const [showHistory, setShowHistory] = useState(false);
   const [flashId, setFlashId] = useState(null);
   const flashTimer = useRef(null);
-  /** Ngày gắn cho mọi khoản CK (input yyyy-MM-dd) */
-  const [ckDate, setCkDate] = useState(todayInputValue);
-  const [ckAmount, setCkAmount] = useState("");
-  const [ckNote, setCkNote] = useState("");
-  const [showCkForm, setShowCkForm] = useState(true);
 
   useEffect(() => {
     ensureDefaultProductGroups().catch(() => {});
@@ -121,7 +106,6 @@ export default function EmployeeDesk() {
 
   useEffect(() => {
     if (!user?.uid) return;
-    // Chỉ giao dịch của mình — sort phía client
     const q = query(
       collection(db, "transactions"),
       where("createdBy", "==", user.uid)
@@ -162,7 +146,6 @@ export default function EmployeeDesk() {
 
   const visibleProducts = useMemo(() => {
     const inGroup = products.filter((p) => p.groupId === activeGroupId);
-    // Món chưa nhóm / nhóm đã xóa: hiện ở nhóm đầu để không mất món
     if (activeGroupId === groups[0]?.id) {
       const ungrouped = products.filter(
         (p) => !p.groupId || !knownGroupIds.has(p.groupId)
@@ -212,31 +195,18 @@ export default function EmployeeDesk() {
     if (delta > 0) bumpFlash(id);
   };
 
-  const writeSale = async ({
-    items,
-    amount,
-    paymentMethod,
-    note: noteOverride,
-  }) => {
-    const note =
-      noteOverride ||
-      items.map((item) => `${item.name} x${item.qty}`).join(", ");
+  const writeSale = async ({ items, amount, paymentMethod }) => {
+    const note = items.map((item) => `${item.name} x${item.qty}`).join(", ");
     const actor = actorFields(user, profile);
-    const isBanking = paymentMethod === "banking";
-    const businessDate = isBanking
-      ? inputValueToDateKey(ckDate)
-      : todayKey();
     await addDoc(collection(db, "transactions"), {
       amount,
       type: "income",
       category: "bán hàng",
-      // CK theo ngày chọn; TM luôn thời điểm hiện tại
-      timestamp: isBanking
-        ? timestampForBusinessDate(ckDate)
-        : serverTimestamp(),
-      businessDate,
+      timestamp: serverTimestamp(),
+      businessDate: todayKey(),
       note,
       paymentMethod,
+      source: "pos",
       ...actor,
     });
   };
@@ -257,10 +227,8 @@ export default function EmployeeDesk() {
     try {
       await writeSale({ ...snapshot, paymentMethod });
       const via = paymentMethod === "banking" ? "CK" : "TM";
-      const dayHint =
-        paymentMethod === "banking" ? ` · ${inputValueToDateKey(ckDate)}` : "";
       showToast(
-        `Đã thu ${via}${dayHint} · ${formatCurrency(snapshot.amount)}`,
+        `Đã thu ${via} · ${formatCurrency(snapshot.amount)}`,
         "success"
       );
     } catch (error) {
@@ -277,7 +245,6 @@ export default function EmployeeDesk() {
     }
   };
 
-  /** 1 chạm: thu ngay 1 phần (tiền mặt hoặc CK) */
   const quickPayOne = async (product, paymentMethod) => {
     if (submitting) return;
     const price = Number(product.price) || 0;
@@ -294,51 +261,13 @@ export default function EmployeeDesk() {
         paymentMethod,
       });
       const via = paymentMethod === "banking" ? "CK" : "TM";
-      const dayHint =
-        paymentMethod === "banking" ? ` · ${inputValueToDateKey(ckDate)}` : "";
       showToast(
-        `Đã thu ${via}${dayHint} · ${product.name} · ${formatCurrency(price)}`,
+        `Đã thu ${via} · ${product.name} · ${formatCurrency(price)}`,
         "success"
       );
     } catch (error) {
       console.error(error);
       showToast("Ghi thu thất bại — thử lại", "error");
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  /** Gõ số tiền CK + chọn ngày (không cần giỏ món) */
-  const recordCkTyped = async () => {
-    if (submitting) return;
-    const amount = Number(String(ckAmount).replace(/\D/g, "")) || 0;
-    if (amount <= 0) {
-      showToast("Nhập số tiền CK > 0", "error");
-      return;
-    }
-    if (!ckDate) {
-      showToast("Chọn ngày nhận CK", "error");
-      return;
-    }
-    const dayKey = inputValueToDateKey(ckDate);
-    const note = String(ckNote || "").trim() || `Thu CK ngày ${dayKey}`;
-    setSubmitting(true);
-    try {
-      await writeSale({
-        items: [],
-        amount,
-        paymentMethod: "banking",
-        note,
-      });
-      setCkAmount("");
-      setCkNote("");
-      showToast(
-        `Đã ghi CK · ${dayKey} · ${formatCurrency(amount)}`,
-        "success"
-      );
-    } catch (error) {
-      console.error(error);
-      showToast("Ghi CK thất bại — thử lại", "error");
     } finally {
       setSubmitting(false);
     }
@@ -353,139 +282,46 @@ export default function EmployeeDesk() {
   const displayName = profile?.name || profile?.username || "Nhân viên";
 
   return (
-    <AppShell
-      title="Thu tiền"
-      subtitle={displayName}
-      dense
-      employeeMode
-    >
-      <p className="mb-2 text-center text-xs font-semibold text-slate-500">
-        Chạm món = +1 ·{" "}
-        <span className="text-emerald-700">TM</span> /{" "}
-        <span className="text-brand-700">CK</span> = ghi ngay · CK có thể gõ số + chọn ngày
-      </p>
-
-      {/* Nhập CK theo ngày — gõ số tiền, chọn ngày */}
-      <section className="mb-3 rounded-[1.5rem] bg-white p-3 shadow-sm ring-1 ring-brand-100">
-        <button
-          type="button"
-          onClick={() => setShowCkForm((v) => !v)}
-          className="flex w-full items-center justify-between gap-2 text-left"
-        >
-          <span className="flex items-center gap-2 text-sm font-extrabold text-brand-900">
-            <CalendarDays className="h-4 w-4" aria-hidden />
-            Nhập CK theo ngày
-          </span>
-          <span className="text-xs font-semibold text-slate-400">
-            {showCkForm ? "Thu gọn" : "Mở"}
-          </span>
-        </button>
-
-        {showCkForm ? (
-          <div className="mt-3 space-y-2">
-            <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Ngày nhận CK
-              </span>
-              <input
-                type="date"
-                className="field-input"
-                max={todayInputValue()}
-                value={ckDate}
-                onChange={(e) => setCkDate(e.target.value || todayInputValue())}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Số tiền chuyển khoản
-              </span>
-              <input
-                type="text"
-                inputMode="numeric"
-                className="field-input money text-xl font-extrabold"
-                placeholder="0"
-                value={ckAmount}
-                onChange={(e) =>
-                  setCkAmount(e.target.value.replace(/[^\d]/g, ""))
-                }
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-bold uppercase tracking-wide text-slate-500">
-                Ghi chú (tuỳ chọn)
-              </span>
-              <input
-                type="text"
-                className="field-input"
-                placeholder="VD: CK khách / app NH"
-                value={ckNote}
-                onChange={(e) => setCkNote(e.target.value)}
-              />
-            </label>
-            <button
-              type="button"
-              disabled={submitting || !ckAmount}
-              onClick={recordCkTyped}
-              className="touch-btn h-12 w-full gap-2 bg-brand-700 text-sm font-extrabold text-white disabled:opacity-35"
-            >
-              {submitting ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <>
-                  <Smartphone className="h-5 w-5" aria-hidden />
-                  Ghi CK ngày {inputValueToDateKey(ckDate)}
-                </>
-              )}
-            </button>
-            <p className="text-[11px] font-medium text-slate-400">
-              Ngày này cũng áp dụng khi bấm CK trên món / giỏ bên dưới.
-            </p>
-          </div>
-        ) : (
-          <p className="mt-1 text-xs font-semibold text-slate-500">
-            Ngày CK đang chọn:{" "}
-            <span className="text-brand-800">{inputValueToDateKey(ckDate)}</span>
-          </p>
-        )}
-      </section>
-
-      {/* 4 nhóm sản phẩm */}
-      <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {groups.map((g) => {
-          const active = activeGroupId === g.id;
-          const count = countInGroup(g.id);
-          return (
-            <button
-              key={g.id}
-              type="button"
-              onClick={() => setActiveGroupId(g.id)}
-              className={cn(
-                "touch-btn min-h-[3.25rem] flex-col gap-0 px-2 py-2 text-sm font-extrabold leading-tight",
-                active
-                  ? "bg-brand-700 text-white shadow-md"
-                  : "bg-white text-slate-700 ring-1 ring-slate-200"
-              )}
-            >
-              <span className="truncate">{g.name}</span>
-              <span
+    <AppShell title="Thu tiền" subtitle={displayName} dense employeeMode>
+      {/* Nhóm SP — hàng gọn trên cùng */}
+      <div className="sticky top-0 z-10 -mx-1 mb-2 bg-slate-100/95 px-1 pb-2 pt-0.5 backdrop-blur-sm">
+        <div className="flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {groups.map((g) => {
+            const active = activeGroupId === g.id;
+            const count = countInGroup(g.id);
+            return (
+              <button
+                key={g.id}
+                type="button"
+                onClick={() => setActiveGroupId(g.id)}
                 className={cn(
-                  "text-[11px] font-semibold",
-                  active ? "text-white/80" : "text-slate-400"
+                  "touch-btn h-9 shrink-0 gap-1.5 px-3 text-xs font-extrabold",
+                  active
+                    ? "bg-brand-700 text-white shadow-sm"
+                    : "bg-white text-slate-700 ring-1 ring-slate-200"
                 )}
               >
-                {count} món
-              </span>
-            </button>
-          );
-        })}
+                <span className="whitespace-nowrap">{g.name}</span>
+                <span
+                  className={cn(
+                    "rounded-md px-1 text-[10px] font-bold",
+                    active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-500"
+                  )}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      <div className="flex flex-col gap-3 pb-2">
+      <div className="flex flex-col gap-2.5 pb-2">
         {loading
-          ? Array.from({ length: 3 }).map((_, i) => (
+          ? Array.from({ length: 4 }).map((_, i) => (
               <div
                 key={i}
-                className="h-28 animate-pulse rounded-[1.5rem] bg-white/80"
+                className="h-24 animate-pulse rounded-[1.25rem] bg-white/80"
               />
             ))
           : visibleProducts.map((product) => {
@@ -498,7 +334,7 @@ export default function EmployeeDesk() {
                 <div
                   key={product.id}
                   className={cn(
-                    "relative overflow-hidden rounded-[1.5rem] bg-white shadow-sm ring-1 transition duration-150",
+                    "relative overflow-hidden rounded-[1.25rem] bg-white shadow-sm ring-1 transition duration-150",
                     active
                       ? "ring-2 ring-brand-700 shadow-md"
                       : "ring-slate-200",
@@ -506,13 +342,12 @@ export default function EmployeeDesk() {
                   )}
                 >
                   <div className="flex items-stretch">
-                    {/* Vùng chạm chính: +1 */}
                     <button
                       type="button"
                       onClick={() => changeQty(product.id, 1)}
                       className={cn(
-                        "min-h-[7.5rem] flex-1 cursor-pointer px-4 py-3 text-left active:bg-brand-50/80",
-                        fewProducts && "min-h-[8.5rem] py-4"
+                        "min-h-[6.75rem] flex-1 cursor-pointer px-3.5 py-3 text-left active:bg-brand-50/80",
+                        fewProducts && "min-h-[8rem] py-4"
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
@@ -520,21 +355,18 @@ export default function EmployeeDesk() {
                           <p
                             className={cn(
                               "font-extrabold leading-tight text-slate-900",
-                              fewProducts ? "text-2xl" : "text-xl"
+                              fewProducts ? "text-2xl" : "text-lg"
                             )}
                           >
                             {product.name}
                           </p>
-                          <p className="money mt-1 text-lg font-bold text-brand-700">
+                          <p className="money mt-1 text-base font-bold text-brand-700">
                             <Money amount={price} />
-                          </p>
-                          <p className="mt-1 text-xs font-medium text-slate-400">
-                            Chạm để thêm
                           </p>
                         </div>
                         <div
                           className={cn(
-                            "flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl transition",
+                            "flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-2xl transition",
                             active
                               ? "bg-brand-700 text-white"
                               : "bg-slate-100 text-slate-500"
@@ -543,15 +375,14 @@ export default function EmployeeDesk() {
                           <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">
                             SL
                           </span>
-                          <span className="money text-3xl font-extrabold leading-none">
+                          <span className="money text-2xl font-extrabold leading-none">
                             {qty}
                           </span>
                         </div>
                       </div>
                     </button>
 
-                    {/* Cột thao tác nhanh: TM / CK / − */}
-                    <div className="flex w-[4.75rem] flex-col border-l border-slate-100">
+                    <div className="flex w-[4.5rem] flex-col border-l border-slate-100">
                       <button
                         type="button"
                         disabled={submitting}
@@ -575,7 +406,7 @@ export default function EmployeeDesk() {
                         aria-label={`Giảm ${product.name}`}
                         disabled={!qty || submitting}
                         onClick={() => changeQty(product.id, -1)}
-                        className="flex h-11 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
+                        className="flex h-10 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
                       >
                         <Minus className="h-5 w-5" />
                       </button>
@@ -587,21 +418,21 @@ export default function EmployeeDesk() {
       </div>
 
       {!loading && products.length === 0 ? (
-        <div className="rounded-[1.5rem] bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+        <div className="rounded-[1.25rem] bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
           Chưa có món. Nhờ quản lý thêm ở Món giá.
         </div>
       ) : null}
 
       {!loading && products.length > 0 && visibleProducts.length === 0 ? (
-        <div className="rounded-[1.5rem] bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
-          Nhóm này chưa có món. Chọn nhóm khác hoặc thêm món ở Món giá.
+        <div className="rounded-[1.25rem] bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
+          Nhóm này chưa có món. Chọn nhóm khác.
         </div>
       ) : null}
 
       {totalQty > 0 ? (
-        <div className="mt-3 rounded-2xl bg-brand-50 px-3 py-2 text-sm font-semibold text-brand-900 ring-1 ring-brand-100">
+        <div className="mt-2 rounded-xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-900 ring-1 ring-brand-100">
           {cartItems.map((item) => (
-            <span key={item.id} className="mr-3 inline-block">
+            <span key={item.id} className="mr-2.5 inline-block">
               {item.name} ×{item.qty}
             </span>
           ))}
@@ -611,7 +442,7 @@ export default function EmployeeDesk() {
       <button
         type="button"
         onClick={() => setShowHistory((v) => !v)}
-        className="mt-3 w-full py-2 text-center text-xs font-semibold text-slate-400"
+        className="mt-2 w-full py-1.5 text-center text-xs font-semibold text-slate-400"
       >
         {showHistory ? "Ẩn lịch sử" : "Lịch sử vừa thu"}
       </button>
@@ -632,7 +463,6 @@ export default function EmployeeDesk() {
                   })
                 : "—";
               const isCk = row.paymentMethod === "banking";
-              const dayLabel = row.businessDate || null;
               return (
                 <div
                   key={row.id}
@@ -643,7 +473,6 @@ export default function EmployeeDesk() {
                       {row.note || "Thu"}
                     </p>
                     <p className="text-xs text-slate-400">
-                      {dayLabel ? `${dayLabel} · ` : ""}
                       {timeLabel}
                       {" · "}
                       <span
@@ -672,29 +501,23 @@ export default function EmployeeDesk() {
           </p>
         </div>
       ) : (
-        <div className="h-52" aria-hidden />
+        <div className="h-44" aria-hidden />
       )}
 
-      {/* Thanh thu: Tiền mặt · Chuyển khoản · QR */}
-      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-[45] border-t border-slate-200 bg-white/95 px-3 py-3 shadow-[0_-10px_28px_rgba(15,23,42,0.1)] backdrop-blur-md">
+      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom,0px))] z-[45] border-t border-slate-200 bg-white/95 px-3 py-2.5 shadow-[0_-10px_28px_rgba(15,23,42,0.1)] backdrop-blur-md">
         <div className="mx-auto max-w-lg space-y-2">
-          <div className="flex items-end justify-between gap-2 px-1">
+          <div className="flex items-end justify-between px-1">
             <div>
               <p className="text-[11px] font-bold uppercase tracking-wide text-slate-500">
                 Cần thu
               </p>
-              <p className="money text-4xl font-extrabold leading-none text-slate-900">
+              <p className="money text-3xl font-extrabold leading-none text-slate-900">
                 <Money amount={total} />
               </p>
             </div>
-            <div className="pb-1 text-right">
-              <p className="text-base font-extrabold text-slate-600">
-                {totalQty > 0 ? `${totalQty} phần` : "Chạm món"}
-              </p>
-              <p className="text-[11px] font-bold text-brand-700">
-                CK → {inputValueToDateKey(ckDate)}
-              </p>
-            </div>
+            <p className="pb-0.5 text-sm font-extrabold text-slate-600">
+              {totalQty > 0 ? `${totalQty} phần` : "Chạm món"}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
@@ -702,13 +525,13 @@ export default function EmployeeDesk() {
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => recordSale("cash")}
-              className="touch-btn h-[3.75rem] gap-2 bg-emerald-600 text-base text-white disabled:opacity-35"
+              className="touch-btn h-[3.5rem] gap-2 bg-emerald-600 text-base text-white disabled:opacity-35"
             >
               {submitting ? (
                 <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <>
-                  <Banknote className="h-6 w-6" aria-hidden />
+                  <Banknote className="h-5 w-5" aria-hidden />
                   <span className="font-extrabold">Tiền mặt</span>
                 </>
               )}
@@ -717,14 +540,14 @@ export default function EmployeeDesk() {
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => recordSale("banking")}
-              className="touch-btn h-[3.75rem] gap-2 bg-brand-700 text-base text-white disabled:opacity-35"
+              className="touch-btn h-[3.5rem] gap-2 bg-brand-700 text-base text-white disabled:opacity-35"
             >
               {submitting ? (
                 <Loader2 className="h-6 w-6 animate-spin" />
               ) : (
                 <>
-                  <Smartphone className="h-6 w-6" aria-hidden />
-                  <span className="font-extrabold">Chuyển khoản</span>
+                  <Smartphone className="h-5 w-5" aria-hidden />
+                  <span className="font-extrabold">CK (giỏ)</span>
                 </>
               )}
             </button>
@@ -733,11 +556,10 @@ export default function EmployeeDesk() {
             type="button"
             disabled={submitting || totalQty === 0}
             onClick={() => setShowQr(true)}
-            className="touch-btn h-11 w-full gap-2 border border-brand-200 bg-brand-50 text-sm font-bold text-brand-900 disabled:opacity-35"
+            className="touch-btn h-10 w-full gap-2 border border-brand-200 bg-brand-50 text-sm font-bold text-brand-900 disabled:opacity-35"
           >
-            <QrCode className="h-5 w-5" aria-hidden />
+            <QrCode className="h-4 w-4" aria-hidden />
             Hiện QR rồi ghi CK
-            {hasManagerAccess ? " (tuỳ chọn)" : ""}
           </button>
         </div>
       </div>
@@ -757,9 +579,6 @@ export default function EmployeeDesk() {
                 </h2>
                 <p className="money mt-1 text-2xl font-extrabold text-brand-800">
                   <Money amount={total} />
-                </p>
-                <p className="mt-1 text-xs font-semibold text-brand-700">
-                  Ghi CK vào ngày {inputValueToDateKey(ckDate)}
                 </p>
               </div>
               <button

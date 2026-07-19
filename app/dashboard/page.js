@@ -30,6 +30,7 @@ import {
   Percent,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import BankingByDateForm from "@/components/BankingByDateForm";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { DiscrepancyBadge, Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
@@ -193,7 +194,7 @@ function DashboardContent() {
           >
             <span className="flex items-center gap-2">
               <ClipboardCheck className="h-5 w-5" aria-hidden />
-              Chốt ca · nhập TM & CK thực tế
+              Chốt ca · tồn kho & quỹ thực tế
             </span>
             <span className="text-sm font-medium text-white/80">Mở →</span>
           </Link>
@@ -225,6 +226,10 @@ function DashboardContent() {
           </Link>
         ) : null}
       </div>
+
+      {canCloseShift ? (
+        <BankingByDateForm className="mb-4" />
+      ) : null}
 
       {/* Tổng kết TM / CK — luôn hiện */}
       <section className="mb-4 space-y-3">
