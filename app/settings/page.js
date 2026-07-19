@@ -33,8 +33,9 @@ function SettingsContent() {
     profile,
     logout,
     changePassword,
-    isManager,
+    canManageShop,
     canManageUsers,
+    canManageEmployees,
     canOperateShop,
     user,
   } = useAuth();
@@ -257,6 +258,14 @@ function SettingsContent() {
           <UserCog className="h-5 w-5" />
           Admin — Quản lý người dùng
         </Link>
+      ) : canManageEmployees ? (
+        <Link
+          href="/admin/users"
+          className="touch-btn mb-4 h-14 w-full gap-2 bg-emerald-700 text-white"
+        >
+          <UserCog className="h-5 w-5" />
+          Quản lý nhân viên / người dùng
+        </Link>
       ) : null}
 
       <section className="card-panel mb-4 space-y-3">
@@ -276,7 +285,7 @@ function SettingsContent() {
         </button>
       </section>
 
-      {isManager ? (
+      {canManageShop ? (
         <>
           <section className="card-panel mb-4 space-y-3">
             <h2 className="font-bold">Dữ liệu mẫu</h2>

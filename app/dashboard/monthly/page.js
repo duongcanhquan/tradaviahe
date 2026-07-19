@@ -42,7 +42,7 @@ function parseMonthInput(value) {
 }
 
 function MonthlyContent() {
-  const { isManager } = useAuth();
+  const { canManageShop } = useAuth();
   const { showToast } = useToast();
   const now = new Date();
   const [monthValue, setMonthValue] = useState(
@@ -142,7 +142,7 @@ function MonthlyContent() {
           />
         </label>
 
-        {isManager ? (
+        {canManageShop ? (
           <Link
             href="/dashboard/settings"
             className="touch-btn h-12 w-full gap-2 border border-slate-200 bg-slate-50 text-slate-800"

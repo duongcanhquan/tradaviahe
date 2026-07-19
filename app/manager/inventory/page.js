@@ -262,7 +262,7 @@ function InventoryContent() {
 
 export default function InventoryPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "employee"]}>
+    <ProtectedRoute allowRoles={["manager", "employee", "investor"]}>
       <InventoryContent />
     </ProtectedRoute>
   );

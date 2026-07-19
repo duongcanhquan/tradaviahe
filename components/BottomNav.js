@@ -9,19 +9,30 @@ import {
   Settings,
   UserCog,
   Landmark,
-  CalendarDays,
+  Users,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-const shopOpsLinks = [
+/** Quản lý: vận hành + đối soát + vốn + nhân viên */
+const managerLinks = [
   { href: "/manager/pos", label: "POS", icon: Store },
   { href: "/manager/inventory", label: "Chốt Ca", icon: ClipboardCheck },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
+  { href: "/admin/users", label: "Nhân viên", icon: Users },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
+/** Chủ đầu tư: toàn hệ thống (không gồm Admin MK) */
+const investorLinks = [
+  { href: "/manager/pos", label: "POS", icon: Store },
+  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
+  { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
+  { href: "/admin/users", label: "Người dùng", icon: Users },
+  { href: "/settings", label: "Cài đặt", icon: Settings },
+];
+
+/** Super Admin: + Admin người dùng */
 const superAdminLinks = [
   { href: "/admin/users", label: "Admin", icon: UserCog },
   { href: "/manager/pos", label: "POS", icon: Store },
@@ -36,18 +47,12 @@ const employeeLinks = [
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
-const investorLinks = [
-  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/dashboard/monthly", label: "Tháng", icon: CalendarDays },
-  { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
-  { href: "/settings", label: "Cài đặt", icon: Settings },
-];
-
 function linksForRole(role) {
   if (role === "superadmin") return superAdminLinks;
   if (role === "investor") return investorLinks;
   if (role === "employee") return employeeLinks;
-  return shopOpsLinks;
+  if (role === "manager") return managerLinks;
+  return managerLinks;
 }
 
 export default function BottomNav() {

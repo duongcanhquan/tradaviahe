@@ -32,7 +32,7 @@ import { formatCurrency } from "@/lib/utils";
 
 function DashboardContent() {
   const { showToast } = useToast();
-  const { isManager } = useAuth();
+  const { canManageShop } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -160,7 +160,7 @@ function DashboardContent() {
           <span className="text-sm font-medium text-white/80">Mở →</span>
         </Link>
 
-        {isManager ? (
+        {canManageShop ? (
           <Link
             href="/dashboard/settings"
             className="touch-btn h-12 w-full justify-between border border-slate-200 bg-white px-5 text-slate-800"

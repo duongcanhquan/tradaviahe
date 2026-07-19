@@ -5,7 +5,9 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebas
 import { auth } from "@/lib/firebase";
 import { ensureUserProfile } from "@/lib/users";
 import {
+  canManageEmployees,
   canManageShop,
+  canManageSystem,
   canManageUsers,
   canOperateShop,
   canViewDashboard,
@@ -80,10 +82,13 @@ export function AuthProvider({ children }) {
       logout,
       changePassword,
       isSuperAdmin: role === "superadmin",
-      isManager: role === "manager" || role === "superadmin",
+      /** Chỉ đúng role quản lý (không gồm SA/investor) */
+      isManager: role === "manager",
       isEmployee: role === "employee",
       isInvestor: role === "investor",
       canManageUsers: canManageUsers(role),
+      canManageEmployees: canManageEmployees(role),
+      canManageSystem: canManageSystem(role),
       canManageShop: canManageShop(role),
       canOperateShop: canOperateShop(role),
       canViewDashboard: canViewDashboard(role),

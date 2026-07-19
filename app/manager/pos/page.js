@@ -365,7 +365,7 @@ function PosContent() {
 
 export default function PosPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "employee"]}>
+    <ProtectedRoute allowRoles={["manager", "employee", "investor"]}>
       <PosContent />
     </ProtectedRoute>
   );

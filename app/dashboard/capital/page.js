@@ -49,7 +49,7 @@ function formatInvestmentDate(row) {
 }
 
 function CapitalContent() {
-  const { user, isManager } = useAuth();
+  const { user, canManageShop } = useAuth();
   const { showToast } = useToast();
 
   const [investments, setInvestments] = useState([]);
@@ -158,11 +158,11 @@ function CapitalContent() {
 
   return (
     <AppShell title="Vốn góp" subtitle="Cổ phần · Tiền mặt · Thiết bị">
-      {isManager ? (
+      {canManageShop ? (
         <section className="card-panel mb-4 space-y-4">
           <div className="flex items-center gap-2">
             <Landmark className="h-5 w-5 text-brand-700" aria-hidden />
-            <h2 className="section-title">Nhập vốn góp</h2>
+            <h2 className="section-title">Nhập tiền / vốn góp</h2>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-3">

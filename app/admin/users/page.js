@@ -31,8 +31,9 @@ import {
   updateManagedUser,
 } from "@/lib/users";
 import {
-  QUICK_ADD_ROLES,
-  ROLE_OPTIONS,
+  assignableRolesFor,
+  canEditTargetUser,
+  quickAddRolesFor,
   roleLabel,
 } from "@/lib/roles";
 import { cn } from "@/lib/utils";
@@ -75,7 +76,13 @@ function PasswordReveal({ value }) {
 }
 
 function AdminUsersContent() {
-  const { user, profile, isSuperAdmin } = useAuth();
+  const {
+    user,
+    profile,
+    role: actorRole,
+    isSuperAdmin,
+    canManageUsers,
+  } = useAuth();
   const { showToast } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -87,6 +94,12 @@ function AdminUsersContent() {
   const [deletingId, setDeletingId] = useState(null);
   const [resettingId, setResettingId] = useState(null);
   const [resettingAll, setResettingAll] = useState(false);
+
+  const roleOptions = useMemo(
+    () => assignableRolesFor(actorRole),
+    [actorRole]
+  );
+  const quickAdds = useMemo(() => quickAddRolesFor(actorRole), [actorRole]);
 
   useEffect(() => {
     const unsub = subscribeUsers(
@@ -103,25 +116,33 @@ function AdminUsersContent() {
     return () => unsub();
   }, [showToast]);
 
+  /** Quản lý chỉ thấy nhân viên; Chủ ĐT/SA thấy theo quyền sửa */
+  const visibleUsers = useMemo(() => {
+    return users.filter((u) => canEditTargetUser(actorRole, u.role) || (u.uid || u.id) === user?.uid);
+  }, [actorRole, user?.uid, users]);
+
   const filtered = useMemo(() => {
-    if (filter === "all") return users;
-    return users.filter((u) => u.role === filter);
-  }, [filter, users]);
+    if (filter === "all") return visibleUsers;
+    return visibleUsers.filter((u) => u.role === filter);
+  }, [filter, visibleUsers]);
 
   const counts = useMemo(
     () => ({
-      all: users.length,
-      superadmin: users.filter((u) => u.role === "superadmin").length,
-      manager: users.filter((u) => u.role === "manager").length,
-      employee: users.filter((u) => u.role === "employee").length,
-      investor: users.filter((u) => u.role === "investor").length,
+      all: visibleUsers.length,
+      superadmin: visibleUsers.filter((u) => u.role === "superadmin").length,
+      manager: visibleUsers.filter((u) => u.role === "manager").length,
+      employee: visibleUsers.filter((u) => u.role === "employee").length,
+      investor: visibleUsers.filter((u) => u.role === "investor").length,
     }),
-    [users]
+    [visibleUsers]
   );
 
   const openCreate = (role = "employee") => {
+    const allowed = roleOptions.some((r) => r.value === role)
+      ? role
+      : roleOptions[0]?.value || "employee";
     setEditing(null);
-    setForm({ ...emptyForm, role });
+    setForm({ ...emptyForm, role: allowed });
     setModalOpen(true);
   };
 
@@ -171,7 +192,7 @@ function AdminUsersContent() {
               phone: form.phone,
               note: form.note,
             },
-            { currentUserId: user.uid, users }
+            { currentUserId: user.uid, users, actorRole }
           );
         } else {
           await updateManagedUser(
@@ -182,7 +203,7 @@ function AdminUsersContent() {
               phone: form.phone,
               note: form.note,
             },
-            { currentUserId: user.uid, users }
+            { currentUserId: user.uid, users, actorRole }
           );
         }
         showToast("Đã cập nhật người dùng", "success");
@@ -195,6 +216,7 @@ function AdminUsersContent() {
           phone: form.phone,
           note: form.note,
           createdBy: user.uid,
+          actorRole,
         });
         showToast(`Đã thêm ${roleLabel(form.role)}`, "success");
       }
@@ -233,7 +255,11 @@ function AdminUsersContent() {
 
     setDeletingId(id);
     try {
-      await deleteManagedUser(id, { users, currentUserId: user.uid });
+      await deleteManagedUser(id, {
+        users,
+        currentUserId: user.uid,
+        actorRole,
+      });
       showToast("Đã xóa người dùng", "success");
     } catch (error) {
       console.error(error);
@@ -244,6 +270,7 @@ function AdminUsersContent() {
   };
 
   const handleResetOne = async (row) => {
+    if (!canManageUsers) return;
     const id = row.uid || row.id;
     const username = row.username || row.email?.split("@")[0] || "";
     const next = defaultPasswordForUsername(username);
@@ -254,7 +281,7 @@ function AdminUsersContent() {
 
     setResettingId(id);
     try {
-      await resetManagedUserPassword(id, next, { users });
+      await resetManagedUserPassword(id, next, { users, actorRole });
       showToast(`Đã reset MK → ${next}`, "success");
     } catch (error) {
       console.error(error);
@@ -265,6 +292,7 @@ function AdminUsersContent() {
   };
 
   const handleResetAll = async () => {
+    if (!canManageUsers) return;
     const ok = window.confirm(
       `Reset mật khẩu TẤT CẢ ${users.length} tài khoản về tên đăng nhập (hoặc tên+số nếu <6 ký tự)?\nKhông thể hoàn tác.`
     );
@@ -272,7 +300,7 @@ function AdminUsersContent() {
 
     setResettingAll(true);
     try {
-      const result = await resetAllManagedPasswords({ users });
+      const result = await resetAllManagedPasswords({ users, actorRole });
       if (result.failed.length === 0) {
         showToast(`Đã reset ${result.ok.length} mật khẩu`, "success");
       } else {
@@ -289,8 +317,33 @@ function AdminUsersContent() {
     }
   };
 
+  const pageTitle = canManageUsers
+    ? "Admin"
+    : actorRole === "manager"
+      ? "Nhân viên"
+      : "Người dùng";
+  const pageSubtitle = canManageUsers
+    ? "Phân quyền · Xem/reset mật khẩu"
+    : actorRole === "manager"
+      ? "Thêm · Sửa · Xóa nhân viên"
+      : "Quản lý toàn hệ thống";
+
+  const filterTabs = [
+    { key: "all", label: "Tất cả", count: counts.all },
+    ...(canManageUsers
+      ? [{ key: "superadmin", label: "Super", count: counts.superadmin }]
+      : []),
+    ...(canManageUsers || actorRole === "investor"
+      ? [
+          { key: "manager", label: "Quản lý", count: counts.manager },
+          { key: "investor", label: "Chủ ĐT", count: counts.investor },
+        ]
+      : []),
+    { key: "employee", label: "Nhân viên", count: counts.employee },
+  ];
+
   return (
-    <AppShell title="Admin" subtitle="Phân quyền · Nhân viên · Chủ đầu tư">
+    <AppShell title={pageTitle} subtitle={pageSubtitle}>
       {isSuperAdmin ? (
         <div className="card-panel mb-4 flex items-start gap-3 border-violet-200 bg-violet-50">
           <Crown className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" aria-hidden />
@@ -298,30 +351,41 @@ function AdminUsersContent() {
             <p className="font-bold text-violet-900">Bạn là Super Admin duy nhất</p>
             <p className="mt-1 text-violet-800/80">
               {profile?.name || profile?.username} — xem mật khẩu, reset từng
-              người hoặc reset tất cả. Đăng nhập chỉ cần tên tài khoản + mật khẩu.
+              người hoặc reset tất cả. Quản lý toàn bộ người dùng.
             </p>
           </div>
         </div>
+      ) : actorRole === "investor" ? (
+        <div className="card-panel mb-4 border-amber-200 bg-amber-50 text-sm text-amber-900">
+          <p className="font-bold">Chủ đầu tư — quản lý toàn hệ thống</p>
+          <p className="mt-1 text-amber-800/80">
+            Thêm/sửa quản lý, nhân viên, chủ đầu tư. Xem vốn đầu tư ban đầu ở mục Vốn.
+            Quyền xem/reset mật khẩu thuộc Super Admin.
+          </p>
+        </div>
+      ) : actorRole === "manager" ? (
+        <div className="card-panel mb-4 border-brand-100 bg-brand-50 text-sm text-brand-900">
+          <p className="font-bold">Quản lý — nhân viên & vận hành</p>
+          <p className="mt-1 text-brand-800/80">
+            Nhập/xuất hàng, chi tiêu, nhập tiền, và quản lý nhân viên.
+          </p>
+        </div>
       ) : null}
 
-      <button
-        type="button"
-        disabled={resettingAll || users.length === 0}
-        onClick={handleResetAll}
-        className="touch-btn mb-4 h-12 w-full gap-2 border border-rose-200 bg-rose-50 text-rose-800 disabled:opacity-40"
-      >
-        <RefreshCw className={cn("h-5 w-5", resettingAll && "animate-spin")} />
-        {resettingAll ? "Đang reset tất cả..." : "Reset tất cả mật khẩu"}
-      </button>
+      {canManageUsers ? (
+        <button
+          type="button"
+          disabled={resettingAll || users.length === 0}
+          onClick={handleResetAll}
+          className="touch-btn mb-4 h-12 w-full gap-2 border border-rose-200 bg-rose-50 text-rose-800 disabled:opacity-40"
+        >
+          <RefreshCw className={cn("h-5 w-5", resettingAll && "animate-spin")} />
+          {resettingAll ? "Đang reset tất cả..." : "Reset tất cả mật khẩu"}
+        </button>
+      ) : null}
 
       <section className="mb-4 grid grid-cols-2 gap-2">
-        {[
-          { key: "all", label: "Tất cả", count: counts.all },
-          { key: "superadmin", label: "Super", count: counts.superadmin },
-          { key: "manager", label: "Quản lý", count: counts.manager },
-          { key: "employee", label: "Nhân viên", count: counts.employee },
-          { key: "investor", label: "Chủ ĐT", count: counts.investor },
-        ].map((item) => (
+        {filterTabs.map((item) => (
           <button
             key={item.key}
             type="button"
@@ -343,7 +407,7 @@ function AdminUsersContent() {
       <section className="mb-4 space-y-2">
         <p className="text-sm font-semibold text-slate-700">Thêm nhanh theo loại</p>
         <div className="grid grid-cols-1 gap-2">
-          {QUICK_ADD_ROLES.map((item) => (
+          {quickAdds.map((item) => (
             <button
               key={item.value}
               type="button"
@@ -393,6 +457,7 @@ function AdminUsersContent() {
             const id = row.uid || row.id;
             const isSelf = id === user.uid;
             const isSA = row.role === "superadmin";
+            const canEdit = canEditTargetUser(actorRole, row.role);
             const username = row.username || row.email?.split("@")[0] || "—";
             return (
               <article key={id} className="card-panel space-y-3">
@@ -409,10 +474,12 @@ function AdminUsersContent() {
                     <p className="truncate text-sm text-slate-500">
                       @{username}
                     </p>
-                    <div className="mt-1 flex items-center gap-2 text-slate-600">
-                      <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
-                      <PasswordReveal value={row.password} />
-                    </div>
+                    {canManageUsers ? (
+                      <div className="mt-1 flex items-center gap-2 text-slate-600">
+                        <KeyRound className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                        <PasswordReveal value={row.password} />
+                      </div>
+                    ) : null}
                     {row.phone ? (
                       <p className="text-xs text-slate-400">{row.phone}</p>
                     ) : null}
@@ -432,27 +499,37 @@ function AdminUsersContent() {
                   <p className="text-xs text-slate-500">{row.note}</p>
                 ) : null}
 
-                <div className="grid grid-cols-3 gap-2">
+                <div
+                  className={cn(
+                    "grid gap-2",
+                    canManageUsers ? "grid-cols-3" : "grid-cols-2"
+                  )}
+                >
                   <button
                     type="button"
+                    disabled={!canEdit}
                     onClick={() => openEdit(row)}
-                    className="touch-btn h-12 gap-1 bg-slate-900 text-white"
+                    className="touch-btn h-12 gap-1 bg-slate-900 text-white disabled:opacity-40"
                   >
                     <Pencil className="h-4 w-4" />
                     Sửa
                   </button>
+                  {canManageUsers ? (
+                    <button
+                      type="button"
+                      disabled={resettingId === id}
+                      onClick={() => handleResetOne(row)}
+                      className="touch-btn h-12 gap-1 bg-amber-600 text-white disabled:opacity-40"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      {resettingId === id ? "..." : "Reset MK"}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
-                    disabled={resettingId === id}
-                    onClick={() => handleResetOne(row)}
-                    className="touch-btn h-12 gap-1 bg-amber-600 text-white disabled:opacity-40"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    {resettingId === id ? "..." : "Reset MK"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isSelf || isSA || deletingId === id}
+                    disabled={
+                      isSelf || isSA || !canEdit || deletingId === id
+                    }
                     onClick={() => handleDelete(row)}
                     className="touch-btn h-12 gap-1 bg-rose-600 text-white disabled:opacity-40"
                   >
@@ -511,7 +588,7 @@ function AdminUsersContent() {
                     Vai trò / quyền
                   </span>
                   <div className="space-y-2">
-                    {ROLE_OPTIONS.map((opt) => (
+                    {roleOptions.map((opt) => (
                       <button
                         key={opt.value}
                         type="button"
@@ -577,15 +654,23 @@ function AdminUsersContent() {
                     Tên đăng nhập:{" "}
                     <strong className="text-slate-900">@{form.username}</strong>
                   </p>
-                  <p className="mt-1">
-                    Mật khẩu:{" "}
-                    <strong className="font-mono text-slate-900">
-                      {form.password || "—"}
-                    </strong>
-                  </p>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Dùng nút Reset MK trên danh sách để đặt lại mật khẩu.
-                  </p>
+                  {canManageUsers ? (
+                    <>
+                      <p className="mt-1">
+                        Mật khẩu:{" "}
+                        <strong className="font-mono text-slate-900">
+                          {form.password || "—"}
+                        </strong>
+                      </p>
+                      <p className="mt-2 text-xs text-slate-500">
+                        Dùng nút Reset MK trên danh sách để đặt lại mật khẩu.
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-slate-500">
+                      Chỉ Super Admin xem/reset được mật khẩu.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -638,7 +723,7 @@ function AdminUsersContent() {
 
 export default function AdminUsersPage() {
   return (
-    <ProtectedRoute allowRoles={["superadmin"]}>
+    <ProtectedRoute allowRoles={["superadmin", "investor", "manager"]}>
       <AdminUsersContent />
     </ProtectedRoute>
   );
