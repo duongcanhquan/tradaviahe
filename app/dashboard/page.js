@@ -8,11 +8,14 @@ import {
   endOfMonth,
   startOfDay,
   endOfDay,
+  startOfWeek,
+  endOfWeek,
   subDays,
   format,
   parse,
   isValid,
 } from "date-fns";
+import { vi } from "date-fns/locale";
 import {
   LineChart,
   Line,
@@ -38,7 +41,24 @@ import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
 import { isGoodsIncome, sumGoodsIncomeByMethod } from "@/lib/receipts";
-import { formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
+
+const REVENUE_PERIODS = [
+  { id: "day", label: "Ngày" },
+  { id: "week", label: "Tuần" },
+  { id: "month", label: "Tháng" },
+];
+
+function txTimeMs(t) {
+  return t?.timestamp?.toMillis?.() ?? 0;
+}
+
+function filterTxInRange(rows, from, to) {
+  return rows.filter((t) => {
+    const ms = txTimeMs(t);
+    return ms >= from && ms <= to;
+  });
+}
 
 function DashboardContent() {
   const { showToast } = useToast();
@@ -48,33 +68,21 @@ function DashboardContent() {
     canManageSystem,
     canCloseShift,
   } = useAuth();
-  const [transactions, setTransactions] = useState([]);
-  const [allMonthTx, setAllMonthTx] = useState([]);
+  const [allTx, setAllTx] = useState([]);
   const [reports, setReports] = useState([]);
   const [loadingTx, setLoadingTx] = useState(true);
   const [loadingReports, setLoadingReports] = useState(true);
+  const [period, setPeriod] = useState("day");
 
   useEffect(() => {
-    const monthStart = startOfMonth(new Date()).getTime();
-    const monthEnd = endOfMonth(new Date()).getTime();
-
     // Không orderBy — tránh kẹt khi thiếu index / field
     const unsubTx = onSnapshot(
       collection(db, "transactions"),
       (snap) => {
-        const rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        const inMonth = rows
-          .filter((t) => {
-            const ms = t.timestamp?.toMillis?.() ?? 0;
-            return ms >= monthStart && ms <= monthEnd;
-          })
-          .sort(
-            (a, b) =>
-              (b.timestamp?.toMillis?.() || 0) -
-              (a.timestamp?.toMillis?.() || 0)
-          );
-        setAllMonthTx(inMonth);
-        setTransactions(inMonth);
+        const rows = snap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => txTimeMs(b) - txTimeMs(a));
+        setAllTx(rows);
         setLoadingTx(false);
       },
       (error) => {
@@ -111,28 +119,64 @@ function DashboardContent() {
     };
   }, [showToast]);
 
-  const loading = loadingTx || loadingReports;
+  const ranges = useMemo(() => {
+    const now = new Date();
+    const weekFrom = startOfWeek(now, { weekStartsOn: 1 });
+    const weekTo = endOfWeek(now, { weekStartsOn: 1 });
+    return {
+      day: {
+        from: startOfDay(now).getTime(),
+        to: endOfDay(now).getTime(),
+        label: format(now, "EEEE dd/MM", { locale: vi }),
+        shortLabel: "Hôm nay",
+      },
+      week: {
+        from: weekFrom.getTime(),
+        to: weekTo.getTime(),
+        label: `${format(weekFrom, "dd/MM")} – ${format(weekTo, "dd/MM")}`,
+        shortLabel: "Tuần này",
+      },
+      month: {
+        from: startOfMonth(now).getTime(),
+        to: endOfMonth(now).getTime(),
+        label: format(now, "MM/yyyy"),
+        shortLabel: "Tháng này",
+      },
+    };
+  }, []);
 
-  const goodsMonth = useMemo(
-    () => sumGoodsIncomeByMethod(transactions),
-    [transactions]
+  const goodsByPeriod = useMemo(() => {
+    return {
+      day: sumGoodsIncomeByMethod(
+        filterTxInRange(allTx, ranges.day.from, ranges.day.to)
+      ),
+      week: sumGoodsIncomeByMethod(
+        filterTxInRange(allTx, ranges.week.from, ranges.week.to)
+      ),
+      month: sumGoodsIncomeByMethod(
+        filterTxInRange(allTx, ranges.month.from, ranges.month.to)
+      ),
+    };
+  }, [allTx, ranges]);
+
+  const selectedGoods = goodsByPeriod[period] || goodsByPeriod.day;
+  const selectedRange = ranges[period] || ranges.day;
+
+  const monthTx = useMemo(
+    () => filterTxInRange(allTx, ranges.month.from, ranges.month.to),
+    [allTx, ranges]
   );
 
-  const goodsToday = useMemo(() => {
-    const from = startOfDay(new Date()).getTime();
-    const to = endOfDay(new Date()).getTime();
-    const todayRows = allMonthTx.filter((t) => {
-      const ms = t.timestamp?.toMillis?.() ?? 0;
-      return ms >= from && ms <= to;
-    });
-    return sumGoodsIncomeByMethod(todayRows);
-  }, [allMonthTx]);
+  const periodTx = useMemo(
+    () => filterTxInRange(allTx, selectedRange.from, selectedRange.to),
+    [allTx, selectedRange]
+  );
 
   const totals = useMemo(() => {
-    const income = transactions
+    const income = monthTx
       .filter((t) => t.type === "income")
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    const expense = transactions
+    const expense = monthTx
       .filter((t) => t.type === "expense")
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
     return {
@@ -140,7 +184,7 @@ function DashboardContent() {
       expense,
       profit: income - expense,
     };
-  }, [transactions]);
+  }, [monthTx]);
 
   const chartData = useMemo(() => {
     return Array.from({ length: 7 }).map((_, index) => {
@@ -161,12 +205,12 @@ function DashboardContent() {
   const sortedReports = useMemo(() => reports.slice(0, 12), [reports]);
 
   const recentIncome = useMemo(() => {
-    return transactions
+    return periodTx
       .filter((t) =>
         canViewDividends ? t.type === "income" : isGoodsIncome(t)
       )
       .slice(0, 15);
-  }, [transactions, canViewDividends]);
+  }, [periodTx, canViewDividends]);
 
   return (
     <AppShell
@@ -227,53 +271,73 @@ function DashboardContent() {
         ) : null}
       </div>
 
-      {canCloseShift ? (
-        <BankingByDateForm className="mb-4" />
-      ) : null}
-
-      {/* Tổng kết TM / CK — luôn hiện */}
+      {/* Doanh thu nhanh: Ngày / Tuần / Tháng */}
       <section className="mb-4 space-y-3">
-        <h2 className="section-title">Thu hàng hóa · tiền mặt & CK</h2>
+        <h2 className="section-title">Doanh thu hàng hóa</h2>
+        <p className="text-xs text-slate-500">
+          Bấm Ngày · Tuần · Tháng để xem tổng tiền ngay
+        </p>
+
+        <div className="grid grid-cols-3 gap-2">
+          {REVENUE_PERIODS.map((item) => {
+            const active = period === item.id;
+            const total = loadingTx ? 0 : goodsByPeriod[item.id].total;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setPeriod(item.id)}
+                className={cn(
+                  "touch-btn min-h-[4.75rem] flex-col gap-1 px-2 py-2.5 text-center",
+                  active
+                    ? "bg-emerald-600 text-white shadow-md"
+                    : "bg-white text-slate-800 ring-1 ring-slate-200"
+                )}
+              >
+                <span
+                  className={cn(
+                    "text-xs font-extrabold uppercase tracking-wide",
+                    active ? "text-white/85" : "text-slate-500"
+                  )}
+                >
+                  {item.label}
+                </span>
+                <span
+                  className={cn(
+                    "money text-sm font-extrabold leading-tight sm:text-base",
+                    active ? "text-white" : "text-emerald-700"
+                  )}
+                >
+                  <Money amount={total} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
         <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-5 text-white shadow-md">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
-            Hôm nay
+            {selectedRange.shortLabel}
           </p>
-          <p className="money mt-1 text-3xl font-extrabold leading-none">
-            <Money amount={loadingTx ? 0 : goodsToday.total} />
+          <p className="mt-0.5 text-sm font-semibold capitalize text-white/90">
+            {selectedRange.label}
+          </p>
+          <p className="money mt-2 text-4xl font-extrabold leading-none">
+            <Money amount={loadingTx ? 0 : selectedGoods.total} />
           </p>
           <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
             <div className="rounded-xl bg-white/15 px-3 py-2">
               <p className="text-white/75">Tiền mặt</p>
               <p className="money font-extrabold">
-                <Money amount={loadingTx ? 0 : goodsToday.cash} />
+                <Money amount={loadingTx ? 0 : selectedGoods.cash} />
               </p>
             </div>
             <div className="rounded-xl bg-white/15 px-3 py-2">
               <p className="text-white/75">Chuyển khoản</p>
               <p className="money font-extrabold">
-                <Money amount={loadingTx ? 0 : goodsToday.banking} />
+                <Money amount={loadingTx ? 0 : selectedGoods.banking} />
               </p>
             </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-2">
-          <StatCard
-            label="Tổng thu hàng hóa tháng này"
-            value={loadingTx ? 0 : goodsMonth.total}
-            tone="success"
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <StatCard
-              label="TM tháng"
-              value={loadingTx ? 0 : goodsMonth.cash}
-              tone="brand"
-            />
-            <StatCard
-              label="CK tháng"
-              value={loadingTx ? 0 : goodsMonth.banking}
-              tone="brand"
-            />
           </div>
         </div>
 
@@ -297,10 +361,14 @@ function DashboardContent() {
           </div>
         ) : (
           <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
-            Quản lý xem thu hàng hóa (TM/CK). Cổ tức / chia lãi thuộc Cổ đông.
+            Quản lý xem doanh thu hàng hóa (TM/CK) theo ngày / tuần / tháng.
           </p>
         )}
       </section>
+
+      {canCloseShift ? (
+        <BankingByDateForm className="mb-4" />
+      ) : null}
 
       <section className="card-panel mb-4">
         <h2 className="section-title mb-1">Chênh lệch chốt ca · 7 ngày</h2>
@@ -398,12 +466,14 @@ function DashboardContent() {
       </section>
 
       <section className="mb-6 space-y-3">
-        <h2 className="section-title">Thu gần đây · TM / CK</h2>
+        <h2 className="section-title">
+          Thu gần đây · {selectedRange.shortLabel}
+        </h2>
         {loadingTx ? (
           <div className="card-panel h-20 animate-pulse bg-white/80" />
         ) : recentIncome.length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
-            Chưa có khoản thu tháng này. Vào Thu tiền → ghi TM hoặc CK.
+            Chưa có khoản thu trong kỳ này. Vào Thu tiền → ghi TM hoặc CK.
           </div>
         ) : (
           recentIncome.map((row) => {
