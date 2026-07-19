@@ -9,21 +9,15 @@ import {
   query,
   serverTimestamp,
 } from "firebase/firestore";
-import {
-  Minus,
-  Plus,
-  ShoppingCart,
-  Banknote,
-  QrCode,
-  X,
-  Loader2,
-} from "lucide-react";
+import { Minus, Plus, ShoppingCart, Banknote, QrCode, X, Loader2 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
+import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
+import { subscribeGlobalSettings } from "@/lib/settings";
 import { cn, dateInfoCode } from "@/lib/utils";
 
 function PosContent() {
@@ -35,6 +29,7 @@ function PosContent() {
   const [submitting, setSubmitting] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [tab, setTab] = useState("menu");
+  const [bank, setBank] = useState(DEFAULT_BANK);
 
   useEffect(() => {
     const q = query(collection(db, "products"), orderBy("name"));
@@ -52,6 +47,14 @@ function PosContent() {
     );
     return () => unsub();
   }, [showToast]);
+
+  useEffect(() => {
+    const unsub = subscribeGlobalSettings(
+      (settings) => setBank(settings.bank),
+      () => setBank(DEFAULT_BANK)
+    );
+    return () => unsub();
+  }, []);
 
   const cartItems = useMemo(() => {
     return products
@@ -113,7 +116,11 @@ function PosContent() {
     }
   };
 
-  const qrUrl = `https://api.vietqr.io/image/970436-0987654321-compact2.jpg?amount=${total}&addInfo=Trada_${dateInfoCode()}&accountName=QUAN_TRA_DA`;
+  const qrUrl = buildVietQrUrl({
+    ...bank,
+    amount: total,
+    addInfo: `Trada_${dateInfoCode()}`,
+  });
 
   return (
     <AppShell

@@ -2,9 +2,10 @@
 
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth } from "@/lib/firebase";
+import { ensureUserProfile } from "@/lib/users";
 import {
+  canManageShop,
   canManageUsers,
   canOperateShop,
   canViewDashboard,
@@ -28,25 +29,16 @@ export function AuthProvider({ children }) {
         }
 
         setUser(firebaseUser);
-        const snap = await getDoc(doc(db, "users", firebaseUser.uid));
-        if (snap.exists()) {
-          const data = snap.data();
-          if (data.active === false) {
-            await signOut(auth);
-            setUser(null);
-            setProfile(null);
-            return;
-          }
-          setProfile({ uid: firebaseUser.uid, ...data });
-        } else {
-          setProfile({
-            uid: firebaseUser.uid,
-            email: firebaseUser.email,
-            name: firebaseUser.email?.split("@")[0] || "Người dùng",
-            role: "manager",
-            active: true,
-          });
+        const data = await ensureUserProfile(firebaseUser);
+
+        if (data.blocked) {
+          await signOut(auth);
+          setUser(null);
+          setProfile(null);
+          return;
         }
+
+        setProfile(data);
       } catch (error) {
         console.error("Auth profile fetch error:", error);
         setProfile(null);
@@ -58,9 +50,16 @@ export function AuthProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  const login = async (email, password) => {
+  const login = async (identifier, password) => {
+    const { resolveLoginIdentifier } = await import("@/lib/bootstrap");
+    const email = resolveLoginIdentifier(identifier);
     const credential = await signInWithEmailAndPassword(auth, email, password);
     return credential.user;
+  };
+
+  const changePassword = async (currentPassword, newPassword) => {
+    const { changeCurrentUserPassword } = await import("@/lib/bootstrap");
+    await changeCurrentUserPassword(currentPassword, newPassword);
   };
 
   const logout = async () => {
@@ -79,10 +78,13 @@ export function AuthProvider({ children }) {
       loading,
       login,
       logout,
-      isManager: role === "manager",
+      changePassword,
+      isSuperAdmin: role === "superadmin",
+      isManager: role === "manager" || role === "superadmin",
       isEmployee: role === "employee",
       isInvestor: role === "investor",
       canManageUsers: canManageUsers(role),
+      canManageShop: canManageShop(role),
       canOperateShop: canOperateShop(role),
       canViewDashboard: canViewDashboard(role),
       homePath: homePathForRole(role),

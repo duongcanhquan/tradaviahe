@@ -3,12 +3,13 @@
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { homePathForRole } from "@/lib/roles";
+import { hasRoleAccess, homePathForRole } from "@/lib/roles";
 
 export default function ProtectedRoute({ children, allowRoles }) {
   const { user, role, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const allowed = hasRoleAccess(role, allowRoles);
 
   useEffect(() => {
     if (loading) return;
@@ -18,10 +19,10 @@ export default function ProtectedRoute({ children, allowRoles }) {
       return;
     }
 
-    if (allowRoles?.length && role && !allowRoles.includes(role)) {
+    if (allowRoles?.length && role && !allowed) {
       router.replace(homePathForRole(role));
     }
-  }, [allowRoles, loading, pathname, role, router, user]);
+  }, [allowRoles, allowed, loading, pathname, role, router, user]);
 
   if (loading) {
     return (
@@ -32,7 +33,7 @@ export default function ProtectedRoute({ children, allowRoles }) {
   }
 
   if (!user) return null;
-  if (allowRoles?.length && role && !allowRoles.includes(role)) return null;
+  if (allowRoles?.length && role && !allowed) return null;
 
   return children;
 }

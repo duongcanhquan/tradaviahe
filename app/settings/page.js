@@ -11,9 +11,10 @@ import {
   setDoc,
 } from "firebase/firestore";
 import Link from "next/link";
-import { LogOut, PackagePlus, UserCog, UserPlus } from "lucide-react";
+import { KeyRound, LogOut, PackagePlus, QrCode, UserCog, UserPlus } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { SharedQrSheet } from "@/components/SharedQr";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
@@ -28,7 +29,15 @@ const SAMPLE_PRODUCTS = [
 ];
 
 function SettingsContent() {
-  const { profile, logout, isManager, canManageUsers, user } = useAuth();
+  const {
+    profile,
+    logout,
+    changePassword,
+    isManager,
+    canManageUsers,
+    canOperateShop,
+    user,
+  } = useAuth();
   const { showToast } = useToast();
   const router = useRouter();
   const [seeding, setSeeding] = useState(false);
@@ -36,6 +45,44 @@ function SettingsContent() {
   const [expenseNote, setExpenseNote] = useState("");
   const [expenseCategory, setExpenseCategory] = useState("nhập nguyên liệu");
   const [savingExpense, setSavingExpense] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPass, setChangingPass] = useState(false);
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault();
+    if (newPassword.length < 6) {
+      showToast("Mật khẩu mới tối thiểu 6 ký tự", "error");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("Xác nhận mật khẩu không khớp", "error");
+      return;
+    }
+
+    setChangingPass(true);
+    try {
+      await changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      showToast("Đã đổi mật khẩu thành công", "success");
+    } catch (error) {
+      console.error(error);
+      const code = error?.code || "";
+      if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
+        showToast("Mật khẩu hiện tại không đúng", "error");
+      } else if (code === "auth/too-many-requests") {
+        showToast("Thử quá nhiều lần — đợi rồi thử lại", "error");
+      } else {
+        showToast(error?.message || "Đổi mật khẩu thất bại", "error");
+      }
+    } finally {
+      setChangingPass(false);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -126,6 +173,77 @@ function SettingsContent() {
         </p>
       </section>
 
+      <section className="card-panel mb-4 space-y-3">
+        <div className="flex items-center gap-2">
+          <KeyRound className="h-5 w-5 text-brand-700" aria-hidden />
+          <h2 className="section-title">Đổi mật khẩu</h2>
+        </div>
+        <form onSubmit={handleChangePassword} className="space-y-3">
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">
+              Mật khẩu hiện tại
+            </span>
+            <input
+              type="password"
+              required
+              autoComplete="current-password"
+              className="field-input"
+              value={currentPassword}
+              onChange={(e) => setCurrentPassword(e.target.value)}
+              placeholder="••••••••"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">
+              Mật khẩu mới
+            </span>
+            <input
+              type="password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+              className="field-input"
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Tối thiểu 6 ký tự"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-2 block text-sm font-semibold text-slate-700">
+              Xác nhận mật khẩu mới
+            </span>
+            <input
+              type="password"
+              required
+              minLength={6}
+              autoComplete="new-password"
+              className="field-input"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              placeholder="Nhập lại mật khẩu mới"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={changingPass}
+            className="touch-btn h-14 w-full bg-slate-900 text-white"
+          >
+            {changingPass ? "Đang đổi..." : "Lưu mật khẩu mới"}
+          </button>
+        </form>
+      </section>
+
+      {canOperateShop ? (
+        <button
+          type="button"
+          onClick={() => setShowQr(true)}
+          className="touch-btn mb-4 h-14 w-full bg-brand-700 text-white"
+        >
+          <QrCode className="h-5 w-5" aria-hidden />
+          QR tài khoản chung — đưa khách quét
+        </button>
+      ) : null}
+
       {canManageUsers ? (
         <Link
           href="/admin/users"
@@ -140,7 +258,8 @@ function SettingsContent() {
         <h2 className="font-bold">Hồ sơ Firestore</h2>
         <p className="text-sm text-slate-500">
           Document <code>users/{user?.uid}</code> dùng role:{" "}
-          <code>manager</code>, <code>employee</code>, hoặc <code>investor</code>.
+          <code>superadmin</code>, <code>manager</code>, <code>employee</code>,
+          hoặc <code>investor</code>.
         </p>
         <button
           type="button"
@@ -184,6 +303,7 @@ function SettingsContent() {
               >
                 <option value="nhập nguyên liệu">nhập nguyên liệu</option>
                 <option value="trả lương">trả lương</option>
+                <option value="chi phí đối ngoại">chi phí đối ngoại</option>
                 <option value="khác">khác</option>
               </select>
               <input
@@ -221,6 +341,8 @@ function SettingsContent() {
         <LogOut className="h-5 w-5" />
         Đăng xuất
       </button>
+
+      <SharedQrSheet open={showQr} onClose={() => setShowQr(false)} />
     </AppShell>
   );
 }

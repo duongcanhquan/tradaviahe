@@ -4,10 +4,11 @@ import Link from "next/link";
 import { Settings } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import BottomNav from "@/components/BottomNav";
+import { SharedQrFab } from "@/components/SharedQr";
 import { roleLabel } from "@/lib/roles";
 
 export default function AppShell({ children, title, subtitle, dense = false }) {
-  const { profile } = useAuth();
+  const { profile, canOperateShop } = useAuth();
 
   return (
     <div className="min-h-dvh text-slate-900">
@@ -50,6 +51,7 @@ export default function AppShell({ children, title, subtitle, dense = false }) {
         {children}
       </main>
       <BottomNav />
+      {canOperateShop ? <SharedQrFab /> : null}
     </div>
   );
 }

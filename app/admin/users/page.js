@@ -2,10 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  Briefcase,
+  Crown,
   Pencil,
   Plus,
+  Shield,
   Trash2,
   UserCog,
+  UserPlus,
   Users,
   X,
 } from "lucide-react";
@@ -19,7 +23,11 @@ import {
   subscribeUsers,
   updateManagedUser,
 } from "@/lib/users";
-import { ROLE_OPTIONS, roleLabel } from "@/lib/roles";
+import {
+  QUICK_ADD_ROLES,
+  ROLE_OPTIONS,
+  roleLabel,
+} from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 const emptyForm = {
@@ -32,14 +40,15 @@ const emptyForm = {
 };
 
 function roleBadgeClass(role) {
-  if (role === "manager") return "bg-brand-50 text-brand-800";
-  if (role === "employee") return "bg-emerald-50 text-emerald-800";
-  if (role === "investor") return "bg-amber-50 text-amber-800";
+  if (role === "superadmin") return "bg-violet-100 text-violet-900 ring-1 ring-violet-200";
+  if (role === "manager") return "bg-brand-50 text-brand-800 ring-1 ring-brand-100";
+  if (role === "employee") return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
+  if (role === "investor") return "bg-amber-50 text-amber-800 ring-1 ring-amber-100";
   return "bg-slate-100 text-slate-700";
 }
 
 function AdminUsersContent() {
-  const { user } = useAuth();
+  const { user, profile, isSuperAdmin } = useAuth();
   const { showToast } = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +82,7 @@ function AdminUsersContent() {
   const counts = useMemo(
     () => ({
       all: users.length,
+      superadmin: users.filter((u) => u.role === "superadmin").length,
       manager: users.filter((u) => u.role === "manager").length,
       employee: users.filter((u) => u.role === "employee").length,
       investor: users.filter((u) => u.role === "investor").length,
@@ -80,9 +90,9 @@ function AdminUsersContent() {
     [users]
   );
 
-  const openCreate = () => {
+  const openCreate = (role = "employee") => {
     setEditing(null);
-    setForm(emptyForm);
+    setForm({ ...emptyForm, role });
     setModalOpen(true);
   };
 
@@ -92,7 +102,7 @@ function AdminUsersContent() {
       name: row.name || "",
       email: row.email || "",
       password: "",
-      role: row.role || "employee",
+      role: row.role === "superadmin" ? "superadmin" : row.role || "employee",
       phone: row.phone || "",
       note: row.note || "",
     });
@@ -112,7 +122,10 @@ function AdminUsersContent() {
       showToast("Nhập họ tên", "error");
       return;
     }
-    if (!editing && (!form.email.trim() || !form.password || form.password.length < 6)) {
+    if (
+      !editing &&
+      (!form.email.trim() || !form.password || form.password.length < 6)
+    ) {
       showToast("Email và mật khẩu (≥6 ký tự) bắt buộc khi thêm mới", "error");
       return;
     }
@@ -120,12 +133,29 @@ function AdminUsersContent() {
     setSaving(true);
     try {
       if (editing) {
-        await updateManagedUser(editing.uid || editing.id, {
-          name: form.name,
-          role: form.role,
-          phone: form.phone,
-          note: form.note,
-        });
+        const id = editing.uid || editing.id;
+        if (editing.role === "superadmin") {
+          await updateManagedUser(
+            id,
+            {
+              name: form.name,
+              phone: form.phone,
+              note: form.note,
+            },
+            { currentUserId: user.uid, users }
+          );
+        } else {
+          await updateManagedUser(
+            id,
+            {
+              name: form.name,
+              role: form.role,
+              phone: form.phone,
+              note: form.note,
+            },
+            { currentUserId: user.uid, users }
+          );
+        }
         showToast("Đã cập nhật người dùng", "success");
       } else {
         await createManagedUser({
@@ -137,19 +167,22 @@ function AdminUsersContent() {
           note: form.note,
           createdBy: user.uid,
         });
-        showToast("Đã thêm người dùng", "success");
+        showToast(`Đã thêm ${roleLabel(form.role)}`, "success");
       }
       setSaving(false);
       closeModal(true);
     } catch (error) {
       console.error(error);
       const code = error?.code || "";
+      const msg = error?.message || "";
       if (code === "auth/email-already-in-use") {
         showToast("Email đã tồn tại trên Auth", "error");
       } else if (code === "auth/invalid-email") {
         showToast("Email không hợp lệ", "error");
       } else if (code === "auth/weak-password") {
         showToast("Mật khẩu quá yếu", "error");
+      } else if (msg) {
+        showToast(msg, "error");
       } else {
         showToast(editing ? "Cập nhật thất bại" : "Thêm người dùng thất bại", "error");
       }
@@ -158,8 +191,13 @@ function AdminUsersContent() {
   };
 
   const handleDelete = async (row) => {
-    if ((row.uid || row.id) === user.uid) {
+    const id = row.uid || row.id;
+    if (id === user.uid) {
       showToast("Không thể xóa chính bạn", "error");
+      return;
+    }
+    if (row.role === "superadmin") {
+      showToast("Không thể xóa Super Admin", "error");
       return;
     }
     const ok = window.confirm(
@@ -167,23 +205,37 @@ function AdminUsersContent() {
     );
     if (!ok) return;
 
-    setDeletingId(row.uid || row.id);
+    setDeletingId(id);
     try {
-      await deleteManagedUser(row.uid || row.id);
+      await deleteManagedUser(id, { users, currentUserId: user.uid });
       showToast("Đã xóa người dùng", "success");
     } catch (error) {
       console.error(error);
-      showToast("Xóa thất bại", "error");
+      showToast(error?.message || "Xóa thất bại", "error");
     } finally {
       setDeletingId(null);
     }
   };
 
   return (
-    <AppShell title="Admin" subtitle="Nhân viên · Quản lý · Chủ đầu tư">
+    <AppShell title="Admin" subtitle="Phân quyền · Nhân viên · Chủ đầu tư">
+      {isSuperAdmin ? (
+        <div className="card-panel mb-4 flex items-start gap-3 border-violet-200 bg-violet-50">
+          <Crown className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" aria-hidden />
+          <div className="min-w-0 text-sm">
+            <p className="font-bold text-violet-900">Bạn là Super Admin duy nhất</p>
+            <p className="mt-1 text-violet-800/80">
+              {profile?.name || profile?.email} — có toàn quyền thêm nhân viên,
+              quản lý, chủ đầu tư. Không thể tạo thêm Super Admin khác.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <section className="mb-4 grid grid-cols-2 gap-2">
         {[
           { key: "all", label: "Tất cả", count: counts.all },
+          { key: "superadmin", label: "Super", count: counts.superadmin },
           { key: "manager", label: "Quản lý", count: counts.manager },
           { key: "employee", label: "Nhân viên", count: counts.employee },
           { key: "investor", label: "Chủ ĐT", count: counts.investor },
@@ -194,7 +246,8 @@ function AdminUsersContent() {
             onClick={() => setFilter(item.key)}
             className={cn(
               "card-panel flex min-h-14 cursor-pointer items-center justify-between gap-2 py-3 transition duration-200 active:scale-95",
-              filter === item.key && "border-brand-700 bg-brand-50 ring-2 ring-brand-700/20"
+              filter === item.key &&
+                "border-brand-700 bg-brand-50 ring-2 ring-brand-700/20"
             )}
           >
             <span className="text-sm font-semibold">{item.label}</span>
@@ -205,16 +258,45 @@ function AdminUsersContent() {
         ))}
       </section>
 
+      <section className="mb-4 space-y-2">
+        <p className="text-sm font-semibold text-slate-700">Thêm nhanh theo loại</p>
+        <div className="grid grid-cols-1 gap-2">
+          {QUICK_ADD_ROLES.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              onClick={() => openCreate(item.value)}
+              className={cn(
+                "touch-btn h-14 w-full justify-start px-4",
+                item.tone === "emerald" && "bg-emerald-600 text-white",
+                item.tone === "amber" && "bg-amber-600 text-white",
+                item.tone === "brand" && "bg-brand-700 text-white"
+              )}
+            >
+              {item.value === "employee" ? (
+                <UserPlus className="h-5 w-5" aria-hidden />
+              ) : item.value === "investor" ? (
+                <Briefcase className="h-5 w-5" aria-hidden />
+              ) : (
+                <Shield className="h-5 w-5" aria-hidden />
+              )}
+              {item.label}
+            </button>
+          ))}
+        </div>
+      </section>
+
       <button
         type="button"
-        onClick={openCreate}
-        className="touch-btn mb-4 h-14 w-full bg-brand-700 text-white"
+        onClick={() => openCreate("employee")}
+        className="touch-btn mb-4 h-12 w-full border border-slate-200 bg-white text-slate-800"
       >
         <Plus className="h-5 w-5" aria-hidden />
-        Thêm người dùng
+        Thêm người dùng khác
       </button>
 
       <section className="space-y-3">
+        <h2 className="section-title">Danh sách tài khoản</h2>
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="card-panel h-24 animate-pulse bg-slate-100" />
@@ -228,6 +310,7 @@ function AdminUsersContent() {
           filtered.map((row) => {
             const id = row.uid || row.id;
             const isSelf = id === user.uid;
+            const isSA = row.role === "superadmin";
             return (
               <article key={id} className="card-panel space-y-3">
                 <div className="flex items-start justify-between gap-3">
@@ -247,10 +330,11 @@ function AdminUsersContent() {
                   </div>
                   <span
                     className={cn(
-                      "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
+                      "chip shrink-0",
                       roleBadgeClass(row.role)
                     )}
                   >
+                    {isSA ? <Crown className="h-3.5 w-3.5" aria-hidden /> : null}
                     {roleLabel(row.role)}
                   </span>
                 </div>
@@ -270,7 +354,7 @@ function AdminUsersContent() {
                   </button>
                   <button
                     type="button"
-                    disabled={isSelf || deletingId === id}
+                    disabled={isSelf || isSA || deletingId === id}
                     onClick={() => handleDelete(row)}
                     className="touch-btn h-12 flex-1 gap-2 bg-rose-600 text-white disabled:opacity-40"
                   >
@@ -291,13 +375,13 @@ function AdminUsersContent() {
               <div className="flex items-center gap-2">
                 <UserCog className="h-5 w-5 text-brand-700" />
                 <h2 className="text-lg font-bold">
-                  {editing ? "Sửa người dùng" : "Thêm người dùng"}
+                  {editing ? "Sửa người dùng" : `Thêm ${roleLabel(form.role)}`}
                 </h2>
               </div>
               <button
                 type="button"
-                onClick={closeModal}
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 transition-transform active:scale-95"
+                onClick={() => closeModal()}
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 transition active:scale-95"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -312,27 +396,46 @@ function AdminUsersContent() {
                   required
                   className="field-input"
                   value={form.name}
-                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, name: e.target.value }))
+                  }
                   placeholder="Nguyễn Văn A"
                 />
               </label>
 
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Vai trò
-                </span>
-                <select
-                  className="field-input"
-                  value={form.role}
-                  onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                >
-                  {ROLE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {editing?.role === "superadmin" ? (
+                <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm text-violet-900">
+                  Vai trò: <strong>Super Admin</strong> (không đổi được)
+                </div>
+              ) : (
+                <div>
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">
+                    Vai trò / quyền
+                  </span>
+                  <div className="space-y-2">
+                    {ROLE_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() =>
+                          setForm((f) => ({ ...f, role: opt.value }))
+                        }
+                        className={cn(
+                          "w-full rounded-2xl border px-4 py-3 text-left transition active:scale-[0.99]",
+                          form.role === opt.value
+                            ? "border-brand-700 bg-brand-50 ring-2 ring-brand-700/20"
+                            : "border-slate-200 bg-white"
+                        )}
+                      >
+                        <p className="font-bold text-slate-900">{opt.label}</p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {opt.description}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {!editing ? (
                 <>
@@ -370,7 +473,8 @@ function AdminUsersContent() {
                 </>
               ) : (
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
-                  Email: <strong className="text-slate-700">{form.email}</strong>
+                  Email:{" "}
+                  <strong className="text-slate-700">{form.email}</strong>
                   <br />
                   (Không đổi email / mật khẩu tại đây)
                 </div>
@@ -383,7 +487,9 @@ function AdminUsersContent() {
                 <input
                   className="field-input"
                   value={form.phone}
-                  onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, phone: e.target.value }))
+                  }
                   placeholder="09..."
                 />
               </label>
@@ -395,15 +501,17 @@ function AdminUsersContent() {
                 <input
                   className="field-input"
                   value={form.note}
-                  onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
-                  placeholder="Ví dụ: cổ đông 25%, ca tối..."
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, note: e.target.value }))
+                  }
+                  placeholder="VD: ca tối, cổ đông 25%..."
                 />
               </label>
 
               <button
                 type="submit"
                 disabled={saving}
-                className="touch-btn h-14 w-full bg-brand-700 text-white disabled:opacity-50"
+                className="touch-btn h-14 w-full bg-brand-700 text-white"
               >
                 {saving
                   ? "Đang lưu..."
@@ -421,7 +529,7 @@ function AdminUsersContent() {
 
 export default function AdminUsersPage() {
   return (
-    <ProtectedRoute allowRoles={["manager"]}>
+    <ProtectedRoute allowRoles={["superadmin"]}>
       <AdminUsersContent />
     </ProtectedRoute>
   );

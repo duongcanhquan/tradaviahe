@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
 import {
   startOfMonth,
@@ -20,15 +21,18 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts";
+import { CalendarDays, Landmark, Percent } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { DiscrepancyBadge, Money, StatCard } from "@/components/StatusBadges";
+import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import { formatCurrency } from "@/lib/utils";
 
 function DashboardContent() {
   const { showToast } = useToast();
+  const { isManager } = useAuth();
   const [transactions, setTransactions] = useState([]);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -133,6 +137,43 @@ function DashboardContent() {
 
   return (
     <AppShell title="Đối soát" subtitle="Thu · Chi · Chênh lệch quỹ">
+      <div className="mb-4 grid grid-cols-1 gap-2">
+        <Link
+          href="/dashboard/monthly"
+          className="touch-btn h-14 w-full justify-between bg-emerald-600 px-5 text-white"
+        >
+          <span className="flex items-center gap-2">
+            <CalendarDays className="h-5 w-5" aria-hidden />
+            Tổng kết tháng & chia cổ tức
+          </span>
+          <span className="text-sm font-medium text-white/80">Mở →</span>
+        </Link>
+
+        <Link
+          href="/dashboard/capital"
+          className="touch-btn h-14 w-full justify-between bg-brand-700 px-5 text-white"
+        >
+          <span className="flex items-center gap-2">
+            <Landmark className="h-5 w-5" aria-hidden />
+            Quản lý vốn góp & cổ phần
+          </span>
+          <span className="text-sm font-medium text-white/80">Mở →</span>
+        </Link>
+
+        {isManager ? (
+          <Link
+            href="/dashboard/settings"
+            className="touch-btn h-12 w-full justify-between border border-slate-200 bg-white px-5 text-slate-800"
+          >
+            <span className="flex items-center gap-2">
+              <Percent className="h-5 w-5 text-brand-700" aria-hidden />
+              % Quỹ đối ngoại
+            </span>
+            <span className="text-sm text-slate-400">Cấu hình →</span>
+          </Link>
+        ) : null}
+      </div>
+
       <section className="mb-4 grid grid-cols-1 gap-3">
         <StatCard
           label="Tổng thu tháng này"
