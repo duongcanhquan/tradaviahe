@@ -173,7 +173,6 @@ export default function EmployeeDesk() {
 
   const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
   const totalQty = cartItems.reduce((sum, item) => sum + item.qty, 0);
-  const fewProducts = visibleProducts.length > 0 && visibleProducts.length <= 4;
 
   const countInGroup = (groupId) => {
     const n = products.filter((p) => p.groupId === groupId).length;
@@ -311,12 +310,13 @@ export default function EmployeeDesk() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-2.5 pb-2">
+      {/* Lưới 2 món / hàng — tối ưu màn hình */}
+      <div className="grid grid-cols-2 gap-2 pb-2">
         {loading
-          ? Array.from({ length: 4 }).map((_, i) => (
+          ? Array.from({ length: 6 }).map((_, i) => (
               <div
                 key={i}
-                className="h-24 animate-pulse rounded-[1.25rem] bg-white/80"
+                className="h-[7.25rem] animate-pulse rounded-2xl bg-white/80"
               />
             ))
           : visibleProducts.map((product) => {
@@ -329,81 +329,61 @@ export default function EmployeeDesk() {
                 <div
                   key={product.id}
                   className={cn(
-                    "relative overflow-hidden rounded-[1.25rem] bg-white shadow-sm ring-1 transition duration-150",
+                    "relative flex flex-col overflow-hidden rounded-2xl bg-white shadow-sm ring-1 transition duration-150",
                     active
                       ? "ring-2 ring-brand-700 shadow-md"
                       : "ring-slate-200",
-                    flashing && "scale-[0.985] bg-brand-50"
+                    flashing && "scale-[0.98] bg-brand-50"
                   )}
                 >
-                  <div className="flex items-stretch">
-                    {/* Chạm lớn: +1 số lượng */}
-                    <button
-                      type="button"
-                      onClick={() => changeQty(product.id, 1)}
+                  {/* Chạm thân thẻ: +1 */}
+                  <button
+                    type="button"
+                    onClick={() => changeQty(product.id, 1)}
+                    className="flex min-h-[4.75rem] flex-1 flex-col px-2.5 pb-1.5 pt-2 text-left active:bg-brand-50/80"
+                  >
+                    <p className="line-clamp-2 text-sm font-extrabold leading-snug text-slate-900">
+                      {product.name}
+                    </p>
+                    <p className="money mt-1 text-sm font-bold text-brand-700">
+                      <Money amount={price} />
+                    </p>
+                    <div
                       className={cn(
-                        "min-h-[5.75rem] flex-1 cursor-pointer px-3.5 py-3 text-left active:bg-brand-50/80",
-                        fewProducts && "min-h-[7.25rem] py-4"
+                        "mt-auto flex h-9 w-full items-center justify-center rounded-xl",
+                        active
+                          ? "bg-brand-700 text-white"
+                          : "bg-slate-100 text-slate-500"
                       )}
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="min-w-0 flex-1">
-                          <p
-                            className={cn(
-                              "font-extrabold leading-tight text-slate-900",
-                              fewProducts ? "text-2xl" : "text-lg"
-                            )}
-                          >
-                            {product.name}
-                          </p>
-                          <p className="money mt-1 text-base font-bold text-brand-700">
-                            <Money amount={price} />
-                            {qty > 0 ? (
-                              <span className="ml-2 text-sm font-semibold text-slate-500">
-                                · {formatCurrency(price * qty)}
-                              </span>
-                            ) : null}
-                          </p>
-                        </div>
-                        <div
-                          className={cn(
-                            "flex h-16 w-16 shrink-0 flex-col items-center justify-center rounded-2xl transition",
-                            active
-                              ? "bg-brand-700 text-white"
-                              : "bg-slate-100 text-slate-500"
-                          )}
-                        >
-                          <span className="text-[10px] font-bold uppercase tracking-wide opacity-80">
-                            SL
-                          </span>
-                          <span className="money text-3xl font-extrabold leading-none">
-                            {qty}
-                          </span>
-                        </div>
-                      </div>
-                    </button>
-
-                    {/* Cột số lượng: − / + */}
-                    <div className="flex w-[3.75rem] flex-col border-l border-slate-100">
-                      <button
-                        type="button"
-                        aria-label={`Thêm ${product.name}`}
-                        disabled={submitting}
-                        onClick={() => changeQty(product.id, 1)}
-                        className="flex flex-1 items-center justify-center bg-brand-700 text-white transition active:bg-brand-800 disabled:opacity-50"
-                      >
-                        <Plus className="h-6 w-6" strokeWidth={2.75} />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`Giảm ${product.name}`}
-                        disabled={!qty || submitting}
-                        onClick={() => changeQty(product.id, -1)}
-                        className="flex flex-1 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
-                      >
-                        <Minus className="h-6 w-6" strokeWidth={2.75} />
-                      </button>
+                      <span className="mr-1 text-[10px] font-bold uppercase opacity-80">
+                        SL
+                      </span>
+                      <span className="money text-xl font-extrabold leading-none">
+                        {qty}
+                      </span>
                     </div>
+                  </button>
+
+                  <div className="grid grid-cols-2 border-t border-slate-100">
+                    <button
+                      type="button"
+                      aria-label={`Giảm ${product.name}`}
+                      disabled={!qty || submitting}
+                      onClick={() => changeQty(product.id, -1)}
+                      className="flex h-10 items-center justify-center bg-slate-100 text-slate-700 transition active:bg-slate-200 disabled:opacity-25"
+                    >
+                      <Minus className="h-5 w-5" strokeWidth={2.75} />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label={`Thêm ${product.name}`}
+                      disabled={submitting}
+                      onClick={() => changeQty(product.id, 1)}
+                      className="flex h-10 items-center justify-center bg-brand-700 text-white transition active:bg-brand-800 disabled:opacity-50"
+                    >
+                      <Plus className="h-5 w-5" strokeWidth={2.75} />
+                    </button>
                   </div>
                 </div>
               );
