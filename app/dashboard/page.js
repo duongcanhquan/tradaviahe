@@ -33,7 +33,12 @@ import {
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
-import { isGoodsIncome, sumGoodsIncomeByMethod } from "@/lib/receipts";
+import {
+  isGoodsIncome,
+  sumGoodsIncomeByMethod,
+  summarizeGoodsIncomeByActor,
+} from "@/lib/receipts";
+import { roleLabel } from "@/lib/roles";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const REVENUE_PERIODS = [
@@ -195,6 +200,11 @@ function DashboardContent() {
       )
       .slice(0, 12);
   }, [periodTx, canViewDividends]);
+
+  const salesByActor = useMemo(
+    () => summarizeGoodsIncomeByActor(periodTx),
+    [periodTx]
+  );
 
   const stockByGroup = useMemo(() => {
     const known = new Set(groups.map((g) => g.id));
@@ -404,6 +414,66 @@ function DashboardContent() {
         )}
       </section>
 
+      {/* Ai bán / nhập tiền trong kỳ */}
+      <section className="mb-4 space-y-3">
+        <h2 className="section-title">
+          Người nhập bán · {selectedRange.shortLabel}
+        </h2>
+        <p className="text-xs text-slate-500">
+          Tổng tiền mỗi nhân viên / quản lý đã ghi thu trong kỳ đang chọn
+        </p>
+        {loadingTx ? (
+          <div className="card-panel h-20 animate-pulse bg-white/80" />
+        ) : salesByActor.length === 0 ? (
+          <div className="card-panel text-sm text-slate-500">
+            Chưa có ai ghi thu trong kỳ này.
+          </div>
+        ) : (
+          salesByActor.map((row) => (
+            <article
+              key={row.key}
+              className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-base font-extrabold text-slate-900">
+                    {(() => {
+                      const label = formatActorLabel({
+                        createdByName: row.name,
+                        createdByUsername: row.username,
+                      });
+                      return label === "—" ? "Không rõ người nhập" : label;
+                    })()}
+                  </p>
+                  <p className="mt-0.5 text-xs font-semibold text-slate-500">
+                    {roleLabel(row.role)}
+                    {" · "}
+                    {row.count} lần ghi
+                  </p>
+                </div>
+                <p className="money shrink-0 text-lg font-extrabold text-emerald-700">
+                  <Money amount={row.total} />
+                </p>
+              </div>
+              <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-900">
+                  <p className="font-semibold text-emerald-700/80">Tiền mặt</p>
+                  <p className="money font-extrabold">
+                    <Money amount={row.cash} />
+                  </p>
+                </div>
+                <div className="rounded-xl bg-brand-50 px-3 py-2 text-brand-900">
+                  <p className="font-semibold text-brand-700/80">Chuyển khoản</p>
+                  <p className="money font-extrabold">
+                    <Money amount={row.banking} />
+                  </p>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+
       {canCloseShift ? (
         <BankingByDateForm className="mb-4" />
       ) : null}
@@ -519,15 +589,20 @@ function DashboardContent() {
                       {dayLabel ? `Ngày ${dayLabel} · ` : ""}
                       {timeLabel}
                     </p>
-                    <p className="mt-1 text-xs font-semibold text-brand-800">
-                      Nhập bởi: {formatActorLabel(row)}
+                    <p className="mt-1 text-xs font-semibold text-slate-700">
+                      <span className="font-extrabold text-brand-800">
+                        {formatActorLabel(row)}
+                      </span>
+                      {row.createdByRole
+                        ? ` · ${roleLabel(row.createdByRole)}`
+                        : ""}
                       {" · "}
                       <span
                         className={
                           isCk ? "text-brand-700" : "text-emerald-700"
                         }
                       >
-                        {isCk ? "Chuyển khoản" : "Tiền mặt"}
+                        {isCk ? "CK" : "TM"}
                       </span>
                     </p>
                   </div>
