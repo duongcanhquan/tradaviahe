@@ -1,14 +1,8 @@
 'use client';
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  addDoc,
-  collection,
-  doc,
-  serverTimestamp,
-  setDoc,
-} from "firebase/firestore";
+import { doc, setDoc } from "firebase/firestore";
 import Link from "next/link";
 import {
   KeyRound,
@@ -18,13 +12,13 @@ import {
   QrCode,
   UserCog,
   UserPlus,
+  Wallet,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { SharedQrSheet } from "@/components/SharedQr";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
-import { actorFields } from "@/lib/audit";
 import { db } from "@/lib/firebase";
 import { seedDefaultCatalog } from "@/lib/products";
 import { displayRoleLabel } from "@/lib/roles";
@@ -44,10 +38,6 @@ function SettingsContent() {
   const { showToast } = useToast();
   const router = useRouter();
   const [seeding, setSeeding] = useState(false);
-  const [expenseAmount, setExpenseAmount] = useState("");
-  const [expenseNote, setExpenseNote] = useState("");
-  const [expenseCategory, setExpenseCategory] = useState("nhập nguyên liệu");
-  const [savingExpense, setSavingExpense] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -130,34 +120,6 @@ function SettingsContent() {
       showToast("Không lưu được hồ sơ", "error");
     }
   };
-
-  const addExpense = async (e) => {
-    e.preventDefault();
-    setSavingExpense(true);
-    try {
-      await addDoc(collection(db, "transactions"), {
-        amount: Number(expenseAmount) || 0,
-        type: "expense",
-        category: expenseCategory,
-        timestamp: serverTimestamp(),
-        note: expenseNote || "",
-        paymentMethod: "cash",
-        ...actorFields(user, profile),
-      });
-      setExpenseAmount("");
-      setExpenseNote("");
-      showToast("Đã ghi khoản chi", "success");
-    } catch (error) {
-      console.error(error);
-      showToast("Ghi chi thất bại", "error");
-    } finally {
-      setSavingExpense(false);
-    }
-  };
-
-  useEffect(() => {
-    // no-op placeholder for future investor preferences
-  }, []);
 
   if (isEmployee) {
     return (
@@ -356,6 +318,22 @@ function SettingsContent() {
       {canManageShop ? (
         <>
           <Link
+            href="/manager/expenses"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-rose-600 text-white"
+          >
+            <Wallet className="h-5 w-5" />
+            Chi tiêu · Quỹ cửa hàng
+          </Link>
+
+          <Link
+            href="/manager/products"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-slate-900 text-white"
+          >
+            <Package className="h-5 w-5" />
+            Món · giá bán
+          </Link>
+
+          <Link
             href="/admin/products"
             className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
           >
@@ -378,44 +356,6 @@ function SettingsContent() {
               Tạo nguyên liệu (trà, đường, ly…) và thành phẩm có giá bán + cost
               (công thức hoặc nhập tay). Chỉ khi chưa có sản phẩm.
             </p>
-          </section>
-
-          <section className="card-panel mb-4">
-            <h2 className="mb-3 font-bold">Ghi khoản chi</h2>
-            <form onSubmit={addExpense} className="space-y-3">
-              <select
-                className="field-input"
-                value={expenseCategory}
-                onChange={(e) => setExpenseCategory(e.target.value)}
-              >
-                <option value="nhập nguyên liệu">nhập nguyên liệu</option>
-                <option value="trả lương">trả lương</option>
-                <option value="chi phí đối ngoại">chi phí đối ngoại</option>
-                <option value="khác">khác</option>
-              </select>
-              <input
-                type="number"
-                required
-                className="field-input"
-                placeholder="Số tiền"
-                value={expenseAmount}
-                onChange={(e) => setExpenseAmount(e.target.value)}
-              />
-              <input
-                type="text"
-                className="field-input"
-                placeholder="Ghi chú"
-                value={expenseNote}
-                onChange={(e) => setExpenseNote(e.target.value)}
-              />
-              <button
-                type="submit"
-                disabled={savingExpense}
-                className="touch-btn h-12 w-full bg-rose-600 text-white disabled:opacity-50"
-              >
-                {savingExpense ? "Đang lưu..." : "Lưu khoản chi"}
-              </button>
-            </form>
           </section>
         </>
       ) : null}

@@ -337,7 +337,7 @@ function MonthlyContent() {
 
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3">
               <span className="text-sm font-medium text-emerald-800">
-                Doanh thu tổng
+                Doanh thu bán hàng
               </span>
               <span className="money text-lg font-extrabold text-emerald-700">
                 <Money amount={report.totalRevenue} />
@@ -346,7 +346,7 @@ function MonthlyContent() {
 
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-rose-50 px-4 py-3">
               <span className="text-sm font-medium text-rose-800">
-                Tổng chi phí
+                Chi quỹ cửa hàng
               </span>
               <span className="money text-lg font-extrabold text-rose-700">
                 <Money amount={report.totalExpenses} />

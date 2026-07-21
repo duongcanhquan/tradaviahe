@@ -19,6 +19,7 @@ import {
   Package,
   Percent,
   Trash2,
+  Wallet,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import BankingByDateForm from "@/components/BankingByDateForm";
@@ -382,6 +383,14 @@ function DashboardContent() {
           ) : null}
 
           <Link
+            href="/manager/expenses"
+            className="touch-btn h-12 justify-start gap-2 bg-rose-600 px-3 text-sm text-white"
+          >
+            <Wallet className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">Chi tiêu · quỹ</span>
+          </Link>
+
+          <Link
             href="/dashboard/capital"
             className="touch-btn h-12 justify-start gap-2 bg-brand-700 px-3 text-sm text-white"
           >
@@ -397,7 +406,7 @@ function DashboardContent() {
               className="touch-btn h-12 justify-start gap-2 border border-slate-200 bg-white px-3 text-sm text-slate-800"
             >
               <Percent className="h-4 w-4 shrink-0 text-brand-700" aria-hidden />
-              <span className="truncate">% Quỹ</span>
+              <span className="truncate">% Quỹ đối ngoại</span>
             </Link>
           ) : null}
         </div>
@@ -410,17 +419,17 @@ function DashboardContent() {
         {canViewDividends ? (
           <div className="grid grid-cols-1 gap-2">
             <StatCard
-              label="Tổng thu (mọi loại) tháng"
+              label="Thu bán hàng tháng"
               value={loadingTx ? 0 : totals.income}
               tone="success"
             />
             <StatCard
-              label="Tổng chi tháng này"
+              label="Chi quỹ cửa hàng tháng"
               value={loadingTx ? 0 : totals.expense}
               tone="danger"
             />
             <StatCard
-              label="Lợi nhuận tháng này"
+              label="Lợi nhuận tháng (thu − chi)"
               value={loadingTx ? 0 : totals.profit}
               tone="brand"
             />

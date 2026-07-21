@@ -833,8 +833,10 @@ function CapitalContent() {
                   </h2>
                 </div>
                 <p className="text-xs text-rose-800/80">
-                  Chi quỹ vốn chung — không chọn cổ đông. Hệ thống lưu người gửi
-                  và ngày chi.
+                  Chi từ sổ vốn cổ đông — không trừ quỹ cửa hàng / không tính
+                  chi phí tháng. Muốn đưa tiền vào két quán: ghi chi tiêu vốn
+                  rồi vào Chi tiêu → Nạp quỹ (cùng số tiền). Không ghi lại
+                  cùng khoản ở cả hai sổ chi tiêu.
                 </p>
 
                 <form onSubmit={saveExpense} className="space-y-3">

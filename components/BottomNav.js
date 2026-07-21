@@ -7,28 +7,28 @@ import {
   BarChart3,
   Settings,
   Landmark,
-  Package,
+  Wallet,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-/** Quản lý: thu tiền trước, đối soát gần tay */
+/** Quản lý: thu tiền · đối soát · chi tiêu/quỹ · cài đặt (món giá trong Cài đặt) */
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/manager/products", label: "Món giá", icon: Package },
+  { href: "/manager/expenses", label: "Chi tiêu", icon: Wallet },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 /**
  * Cổ đông / tài khoản quản trị: tối đa 4 tab — việc hằng ngày trước.
- * Admin nằm trong Cài đặt (không chiếm thanh dưới).
+ * Cài đặt qua icon header. Vốn + Chi tiêu (quỹ cửa hàng).
  */
 const ownerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
+  { href: "/manager/expenses", label: "Chi tiêu", icon: Wallet },
   { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
-  { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 /** Nhân viên: tối giản — màn thu + tài khoản */
@@ -66,7 +66,9 @@ export default function BottomNav() {
                   !pathname?.startsWith("/dashboard/capital"))
               : href === "/dashboard/capital"
                 ? pathname === href || pathname?.startsWith(`${href}/`)
-                : pathname === href || pathname?.startsWith(`${href}/`);
+                : href === "/manager/expenses"
+                  ? pathname === href || pathname?.startsWith(`${href}/`)
+                  : pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <li key={href} className="min-w-0 flex-1">
               <Link
