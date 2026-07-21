@@ -43,8 +43,11 @@ import {
   addCapitalContribution,
   addCapitalExpense,
   capitalKindLabel,
+  displayNamesForRole,
   expenseCategoryLabel,
+  filterShareholderCapitalEntries,
   findInitialEntry,
+  isShopManagerName,
   subscribeShareholderCapital,
   summarizeShareholderCapital,
   updateInitialCapitalAmount,
@@ -264,6 +267,7 @@ function CapitalContent() {
 
   const [investments, setInvestments] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
+  const [users, setUsers] = useState([]);
   /** Chỉ Chủ đầu tư (investor) — không gồm quản lý quán */
   const [shareholderOptions, setShareholderOptions] = useState([]);
   /** Nguồn/phụ trách hàng hóa-TB: quản lý + cổ đông + … */
@@ -345,32 +349,23 @@ function CapitalContent() {
     const unsub = onSnapshot(
       collection(db, "users"),
       (snap) => {
-        const users = snap.docs.map((d) => d.data());
-        const nameOf = (u) => u.name || u.username || u.email;
+        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setUsers(list);
 
-        // Cổ đông = chỉ role investor (quản lý quán không phải cổ đông)
-        const shareholders = users
-          .filter((u) => u.role === "investor")
-          .map(nameOf)
-          .filter(Boolean);
-        setShareholderOptions(
-          [...new Set(shareholders)].sort((a, b) => a.localeCompare(b, "vi"))
-        );
+        // Cổ đông = chỉ role investor (quản lý / NV không vào danh sách)
+        setShareholderOptions(displayNamesForRole(list, "investor"));
 
-        const assetPeople = users
-          .filter(
-            (u) =>
-              u.role === "investor" ||
-              u.role === "manager" ||
-              u.role === "employee"
-          )
-          .map(nameOf)
-          .filter(Boolean);
+        const assetPeople = [
+          ...displayNamesForRole(list, "investor"),
+          ...displayNamesForRole(list, "manager"),
+          ...displayNamesForRole(list, "employee"),
+        ];
         setAssetPersonOptions(
           [...new Set(assetPeople)].sort((a, b) => a.localeCompare(b, "vi"))
         );
       },
       () => {
+        setUsers([]);
         setShareholderOptions([]);
         setAssetPersonOptions([]);
       }
@@ -378,14 +373,19 @@ function CapitalContent() {
     return () => unsub();
   }, []);
 
+  const shareholderCapitalEntries = useMemo(
+    () => filterShareholderCapitalEntries(capitalEntries, users),
+    [capitalEntries, users]
+  );
+
   const assetRows = useMemo(
     () => (investments || []).filter(isAssetInvestment),
     [investments]
   );
 
   const capitalSummary = useMemo(
-    () => summarizeShareholderCapital(capitalEntries),
-    [capitalEntries]
+    () => summarizeShareholderCapital(shareholderCapitalEntries),
+    [shareholderCapitalEntries]
   );
 
   const assets = useMemo(() => summarizeAssets(investments), [investments]);
@@ -415,12 +415,16 @@ function CapitalContent() {
       showToast("Chọn hoặc nhập tên cổ đông", "error");
       return;
     }
+    if (isShopManagerName(investorName, users)) {
+      showToast("Quản lý cửa hàng không phải cổ đông — chọn Chủ đầu tư", "error");
+      return;
+    }
     if (!capAmount || Number(capAmount) <= 0) {
       showToast("Nhập số tiền đầu tư hợp lệ", "error");
       return;
     }
 
-    if (capInitial && findInitialEntry(capitalEntries, investorName)) {
+    if (capInitial && findInitialEntry(shareholderCapitalEntries, investorName)) {
       showToast(
         "Cổ đông này đã có vốn ban đầu — dùng form Sửa vốn ban đầu bên dưới",
         "error"
@@ -464,6 +468,10 @@ function CapitalContent() {
       showToast("Chọn hoặc nhập tên cổ đông", "error");
       return;
     }
+    if (isShopManagerName(investorName, users)) {
+      showToast("Quản lý cửa hàng không phải cổ đông — chọn Chủ đầu tư", "error");
+      return;
+    }
     if (!expAmount || Number(expAmount) <= 0) {
       showToast("Nhập số tiền chi hợp lệ", "error");
       return;
@@ -502,7 +510,7 @@ function CapitalContent() {
       return;
     }
     const name = editName.trim();
-    const entry = findInitialEntry(capitalEntries, name);
+    const entry = findInitialEntry(shareholderCapitalEntries, name);
     if (!entry) {
       showToast("Chưa có dòng vốn ban đầu cho cổ đông này", "error");
       return;
@@ -587,9 +595,9 @@ function CapitalContent() {
   }, [shareholdersWithInitial, editName]);
 
   useEffect(() => {
-    const entry = findInitialEntry(capitalEntries, editName);
+    const entry = findInitialEntry(shareholderCapitalEntries, editName);
     if (entry) setEditAmount(String(entry.amount ?? ""));
-  }, [editName, capitalEntries]);
+  }, [editName, shareholderCapitalEntries]);
 
   const pageTitle = canViewInvestmentCapital
     ? "Vốn & tài sản"
@@ -1009,7 +1017,7 @@ function CapitalContent() {
               <div className="card-panel h-24 animate-pulse bg-white/80" />
             ) : (
               <CapitalHistoryList
-                rows={capitalEntries}
+                rows={shareholderCapitalEntries}
                 emptyText="Chưa có giao dịch trên sổ vốn cổ đông."
               />
             )}

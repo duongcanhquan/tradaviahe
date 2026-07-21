@@ -20,6 +20,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import {
+  filterShareholderCapitalEntries,
   subscribeShareholderCapital,
   summarizeShareholderCapital,
 } from "@/lib/shareholderCapital";
@@ -70,6 +71,7 @@ function MonthlyContent() {
   );
   const [transactions, setTransactions] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
+  const [users, setUsers] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [relationFundPercent, setRelationFundPercent] = useState(
     DEFAULT_RELATION_FUND_PERCENT
@@ -124,6 +126,13 @@ function MonthlyContent() {
         setLoadingInv(false);
       }
     );
+    const unsubUsers = onSnapshot(
+      collection(db, "users"),
+      (snap) => {
+        setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      },
+      () => setUsers([])
+    );
     const unsubSettings = subscribeGlobalSettings(
       (settings) => {
         setRelationFundPercent(settings.relationFundPercent);
@@ -137,6 +146,7 @@ function MonthlyContent() {
     );
     return () => {
       unsubInv();
+      unsubUsers();
       unsubSettings();
     };
   }, [canViewDividends, showToast]);
@@ -172,22 +182,27 @@ function MonthlyContent() {
     [monthTx]
   );
 
+  const shareholderCapitalEntries = useMemo(
+    () => filterShareholderCapitalEntries(capitalEntries, users),
+    [capitalEntries, users]
+  );
+
   const report = useMemo(
     () =>
       canViewDividends
         ? calculateMonthlyReport({
             transactions: monthTx,
-            capitalEntries,
+            capitalEntries: shareholderCapitalEntries,
             relationFundPercent,
           })
         : null,
-    [canViewDividends, monthTx, capitalEntries, relationFundPercent]
+    [canViewDividends, monthTx, shareholderCapitalEntries, relationFundPercent]
   );
 
   const investorNames = useMemo(() => {
-    const { shares } = summarizeShareholderCapital(capitalEntries);
+    const { shares } = summarizeShareholderCapital(shareholderCapitalEntries);
     return shares.map((s) => s.name).filter(Boolean);
-  }, [capitalEntries]);
+  }, [shareholderCapitalEntries]);
 
   useEffect(() => {
     if (!receiptName && investorNames[0]) {
