@@ -5,7 +5,7 @@ import { Settings } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import BottomNav from "@/components/BottomNav";
 import { SharedQrFab } from "@/components/SharedQr";
-import { roleLabel } from "@/lib/roles";
+import { displayRoleLabel } from "@/lib/roles";
 import { cn } from "@/lib/utils";
 
 export default function AppShell({
@@ -63,7 +63,7 @@ export default function AppShell({
                     {profile?.name || "—"}
                   </span>
                   <span className="text-[10px] font-medium uppercase tracking-wide text-slate-400">
-                    {roleLabel(profile?.role)}
+                    {displayRoleLabel(profile?.role)}
                   </span>
                 </div>
               ) : null}

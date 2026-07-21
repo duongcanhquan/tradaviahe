@@ -17,7 +17,9 @@ import {
   Landmark,
   Loader2,
   Package,
+  Pencil,
   Save,
+  Wallet,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -31,12 +33,22 @@ import {
   filterInvestmentsForRole,
   isAssetInvestment,
   investmentTypeLabel,
-  listCapitalInvestments,
   subscribeInvestments,
   summarizeAssets,
-  summarizeInitialCapital,
-  summarizeInvestments,
 } from "@/lib/investments";
+import {
+  CAPITAL_KINDS,
+  EXPENSE_CATEGORIES,
+  EXPENSE_CATEGORY_OPTIONS,
+  addCapitalContribution,
+  addCapitalExpense,
+  capitalKindLabel,
+  expenseCategoryLabel,
+  findInitialEntry,
+  subscribeShareholderCapital,
+  summarizeShareholderCapital,
+  updateInitialCapitalAmount,
+} from "@/lib/shareholderCapital";
 import { cn, formatCurrency } from "@/lib/utils";
 
 const PIE_COLORS = [
@@ -50,8 +62,11 @@ const PIE_COLORS = [
   "#4f46e5",
 ];
 
-function formatInvestmentDate(row) {
-  const ms = row.date?.toMillis?.() ?? row.createdAt?.toMillis?.();
+function formatEntryDate(row) {
+  const ms =
+    row.timestamp?.toMillis?.() ??
+    row.date?.toMillis?.() ??
+    row.createdAt?.toMillis?.();
   if (!ms) return "—";
   return format(new Date(ms), "dd/MM/yyyy");
 }
@@ -62,6 +77,18 @@ function typeChipClass(type) {
   }
   if (type === "goods") {
     return "bg-sky-50 text-sky-800 ring-1 ring-sky-100";
+  }
+  return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
+}
+
+function capitalKindChipClass(kind, expenseCategory) {
+  if (kind === CAPITAL_KINDS.expense) {
+    return expenseCategory === EXPENSE_CATEGORIES.shop
+      ? "bg-amber-50 text-amber-800 ring-1 ring-amber-100"
+      : "bg-rose-50 text-rose-800 ring-1 ring-rose-100";
+  }
+  if (kind === CAPITAL_KINDS.initial) {
+    return "bg-violet-50 text-violet-800 ring-1 ring-violet-100";
   }
   return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
 }
@@ -138,7 +165,7 @@ function PersonPicker({
   );
 }
 
-function HistoryList({ rows, emptyText, showInitialBadge }) {
+function AssetHistoryList({ rows, emptyText }) {
   if (!rows.length) {
     return <div className="card-panel text-sm text-slate-500">{emptyText}</div>;
   }
@@ -148,7 +175,7 @@ function HistoryList({ rows, emptyText, showInitialBadge }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="truncate font-bold text-slate-900">{row.investorName}</p>
-          <p className="text-xs text-slate-500">{formatInvestmentDate(row)}</p>
+          <p className="text-xs text-slate-500">{formatEntryDate(row)}</p>
         </div>
         <p className="money shrink-0 text-base font-extrabold text-brand-800">
           <Money amount={row.amount} />
@@ -158,11 +185,6 @@ function HistoryList({ rows, emptyText, showInitialBadge }) {
         <span className={cn("chip", typeChipClass(row.type))}>
           {investmentTypeLabel(row.type)}
         </span>
-        {showInitialBadge && row.isInitial ? (
-          <span className="chip bg-violet-50 text-violet-800 ring-1 ring-violet-100">
-            Vốn ban đầu
-          </span>
-        ) : null}
         {(row.type === "equipment" || row.type === "goods") &&
         row.equipmentName ? (
           <span className="chip bg-slate-50 text-slate-700 ring-1 ring-slate-200">
@@ -180,18 +202,75 @@ function HistoryList({ rows, emptyText, showInitialBadge }) {
   ));
 }
 
+function CapitalHistoryList({ rows, emptyText }) {
+  if (!rows.length) {
+    return <div className="card-panel text-sm text-slate-500">{emptyText}</div>;
+  }
+
+  return rows.map((row) => {
+    const isExpense = row.kind === CAPITAL_KINDS.expense;
+    return (
+      <article key={row.id} className="card-panel space-y-2">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate font-bold text-slate-900">
+              {row.investorName}
+            </p>
+            <p className="text-xs text-slate-500">{formatEntryDate(row)}</p>
+          </div>
+          <p
+            className={cn(
+              "money shrink-0 text-base font-extrabold",
+              isExpense ? "text-rose-700" : "text-emerald-800"
+            )}
+          >
+            {isExpense ? "−" : "+"}
+            <Money amount={row.amount} />
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <span
+            className={cn(
+              "chip",
+              capitalKindChipClass(row.kind, row.expenseCategory)
+            )}
+          >
+            {capitalKindLabel(row.kind)}
+            {isExpense
+              ? ` · ${expenseCategoryLabel(row.expenseCategory)}`
+              : ""}
+          </span>
+        </div>
+        {row.note ? <p className="text-xs text-slate-500">{row.note}</p> : null}
+        {row.createdByName || row.createdByUsername ? (
+          <p className="text-xs font-medium text-brand-800">
+            Nhập bởi: {formatActorLabel(row)}
+          </p>
+        ) : null}
+      </article>
+    );
+  });
+}
+
 function CapitalContent() {
-  const { user, profile, canManageShop, canViewInvestmentCapital } = useAuth();
+  const {
+    user,
+    profile,
+    canManageShop,
+    canViewInvestmentCapital,
+    canManageShareholderCapital,
+  } = useAuth();
   const { showToast } = useToast();
 
   const [investments, setInvestments] = useState([]);
+  const [capitalEntries, setCapitalEntries] = useState([]);
   const [investorOptions, setInvestorOptions] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingAssets, setLoadingAssets] = useState(true);
+  const [loadingCapital, setLoadingCapital] = useState(true);
   const [tab, setTab] = useState(
     canViewInvestmentCapital ? "capital" : "assets"
   );
 
-  // Form vốn đầu tư
   const [capMode, setCapMode] = useState("select");
   const [capSelect, setCapSelect] = useState("");
   const [capCustom, setCapCustom] = useState("");
@@ -200,7 +279,18 @@ function CapitalContent() {
   const [capInitial, setCapInitial] = useState(true);
   const [savingCap, setSavingCap] = useState(false);
 
-  // Form hàng hóa / thiết bị
+  const [expMode, setExpMode] = useState("select");
+  const [expSelect, setExpSelect] = useState("");
+  const [expCustom, setExpCustom] = useState("");
+  const [expAmount, setExpAmount] = useState("");
+  const [expCategory, setExpCategory] = useState(EXPENSE_CATEGORIES.shop);
+  const [expNote, setExpNote] = useState("");
+  const [savingExp, setSavingExp] = useState(false);
+
+  const [editName, setEditName] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const [assetMode, setAssetMode] = useState("select");
   const [assetSelect, setAssetSelect] = useState("");
   const [assetCustom, setAssetCustom] = useState("");
@@ -215,19 +305,38 @@ function CapitalContent() {
       (list) => {
         setInvestments(
           filterInvestmentsForRole(list, {
-            canViewCapital: canViewInvestmentCapital,
+            canViewCapital: false,
           })
         );
-        setLoading(false);
+        setLoadingAssets(false);
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được danh sách", "error");
-        setLoading(false);
+        showToast("Không tải được hàng hóa / thiết bị", "error");
+        setLoadingAssets(false);
       }
     );
     return () => unsub();
-  }, [showToast, canViewInvestmentCapital]);
+  }, [showToast]);
+
+  useEffect(() => {
+    if (!canViewInvestmentCapital) {
+      setLoadingCapital(false);
+      return undefined;
+    }
+    const unsub = subscribeShareholderCapital(
+      (list) => {
+        setCapitalEntries(list);
+        setLoadingCapital(false);
+      },
+      (error) => {
+        console.error(error);
+        showToast("Không tải được sổ vốn cổ đông", "error");
+        setLoadingCapital(false);
+      }
+    );
+    return () => unsub();
+  }, [canViewInvestmentCapital, showToast]);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -252,44 +361,39 @@ function CapitalContent() {
     return () => unsub();
   }, []);
 
-  const capitalRows = useMemo(
-    () => listCapitalInvestments(investments),
-    [investments]
-  );
   const assetRows = useMemo(
     () => (investments || []).filter(isAssetInvestment),
     [investments]
   );
 
-  const { total, shares } = useMemo(
-    () => summarizeInvestments(investments),
-    [investments]
+  const capitalSummary = useMemo(
+    () => summarizeShareholderCapital(capitalEntries),
+    [capitalEntries]
   );
-  const initialCap = useMemo(
-    () => summarizeInitialCapital(investments),
-    [investments]
-  );
+
   const assets = useMemo(() => summarizeAssets(investments), [investments]);
 
   const pieData = useMemo(
     () =>
-      shares.map((s) => ({
+      capitalSummary.shares.map((s) => ({
         name: s.name,
-        value: s.value,
+        value: s.contributed,
         percent: s.percent,
       })),
-    [shares]
+    [capitalSummary.shares]
   );
+
+  const resolveName = (mode, selectValue, customValue) =>
+    mode === "custom" ? customValue.trim() : selectValue.trim();
 
   const saveCapital = async (e) => {
     e.preventDefault();
-    if (!canViewInvestmentCapital) {
-      showToast("Bạn không có quyền ghi nhận vốn đầu tư", "error");
+    if (!canManageShareholderCapital) {
+      showToast("Chỉ tài khoản quản trị được ghi vốn cổ đông", "error");
       return;
     }
 
-    const investorName =
-      capMode === "custom" ? capCustom.trim() : capSelect.trim();
+    const investorName = resolveName(capMode, capSelect, capCustom);
     if (!investorName) {
       showToast("Chọn hoặc nhập tên cổ đông", "error");
       return;
@@ -299,30 +403,108 @@ function CapitalContent() {
       return;
     }
 
+    if (capInitial && findInitialEntry(capitalEntries, investorName)) {
+      showToast(
+        "Cổ đông này đã có vốn ban đầu — dùng form Sửa vốn ban đầu bên dưới",
+        "error"
+      );
+      return;
+    }
+
     setSavingCap(true);
     try {
-      const actor = actorFields(user, profile);
-      await createInvestment({
+      await addCapitalContribution({
         investorName,
-        type: "cash",
         amount: capAmount,
+        kind: capInitial ? CAPITAL_KINDS.initial : CAPITAL_KINDS.contribution,
         note: capNote,
-        isInitial: capInitial,
-        ...actor,
+        user,
+        profile,
       });
       showToast(
-        capInitial
-          ? "Đã ghi nhận vốn đầu tư ban đầu"
-          : "Đã ghi nhận vốn đầu tư thêm",
+        capInitial ? "Đã ghi vốn đầu tư ban đầu" : "Đã ghi vốn góp thêm",
         "success"
       );
       setCapAmount("");
       setCapNote("");
     } catch (error) {
       console.error(error);
-      showToast("Lưu vốn đầu tư thất bại", "error");
+      showToast(error.message || "Lưu vốn thất bại", "error");
     } finally {
       setSavingCap(false);
+    }
+  };
+
+  const saveExpense = async (e) => {
+    e.preventDefault();
+    if (!canManageShareholderCapital) {
+      showToast("Chỉ tài khoản quản trị được ghi chi tiêu vốn", "error");
+      return;
+    }
+
+    const investorName = resolveName(expMode, expSelect, expCustom);
+    if (!investorName) {
+      showToast("Chọn hoặc nhập tên cổ đông", "error");
+      return;
+    }
+    if (!expAmount || Number(expAmount) <= 0) {
+      showToast("Nhập số tiền chi hợp lệ", "error");
+      return;
+    }
+
+    setSavingExp(true);
+    try {
+      await addCapitalExpense({
+        investorName,
+        amount: expAmount,
+        expenseCategory: expCategory,
+        note: expNote,
+        user,
+        profile,
+      });
+      showToast(
+        expCategory === EXPENSE_CATEGORIES.shop
+          ? "Đã ghi chi cho quán (chỉ trừ sổ cổ đông)"
+          : "Đã ghi chi tiêu cổ đông",
+        "success"
+      );
+      setExpAmount("");
+      setExpNote("");
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Lưu chi tiêu thất bại", "error");
+    } finally {
+      setSavingExp(false);
+    }
+  };
+
+  const saveEditInitial = async (e) => {
+    e.preventDefault();
+    if (!canManageShareholderCapital) {
+      showToast("Chỉ tài khoản quản trị được sửa vốn ban đầu", "error");
+      return;
+    }
+    const name = editName.trim();
+    const entry = findInitialEntry(capitalEntries, name);
+    if (!entry) {
+      showToast("Chưa có dòng vốn ban đầu cho cổ đông này", "error");
+      return;
+    }
+    if (!editAmount || Number(editAmount) <= 0) {
+      showToast("Nhập số tiền hợp lệ", "error");
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      await updateInitialCapitalAmount(entry.id, editAmount);
+      showToast("Đã cập nhật vốn đầu tư ban đầu", "success");
+      setEditAmount("");
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Sửa vốn ban đầu thất bại", "error");
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -333,8 +515,7 @@ function CapitalContent() {
       return;
     }
 
-    const investorName =
-      assetMode === "custom" ? assetCustom.trim() : assetSelect.trim();
+    const investorName = resolveName(assetMode, assetSelect, assetCustom);
     if (!investorName) {
       showToast("Nhập nguồn / người phụ trách", "error");
       return;
@@ -374,9 +555,30 @@ function CapitalContent() {
     }
   };
 
-  const pageTitle = canViewInvestmentCapital ? "Vốn & tài sản" : "Hàng hóa & thiết bị";
+  const shareholdersWithInitial = useMemo(
+    () =>
+      capitalSummary.shares
+        .filter((s) => s.initialEntryId)
+        .map((s) => s.name),
+    [capitalSummary.shares]
+  );
+
+  useEffect(() => {
+    if (!editName && shareholdersWithInitial[0]) {
+      setEditName(shareholdersWithInitial[0]);
+    }
+  }, [shareholdersWithInitial, editName]);
+
+  useEffect(() => {
+    const entry = findInitialEntry(capitalEntries, editName);
+    if (entry) setEditAmount(String(entry.amount ?? ""));
+  }, [editName, capitalEntries]);
+
+  const pageTitle = canViewInvestmentCapital
+    ? "Vốn & tài sản"
+    : "Hàng hóa & thiết bị";
   const pageSubtitle = canViewInvestmentCapital
-    ? "Ghi nhận vốn đầu tư · Cổ phần · Hàng hóa / thiết bị"
+    ? "Sổ vốn cổ đông · Chi tiêu vốn · Hàng hóa / thiết bị quán"
     : "Nhập hàng hóa · Thiết bị (không gồm tiền đầu tư)";
 
   return (
@@ -387,7 +589,7 @@ function CapitalContent() {
           className="mb-4 grid grid-cols-2 gap-2 rounded-2xl bg-white p-1.5 shadow-sm ring-1 ring-slate-200"
         >
           {[
-            { id: "capital", label: "Vốn đầu tư" },
+            { id: "capital", label: "Vốn cổ đông" },
             { id: "assets", label: "Hàng hóa / TB" },
           ].map((item) => (
             <button
@@ -409,119 +611,308 @@ function CapitalContent() {
         </div>
       ) : null}
 
-      {/* —— TAB / KHỐI VỐN ĐẦU TƯ —— */}
       {canViewInvestmentCapital && tab === "capital" ? (
         <>
-          <section className="card-panel mb-4 space-y-4 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
-            <div className="flex items-center gap-2">
-              <Banknote className="h-5 w-5 text-emerald-700" aria-hidden />
-              <h2 className="section-title text-emerald-900">
-                Ghi nhận vốn đầu tư
-              </h2>
-            </div>
-            <p className="text-xs text-emerald-800/80">
-              Nhập tiền góp của cổ đông (vốn ban đầu hoặc góp thêm). Dùng để tính
-              tỷ lệ cổ phần và chia cổ tức. Quản lý quán không xem được mục này.
-            </p>
-
-            <form onSubmit={saveCapital} className="space-y-3">
-              <PersonPicker
-                mode={capMode}
-                setMode={setCapMode}
-                selectValue={capSelect}
-                setSelectValue={setCapSelect}
-                customValue={capCustom}
-                setCustomValue={setCapCustom}
-                options={investorOptions}
-                selectLabel="Cổ đông"
-                customLabel="Tên cổ đông"
-                customPlaceholder="VD: Nguyễn Văn A"
-              />
-
-              <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
-                <input
-                  type="checkbox"
-                  checked={capInitial}
-                  onChange={(e) => setCapInitial(e.target.checked)}
-                  className="h-5 w-5 rounded border-slate-300 text-emerald-700"
-                />
-                <span className="text-sm font-semibold text-slate-800">
-                  Đây là vốn đầu tư ban đầu
-                </span>
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Số tiền đầu tư (VNĐ)
-                </span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  className="field-input money"
-                  value={capAmount}
-                  onChange={(e) => setCapAmount(e.target.value)}
-                  placeholder="50000000"
-                  required
-                />
-                {capAmount ? (
-                  <p className="mt-1.5 text-xs font-medium text-emerald-700">
-                    = <Money amount={capAmount} />
-                  </p>
-                ) : null}
-              </label>
-
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Ghi chú
-                </span>
-                <input
-                  className="field-input"
-                  value={capNote}
-                  onChange={(e) => setCapNote(e.target.value)}
-                  placeholder="VD: Góp đợt 1 mở quán"
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={savingCap}
-                className="touch-btn h-14 w-full bg-emerald-700 text-white"
-              >
-                {savingCap ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Save className="h-5 w-5" aria-hidden />
-                )}
-                {savingCap ? "Đang lưu..." : "Lưu vốn đầu tư"}
-              </button>
-            </form>
-          </section>
-
           <section className="mb-4 grid grid-cols-1 gap-3">
             <StatCard
-              label="Tổng vốn đầu tư"
-              value={loading ? 0 : total}
+              label="Tổng đã góp"
+              value={loadingCapital ? 0 : capitalSummary.totalContributed}
               tone="brand"
             />
-            <StatCard
-              label="Trong đó vốn ban đầu"
-              value={loading ? 0 : initialCap.total}
-              tone="success"
-            />
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard
+                label="Đã chi từ vốn"
+                value={loadingCapital ? 0 : capitalSummary.totalExpenses}
+                tone="muted"
+              />
+              <StatCard
+                label="Số dư vốn"
+                value={loadingCapital ? 0 : capitalSummary.totalBalance}
+                tone="success"
+              />
+            </div>
           </section>
+
+          {canManageShareholderCapital ? (
+            <>
+              <section className="card-panel mb-4 space-y-4 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
+                <div className="flex items-center gap-2">
+                  <Banknote className="h-5 w-5 text-emerald-700" aria-hidden />
+                  <h2 className="section-title text-emerald-900">
+                    Ghi nhận vốn góp
+                  </h2>
+                </div>
+                <p className="text-xs text-emerald-800/80">
+                  Sổ riêng cổ đông — không trộn với thu/chi bán hàng hay nhập
+                  hàng quán. % cổ phần tính theo tổng đã góp.
+                </p>
+
+                <form onSubmit={saveCapital} className="space-y-3">
+                  <PersonPicker
+                    mode={capMode}
+                    setMode={setCapMode}
+                    selectValue={capSelect}
+                    setSelectValue={setCapSelect}
+                    customValue={capCustom}
+                    setCustomValue={setCapCustom}
+                    options={investorOptions}
+                    selectLabel="Cổ đông"
+                    customLabel="Tên cổ đông"
+                    customPlaceholder="VD: Nguyễn Văn A"
+                  />
+
+                  <label className="flex min-h-12 cursor-pointer items-center gap-3 rounded-2xl border border-emerald-200 bg-white px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={capInitial}
+                      onChange={(e) => setCapInitial(e.target.checked)}
+                      className="h-5 w-5 rounded border-slate-300 text-emerald-700"
+                    />
+                    <span className="text-sm font-semibold text-slate-800">
+                      Đây là vốn đầu tư ban đầu
+                    </span>
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Số tiền (VNĐ)
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      className="field-input money"
+                      value={capAmount}
+                      onChange={(e) => setCapAmount(e.target.value)}
+                      placeholder="300000000"
+                      required
+                    />
+                    {capAmount ? (
+                      <p className="mt-1.5 text-xs font-medium text-emerald-700">
+                        = <Money amount={capAmount} />
+                      </p>
+                    ) : null}
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Ghi chú
+                    </span>
+                    <input
+                      className="field-input"
+                      value={capNote}
+                      onChange={(e) => setCapNote(e.target.value)}
+                      placeholder="VD: Góp đợt mở quán"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={savingCap}
+                    className="touch-btn h-14 w-full bg-emerald-700 text-white"
+                  >
+                    {savingCap ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Save className="h-5 w-5" aria-hidden />
+                    )}
+                    {savingCap ? "Đang lưu..." : "Lưu vốn góp"}
+                  </button>
+                </form>
+              </section>
+
+              <section className="card-panel mb-4 space-y-4 border-rose-100 bg-gradient-to-b from-rose-50/70 to-white">
+                <div className="flex items-center gap-2">
+                  <Wallet className="h-5 w-5 text-rose-700" aria-hidden />
+                  <h2 className="section-title text-rose-900">
+                    Chi tiêu từ vốn
+                  </h2>
+                </div>
+                <p className="text-xs text-rose-800/80">
+                  Chi cho quán chỉ trừ sổ cổ đông — thiết bị/hàng hóa quán nhập
+                  tay ở tab Hàng hóa / TB. Chi cổ đông (lương QL…) ở lại sổ này.
+                </p>
+
+                <form onSubmit={saveExpense} className="space-y-3">
+                  <PersonPicker
+                    mode={expMode}
+                    setMode={setExpMode}
+                    selectValue={expSelect}
+                    setSelectValue={setExpSelect}
+                    customValue={expCustom}
+                    setCustomValue={setExpCustom}
+                    options={investorOptions}
+                    selectLabel="Cổ đông"
+                    customLabel="Tên cổ đông"
+                    customPlaceholder="VD: Nguyễn Văn A"
+                  />
+
+                  <div>
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Nhóm chi
+                    </span>
+                    <div className="grid grid-cols-1 gap-2">
+                      {EXPENSE_CATEGORY_OPTIONS.map((item) => (
+                        <button
+                          key={item.value}
+                          type="button"
+                          onClick={() => setExpCategory(item.value)}
+                          className={cn(
+                            "rounded-2xl border px-4 py-3 text-left transition",
+                            expCategory === item.value
+                              ? "border-rose-300 bg-white ring-2 ring-rose-200"
+                              : "border-slate-200 bg-white/70"
+                          )}
+                        >
+                          <p className="text-sm font-bold text-slate-900">
+                            {item.label}
+                          </p>
+                          <p className="mt-0.5 text-xs text-slate-500">
+                            {item.hint}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Số tiền chi (VNĐ)
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      className="field-input money"
+                      value={expAmount}
+                      onChange={(e) => setExpAmount(e.target.value)}
+                      placeholder="50000000"
+                      required
+                    />
+                    {expAmount ? (
+                      <p className="mt-1.5 text-xs font-medium text-rose-700">
+                        = <Money amount={expAmount} />
+                      </p>
+                    ) : null}
+                  </label>
+
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Ghi chú
+                    </span>
+                    <input
+                      className="field-input"
+                      value={expNote}
+                      onChange={(e) => setExpNote(e.target.value)}
+                      placeholder="VD: Trả lương quản lý tháng 7"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={savingExp}
+                    className="touch-btn h-14 w-full bg-rose-700 text-white"
+                  >
+                    {savingExp ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Save className="h-5 w-5" aria-hidden />
+                    )}
+                    {savingExp ? "Đang lưu..." : "Lưu chi tiêu vốn"}
+                  </button>
+                </form>
+              </section>
+
+              <section className="card-panel mb-4 space-y-4 border-violet-100 bg-gradient-to-b from-violet-50/70 to-white">
+                <div className="flex items-center gap-2">
+                  <Pencil className="h-5 w-5 text-violet-700" aria-hidden />
+                  <h2 className="section-title text-violet-900">
+                    Sửa vốn đầu tư ban đầu
+                  </h2>
+                </div>
+                <p className="text-xs text-violet-800/80">
+                  Ghi đè số vốn ban đầu của từng cổ đông. Vẫn thêm vốn góp sau
+                  này bình thường.
+                </p>
+
+                {shareholdersWithInitial.length === 0 ? (
+                  <p className="text-sm text-slate-500">
+                    Chưa có dòng vốn ban đầu để sửa.
+                  </p>
+                ) : (
+                  <form onSubmit={saveEditInitial} className="space-y-3">
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">
+                        Cổ đông
+                      </span>
+                      <select
+                        className="field-input"
+                        value={editName}
+                        onChange={(e) => setEditName(e.target.value)}
+                        required
+                      >
+                        {shareholdersWithInitial.map((name) => (
+                          <option key={name} value={name}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="block">
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">
+                        Số vốn ban đầu mới (VNĐ)
+                      </span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min="1"
+                        className="field-input money"
+                        value={editAmount}
+                        onChange={(e) => setEditAmount(e.target.value)}
+                        required
+                      />
+                      {editAmount ? (
+                        <p className="mt-1.5 text-xs font-medium text-violet-700">
+                          = <Money amount={editAmount} />
+                        </p>
+                      ) : null}
+                    </label>
+
+                    <button
+                      type="submit"
+                      disabled={savingEdit}
+                      className="touch-btn h-14 w-full bg-violet-700 text-white"
+                    >
+                      {savingEdit ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <Pencil className="h-5 w-5" aria-hidden />
+                      )}
+                      {savingEdit ? "Đang lưu..." : "Cập nhật vốn ban đầu"}
+                    </button>
+                  </form>
+                )}
+              </section>
+            </>
+          ) : (
+            <p className="card-panel mb-4 text-sm text-slate-600">
+              Bạn đang xem sổ vốn cổ đông (đã góp · đã chi · số dư · % cổ phần).
+              Chỉ tài khoản quản trị được ghi/sửa vốn và chi tiêu vốn.
+            </p>
+          )}
 
           <section className="card-panel mb-4">
             <h2 className="section-title mb-1">Tỷ lệ cổ phần</h2>
             <p className="mb-3 text-xs text-slate-500">
-              Tính theo tổng tiền đầu tư đã ghi nhận.
+              Theo tổng vốn đã góp (không trừ chi tiêu).
             </p>
 
-            {loading ? (
+            {loadingCapital ? (
               <div className="h-56 animate-pulse rounded-2xl bg-slate-100" />
             ) : pieData.length === 0 ? (
               <div className="py-10 text-center text-sm text-slate-500">
-                Chưa có vốn đầu tư. Hãy ghi nhận ở form phía trên.
+                Chưa có vốn góp trên sổ cổ đông.
               </div>
             ) : (
               <>
@@ -562,7 +953,7 @@ function CapitalContent() {
                 </div>
 
                 <ul className="mt-2 space-y-2 border-t border-slate-100 pt-3">
-                  {shares.map((s, index) => (
+                  {capitalSummary.shares.map((s, index) => (
                     <li
                       key={s.name}
                       className="flex items-center justify-between gap-3 text-sm"
@@ -578,8 +969,12 @@ function CapitalContent() {
                         />
                         <span className="truncate font-medium">{s.name}</span>
                       </span>
-                      <span className="money shrink-0 font-bold text-slate-800">
-                        {s.percent.toFixed(1)}% · <Money amount={s.value} />
+                      <span className="money shrink-0 text-right font-bold text-slate-800">
+                        {s.percent.toFixed(1)}% · góp{" "}
+                        <Money amount={s.contributed} />
+                        <span className="mt-0.5 block text-xs font-semibold text-slate-500">
+                          dư <Money amount={s.balance} />
+                        </span>
                       </span>
                     </li>
                   ))}
@@ -591,22 +986,20 @@ function CapitalContent() {
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <Landmark className="h-5 w-5 text-brand-700" aria-hidden />
-              <h2 className="section-title">Lịch sử vốn đầu tư</h2>
+              <h2 className="section-title">Lịch sử sổ vốn cổ đông</h2>
             </div>
-            {loading ? (
+            {loadingCapital ? (
               <div className="card-panel h-24 animate-pulse bg-white/80" />
             ) : (
-              <HistoryList
-                rows={capitalRows}
-                emptyText="Chưa có lần ghi nhận vốn đầu tư nào."
-                showInitialBadge
+              <CapitalHistoryList
+                rows={capitalEntries}
+                emptyText="Chưa có giao dịch trên sổ vốn cổ đông."
               />
             )}
           </section>
         </>
       ) : null}
 
-      {/* —— HÀNG HÓA / THIẾT BỊ —— */}
       {(!canViewInvestmentCapital || tab === "assets") && canManageShop ? (
         <>
           <section className="card-panel mb-4 space-y-4">
@@ -617,9 +1010,14 @@ function CapitalContent() {
             {!canViewInvestmentCapital ? (
               <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 Bạn kiểm soát dòng tiền quán và nhập hàng hóa/thiết bị. Tiền đầu
-                tư của cổ đông chỉ Chủ đầu tư / Super Admin xem được.
+                tư của cổ đông chỉ Chủ đầu tư xem được.
               </p>
-            ) : null}
+            ) : (
+              <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Tài sản quán nhập tay tại đây — tách với sổ vốn cổ đông. Chi vốn
+                “cho quán” không tự tạo dòng thiết bị.
+              </p>
+            )}
 
             <form onSubmit={saveAsset} className="space-y-3">
               <PersonPicker
@@ -651,15 +1049,13 @@ function CapitalContent() {
                         type="button"
                         onClick={() => setAssetType(item.id)}
                         className={cn(
-                          "touch-btn h-14 gap-2 border",
+                          "touch-btn flex h-12 items-center justify-center gap-2 rounded-xl text-sm",
                           assetType === item.id
-                            ? item.id === "goods"
-                              ? "border-sky-600 bg-sky-50 text-sky-800"
-                              : "border-amber-600 bg-amber-50 text-amber-800"
-                            : "border-slate-200 bg-white text-slate-500"
+                            ? "bg-brand-700 text-white"
+                            : "bg-slate-100 text-slate-600"
                         )}
                       >
-                        <Icon className="h-5 w-5" aria-hidden />
+                        <Icon className="h-4 w-4" aria-hidden />
                         {item.label}
                       </button>
                     );
@@ -676,9 +1072,7 @@ function CapitalContent() {
                   value={assetName}
                   onChange={(e) => setAssetName(e.target.value)}
                   placeholder={
-                    assetType === "goods"
-                      ? "VD: Trà, ly, đường"
-                      : "VD: Tủ lạnh, bàn ghế"
+                    assetType === "goods" ? "VD: Trà Thái" : "VD: Tủ lạnh"
                   }
                   required
                 />
@@ -695,7 +1089,7 @@ function CapitalContent() {
                   className="field-input money"
                   value={assetAmount}
                   onChange={(e) => setAssetAmount(e.target.value)}
-                  placeholder="2000000"
+                  placeholder="5000000"
                   required
                 />
                 {assetAmount ? (
@@ -735,18 +1129,18 @@ function CapitalContent() {
           <section className="mb-4 grid grid-cols-1 gap-3">
             <StatCard
               label="Tổng hàng hóa & thiết bị"
-              value={loading ? 0 : assets.total}
+              value={loadingAssets ? 0 : assets.total}
               tone="brand"
             />
             <div className="grid grid-cols-2 gap-3">
               <StatCard
                 label="Hàng hóa"
-                value={loading ? 0 : assets.goods}
+                value={loadingAssets ? 0 : assets.goods}
                 tone="success"
               />
               <StatCard
                 label="Thiết bị"
-                value={loading ? 0 : assets.equipment}
+                value={loadingAssets ? 0 : assets.equipment}
                 tone="muted"
               />
             </div>
@@ -754,10 +1148,10 @@ function CapitalContent() {
 
           <section className="space-y-3">
             <h2 className="section-title">Lịch sử nhập</h2>
-            {loading ? (
+            {loadingAssets ? (
               <div className="card-panel h-24 animate-pulse bg-white/80" />
             ) : (
-              <HistoryList
+              <AssetHistoryList
                 rows={assetRows}
                 emptyText="Chưa có hàng hóa / thiết bị."
               />

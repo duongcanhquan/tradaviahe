@@ -366,13 +366,13 @@ function AdminUsersContent() {
   return (
     <AppShell title={pageTitle} subtitle={pageSubtitle}>
       {isSuperAdmin ? (
-        <div className="card-panel mb-4 flex items-start gap-3 border-violet-200 bg-violet-50">
-          <Crown className="mt-0.5 h-5 w-5 shrink-0 text-violet-700" aria-hidden />
+        <div className="card-panel mb-4 flex items-start gap-3 border-slate-200 bg-slate-50">
+          <Crown className="mt-0.5 h-5 w-5 shrink-0 text-slate-600" aria-hidden />
           <div className="min-w-0 text-sm">
-            <p className="font-bold text-violet-900">Bạn là Super Admin duy nhất</p>
-            <p className="mt-1 text-violet-800/80">
+            <p className="font-bold text-slate-900">Quản trị người dùng</p>
+            <p className="mt-1 text-slate-600">
               {profile?.name || profile?.username} — xem mật khẩu, reset từng
-              người hoặc reset tất cả. Quản lý toàn bộ người dùng.
+              người hoặc reset tất cả.
             </p>
           </div>
         </div>
@@ -380,8 +380,8 @@ function AdminUsersContent() {
         <div className="card-panel mb-4 border-amber-200 bg-amber-50 text-sm text-amber-900">
           <p className="font-bold">Cổ đông — xem & cập nhật hệ thống</p>
           <p className="mt-1 text-amber-800/80">
-            Vốn / cổ tức / tiền nhận (TM hoặc CK tài khoản), món giá, người dùng,
-            vận hành quán. Không đổi MK Super Admin.
+            Xem sổ vốn / cổ tức / tiền nhận (TM hoặc CK), món giá, người dùng,
+            vận hành quán. Ghi vốn & chi tiêu vốn do tài khoản quản trị.
           </p>
         </div>
       ) : actorRole === "manager" ? (

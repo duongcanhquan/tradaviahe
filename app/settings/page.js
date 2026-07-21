@@ -27,7 +27,7 @@ import { useToast } from "@/components/Toast";
 import { actorFields } from "@/lib/audit";
 import { db } from "@/lib/firebase";
 import { seedDefaultCatalog } from "@/lib/products";
-import { roleLabel } from "@/lib/roles";
+import { displayRoleLabel } from "@/lib/roles";
 
 function SettingsContent() {
   const {
@@ -237,7 +237,7 @@ function SettingsContent() {
           @{profile?.username || profile?.email?.split("@")[0] || "—"}
         </p>
         <p className="inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
-          Vai trò: {roleLabel(profile?.role)}
+          Vai trò: {displayRoleLabel(profile?.role)}
         </p>
       </section>
 

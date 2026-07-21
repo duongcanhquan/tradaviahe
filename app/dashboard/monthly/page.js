@@ -19,7 +19,10 @@ import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
-import { subscribeInvestments, summarizeInvestments } from "@/lib/investments";
+import {
+  subscribeShareholderCapital,
+  summarizeShareholderCapital,
+} from "@/lib/shareholderCapital";
 import {
   calculateMonthlyReport,
   filterTransactionsByMonth,
@@ -66,7 +69,7 @@ function MonthlyContent() {
     monthInputValue(now.getFullYear(), now.getMonth())
   );
   const [transactions, setTransactions] = useState([]);
-  const [investments, setInvestments] = useState([]);
+  const [capitalEntries, setCapitalEntries] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [relationFundPercent, setRelationFundPercent] = useState(
     DEFAULT_RELATION_FUND_PERCENT
@@ -110,9 +113,9 @@ function MonthlyContent() {
       setLoadingSettings(false);
       return undefined;
     }
-    const unsubInv = subscribeInvestments(
+    const unsubInv = subscribeShareholderCapital(
       (list) => {
-        setInvestments(list);
+        setCapitalEntries(list);
         setLoadingInv(false);
       },
       (error) => {
@@ -174,17 +177,17 @@ function MonthlyContent() {
       canViewDividends
         ? calculateMonthlyReport({
             transactions: monthTx,
-            investments,
+            capitalEntries,
             relationFundPercent,
           })
         : null,
-    [canViewDividends, monthTx, investments, relationFundPercent]
+    [canViewDividends, monthTx, capitalEntries, relationFundPercent]
   );
 
   const investorNames = useMemo(() => {
-    const { shares } = summarizeInvestments(investments);
+    const { shares } = summarizeShareholderCapital(capitalEntries);
     return shares.map((s) => s.name).filter(Boolean);
-  }, [investments]);
+  }, [capitalEntries]);
 
   useEffect(() => {
     if (!receiptName && investorNames[0]) {
