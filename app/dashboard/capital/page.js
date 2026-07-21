@@ -264,7 +264,10 @@ function CapitalContent() {
 
   const [investments, setInvestments] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
-  const [investorOptions, setInvestorOptions] = useState([]);
+  /** Chỉ Chủ đầu tư (investor) — không gồm quản lý quán */
+  const [shareholderOptions, setShareholderOptions] = useState([]);
+  /** Nguồn/phụ trách hàng hóa-TB: quản lý + cổ đông + … */
+  const [assetPersonOptions, setAssetPersonOptions] = useState([]);
   const [loadingAssets, setLoadingAssets] = useState(true);
   const [loadingCapital, setLoadingCapital] = useState(true);
   const [tab, setTab] = useState(
@@ -342,21 +345,35 @@ function CapitalContent() {
     const unsub = onSnapshot(
       collection(db, "users"),
       (snap) => {
-        const names = snap.docs
-          .map((d) => d.data())
+        const users = snap.docs.map((d) => d.data());
+        const nameOf = (u) => u.name || u.username || u.email;
+
+        // Cổ đông = chỉ role investor (quản lý quán không phải cổ đông)
+        const shareholders = users
+          .filter((u) => u.role === "investor")
+          .map(nameOf)
+          .filter(Boolean);
+        setShareholderOptions(
+          [...new Set(shareholders)].sort((a, b) => a.localeCompare(b, "vi"))
+        );
+
+        const assetPeople = users
           .filter(
             (u) =>
               u.role === "investor" ||
               u.role === "manager" ||
-              u.role === "superadmin"
+              u.role === "employee"
           )
-          .map((u) => u.name || u.username || u.email)
+          .map(nameOf)
           .filter(Boolean);
-        setInvestorOptions(
-          [...new Set(names)].sort((a, b) => a.localeCompare(b, "vi"))
+        setAssetPersonOptions(
+          [...new Set(assetPeople)].sort((a, b) => a.localeCompare(b, "vi"))
         );
       },
-      () => setInvestorOptions([])
+      () => {
+        setShareholderOptions([]);
+        setAssetPersonOptions([]);
+      }
     );
     return () => unsub();
   }, []);
@@ -655,7 +672,7 @@ function CapitalContent() {
                     setSelectValue={setCapSelect}
                     customValue={capCustom}
                     setCustomValue={setCapCustom}
-                    options={investorOptions}
+                    options={shareholderOptions}
                     selectLabel="Cổ đông"
                     customLabel="Tên cổ đông"
                     customPlaceholder="VD: Nguyễn Văn A"
@@ -741,7 +758,7 @@ function CapitalContent() {
                     setSelectValue={setExpSelect}
                     customValue={expCustom}
                     setCustomValue={setExpCustom}
-                    options={investorOptions}
+                    options={shareholderOptions}
                     selectLabel="Cổ đông"
                     customLabel="Tên cổ đông"
                     customPlaceholder="VD: Nguyễn Văn A"
@@ -1027,7 +1044,7 @@ function CapitalContent() {
                 setSelectValue={setAssetSelect}
                 customValue={assetCustom}
                 setCustomValue={setAssetCustom}
-                options={investorOptions}
+                options={assetPersonOptions}
                 selectLabel="Nguồn / phụ trách"
                 customLabel="Nguồn / phụ trách"
                 customPlaceholder="VD: Nhà cung cấp A"
