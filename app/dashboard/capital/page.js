@@ -31,7 +31,10 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import { actorFields, formatActorLabel } from "@/lib/audit";
-import { transferCapitalToShopFund } from "@/lib/expenses";
+import {
+  convertExistingCapitalExpenseToShopFund,
+  transferCapitalToShopFund,
+} from "@/lib/expenses";
 import {
   createInvestment,
   filterInvestmentsForRole,
@@ -51,10 +54,12 @@ import {
   isShopManagerName,
   subscribeShareholderCapital,
   summarizeShareholderCapital,
+  updateCapitalExpense,
   updateInitialCapitalAmount,
 } from "@/lib/shareholderCapital";
 import {
   cn,
+  dateKeyToInputValue,
   formatCurrency,
   inputValueToDateKey,
   timestampForBusinessDate,
@@ -211,7 +216,12 @@ function AssetHistoryList({ rows, emptyText }) {
   ));
 }
 
-function CapitalHistoryList({ rows, emptyText }) {
+function CapitalHistoryList({
+  rows,
+  emptyText,
+  canEditExpense = false,
+  onEditExpense,
+}) {
   if (!rows.length) {
     return <div className="card-panel text-sm text-slate-500">{emptyText}</div>;
   }
@@ -221,6 +231,7 @@ function CapitalHistoryList({ rows, emptyText }) {
     const title = isExpense
       ? formatActorLabel(row)
       : row.investorName || "—";
+    const linkedFund = Boolean(row.toShopFund || row.shopFundTxId);
     return (
       <article key={row.id} className="card-panel space-y-2">
         <div className="flex items-start justify-between gap-3">
@@ -242,6 +253,16 @@ function CapitalHistoryList({ rows, emptyText }) {
           <span className={cn("chip", capitalKindChipClass(row.kind))}>
             {capitalKindLabel(row.kind)}
           </span>
+          {isExpense && linkedFund ? (
+            <span className="chip bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100">
+              Đã vào quỹ cửa hàng
+            </span>
+          ) : null}
+          {isExpense && !linkedFund ? (
+            <span className="chip bg-amber-50 text-amber-900 ring-1 ring-amber-100">
+              Chưa vào quỹ
+            </span>
+          ) : null}
         </div>
         {row.note ? <p className="text-xs text-slate-500">{row.note}</p> : null}
         {!isExpense && (row.createdByName || row.createdByUsername) ? (
@@ -253,6 +274,16 @@ function CapitalHistoryList({ rows, emptyText }) {
           <p className="text-xs font-medium text-rose-800">
             Người gửi: {formatActorLabel(row)} · {formatEntryDate(row)}
           </p>
+        ) : null}
+        {isExpense && canEditExpense ? (
+          <button
+            type="button"
+            onClick={() => onEditExpense?.(row)}
+            className="touch-btn h-11 w-full gap-2 bg-slate-900 text-sm text-white"
+          >
+            <Pencil className="h-4 w-4" aria-hidden />
+            Sửa / chuyển quỹ
+          </button>
         ) : null}
       </article>
     );
@@ -296,6 +327,14 @@ function CapitalContent() {
   /** Mặc định bật: chi vốn đồng thời nạp vào quỹ cửa hàng */
   const [expToShopFund, setExpToShopFund] = useState(true);
   const [savingExp, setSavingExp] = useState(false);
+
+  /** Sửa dòng chi tiêu vốn đã có (SA) */
+  const [editingExpense, setEditingExpense] = useState(null);
+  const [editExpAmount, setEditExpAmount] = useState("");
+  const [editExpNote, setEditExpNote] = useState("");
+  const [editExpDate, setEditExpDate] = useState(todayInputValue());
+  const [savingEditExp, setSavingEditExp] = useState(false);
+  const [convertingExp, setConvertingExp] = useState(false);
 
   const [editName, setEditName] = useState("");
   const [editAmount, setEditAmount] = useState("");
@@ -510,6 +549,97 @@ function CapitalContent() {
       showToast(error.message || "Lưu chi tiêu thất bại", "error");
     } finally {
       setSavingExp(false);
+    }
+  };
+
+  const openEditExpense = (row) => {
+    if (!canManageShareholderCapital || row?.kind !== CAPITAL_KINDS.expense) {
+      return;
+    }
+    setCapitalWrite(null);
+    setEditingExpense(row);
+    setEditExpAmount(String(row.amount ?? ""));
+    setEditExpNote(row.note || "");
+    setEditExpDate(
+      row.dateKey ? dateKeyToInputValue(row.dateKey) : todayInputValue()
+    );
+  };
+
+  const saveEditExpense = async (e) => {
+    e.preventDefault();
+    if (!canManageShareholderCapital || !editingExpense?.id) {
+      showToast("Chỉ tài khoản quản trị được sửa chi tiêu vốn", "error");
+      return;
+    }
+    if (!editExpAmount || Number(editExpAmount) <= 0) {
+      showToast("Nhập số tiền hợp lệ", "error");
+      return;
+    }
+    if (!editExpDate) {
+      showToast("Chọn ngày chi", "error");
+      return;
+    }
+
+    setSavingEditExp(true);
+    try {
+      await updateCapitalExpense({
+        entryId: editingExpense.id,
+        amount: editExpAmount,
+        note: editExpNote,
+        dateKey: inputValueToDateKey(editExpDate),
+        expenseDate: timestampForBusinessDate(editExpDate),
+        role: profile?.role,
+      });
+      showToast("Đã cập nhật chi tiêu vốn", "success");
+      setEditingExpense(null);
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Sửa thất bại", "error");
+    } finally {
+      setSavingEditExp(false);
+    }
+  };
+
+  const convertEditExpenseToFund = async () => {
+    if (!canManageShareholderCapital || !editingExpense?.id) return;
+    if (editingExpense.toShopFund || editingExpense.shopFundTxId) {
+      showToast("Dòng này đã vào quỹ rồi", "info");
+      return;
+    }
+    const ok = window.confirm(
+      `Chuyển khoản chi vốn này vào quỹ cửa hàng?\n${formatCurrency(editingExpense.amount)}\nKhông tạo dòng chi vốn mới — chỉ nạp két quán.`
+    );
+    if (!ok) return;
+
+    setConvertingExp(true);
+    try {
+      // Dùng bản đã sửa trên form nếu user vừa đổi số tiền/ghi chú nhưng chưa lưu
+      const draft = {
+        ...editingExpense,
+        amount: editExpAmount || editingExpense.amount,
+        note: editExpNote,
+        dateKey: inputValueToDateKey(editExpDate),
+      };
+      await updateCapitalExpense({
+        entryId: editingExpense.id,
+        amount: draft.amount,
+        note: draft.note,
+        dateKey: draft.dateKey,
+        expenseDate: timestampForBusinessDate(editExpDate),
+        role: profile?.role,
+      });
+      await convertExistingCapitalExpenseToShopFund({
+        entry: { ...editingExpense, ...draft },
+        user,
+        profile,
+      });
+      showToast("Đã chuyển vào quỹ cửa hàng", "success");
+      setEditingExpense(null);
+    } catch (error) {
+      console.error(error);
+      showToast(error.message || "Chuyển quỹ thất bại", "error");
+    } finally {
+      setConvertingExp(false);
     }
   };
 
@@ -1134,12 +1264,117 @@ function CapitalContent() {
               <Landmark className="h-5 w-5 text-brand-700" aria-hidden />
               <h2 className="section-title">Lịch sử sổ vốn cổ đông</h2>
             </div>
+
+            {canManageShareholderCapital && editingExpense ? (
+              <section className="card-panel space-y-3 border-amber-100 bg-gradient-to-b from-amber-50/80 to-white">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <Pencil className="h-5 w-5 text-amber-800" aria-hidden />
+                    <h3 className="section-title text-amber-950">
+                      Sửa chi tiêu vốn
+                    </h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEditingExpense(null)}
+                    className="touch-btn h-10 gap-1 rounded-xl bg-white px-3 text-sm text-slate-600 ring-1 ring-slate-200"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                    Đóng
+                  </button>
+                </div>
+
+                <form onSubmit={saveEditExpense} className="space-y-3">
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Ngày chi
+                    </span>
+                    <input
+                      type="date"
+                      className="field-input"
+                      value={editExpDate}
+                      onChange={(e) => setEditExpDate(e.target.value)}
+                      max={todayInputValue()}
+                      required
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Số tiền (VNĐ)
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min="1"
+                      className="field-input money"
+                      value={editExpAmount}
+                      onChange={(e) => setEditExpAmount(e.target.value)}
+                      required
+                    />
+                    {editExpAmount ? (
+                      <p className="mt-1.5 text-xs font-medium text-amber-800">
+                        = <Money amount={editExpAmount} />
+                      </p>
+                    ) : null}
+                  </label>
+                  <label className="block">
+                    <span className="mb-2 block text-sm font-semibold text-slate-700">
+                      Ghi chú
+                    </span>
+                    <input
+                      className="field-input"
+                      value={editExpNote}
+                      onChange={(e) => setEditExpNote(e.target.value)}
+                      placeholder="VD: Chuyển 30tr vào quỹ vận hành"
+                    />
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={savingEditExp || convertingExp}
+                    className="touch-btn h-14 w-full bg-slate-900 text-white"
+                  >
+                    {savingEditExp ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Save className="h-5 w-5" aria-hidden />
+                    )}
+                    {savingEditExp ? "Đang lưu..." : "Lưu nội dung chi tiêu"}
+                  </button>
+                </form>
+
+                {editingExpense.toShopFund || editingExpense.shopFundTxId ? (
+                  <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                    Dòng này đã gắn quỹ cửa hàng — không chuyển lần nữa.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={savingEditExp || convertingExp}
+                    onClick={convertEditExpenseToFund}
+                    className="touch-btn h-14 w-full gap-2 bg-emerald-700 text-white"
+                  >
+                    {convertingExp ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Wallet className="h-5 w-5" aria-hidden />
+                    )}
+                    {convertingExp
+                      ? "Đang chuyển..."
+                      : "Chuyển giao dịch này → quỹ cửa hàng"}
+                  </button>
+                )}
+              </section>
+            ) : null}
+
             {loadingCapital ? (
               <div className="card-panel h-24 animate-pulse bg-white/80" />
             ) : (
               <CapitalHistoryList
                 rows={shareholderCapitalEntries}
                 emptyText="Chưa có giao dịch trên sổ vốn cổ đông."
+                canEditExpense={canManageShareholderCapital}
+                onEditExpense={openEditExpense}
               />
             )}
           </section>
