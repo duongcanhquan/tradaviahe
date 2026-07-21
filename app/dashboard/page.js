@@ -18,6 +18,7 @@ import {
   Landmark,
   Package,
   Percent,
+  Receipt,
   Trash2,
   Wallet,
 } from "lucide-react";
@@ -223,7 +224,7 @@ function DashboardContent() {
       .filter((t) =>
         canViewDividends ? t.type === "income" : isGoodsIncome(t)
       )
-      .slice(0, 12);
+      .slice(0, 30);
   }, [periodTx, canViewDividends]);
 
   const salesByActor = useMemo(
@@ -381,6 +382,14 @@ function DashboardContent() {
               <span className="truncate">Tồn kho</span>
             </Link>
           ) : null}
+
+          <Link
+            href="/manager/sales"
+            className="touch-btn h-12 justify-start gap-2 bg-emerald-700 px-3 text-sm text-white"
+          >
+            <Receipt className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">Món đã bán</span>
+          </Link>
 
           <Link
             href="/manager/expenses"
@@ -583,9 +592,17 @@ function DashboardContent() {
       </section>
 
       <section className="mb-6 space-y-3">
-        <h2 className="section-title">
-          Thu gần đây · {selectedRange.shortLabel}
-        </h2>
+        <div className="flex items-end justify-between gap-2">
+          <h2 className="section-title mb-0">
+            Thu gần đây · {selectedRange.shortLabel}
+          </h2>
+          <Link
+            href="/manager/sales"
+            className="text-xs font-bold text-brand-800"
+          >
+            Sổ theo ngày →
+          </Link>
+        </div>
         {loadingTx ? (
           <div className="card-panel h-20 animate-pulse bg-white/80" />
         ) : recentIncome.length === 0 ? (

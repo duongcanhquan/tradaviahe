@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import {
   addDoc,
   collection,
@@ -8,7 +9,6 @@ import {
   orderBy,
   query,
   serverTimestamp,
-  where,
 } from "firebase/firestore";
 import {
   ArrowDown,
@@ -29,6 +29,7 @@ import { useToast } from "@/components/Toast";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
 import { db } from "@/lib/firebase";
+import { isGoodsIncome } from "@/lib/receipts";
 import { subscribeGlobalSettings } from "@/lib/settings";
 import {
   DEFAULT_PRODUCT_GROUPS,
@@ -42,6 +43,7 @@ import {
 } from "@/lib/products";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
+import { format as formatDate } from "date-fns";
 
 /**
  * Bàn thu siêu nhanh (POS):
@@ -117,28 +119,41 @@ export default function EmployeeDesk() {
 
   useEffect(() => {
     if (!user?.uid) return;
-    const q = query(
-      collection(db, "transactions"),
-      where("createdBy", "==", user.uid)
-    );
     const unsub = onSnapshot(
-      q,
+      collection(db, "transactions"),
       (snap) => {
-        const rows = snap.docs
+        const today = todayKey();
+        let rows = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
-          .filter((t) => t.type === "income")
+          .filter(isGoodsIncome)
           .sort(
             (a, b) =>
               (b.timestamp?.toMillis?.() || 0) -
               (a.timestamp?.toMillis?.() || 0)
-          )
-          .slice(0, 6);
+          );
+
+        // Quản lý / chủ ĐT / SA: xem mọi lần thu hôm nay để kiểm soát & xóa
+        // Nhân viên: chỉ khoản mình ghi (gần đây)
+        if (canDeleteSales) {
+          rows = rows
+            .filter((t) => {
+              if (t.businessDate === today) return true;
+              const ms = t.timestamp?.toMillis?.();
+              if (!ms) return false;
+              return formatDate(new Date(ms), "dd/MM/yyyy") === today;
+            })
+            .slice(0, 20);
+        } else {
+          rows = rows
+            .filter((t) => t.createdBy === user.uid)
+            .slice(0, 6);
+        }
         setMyRecent(rows);
       },
       () => setMyRecent([])
     );
     return () => unsub();
-  }, [user?.uid]);
+  }, [user?.uid, canDeleteSales]);
 
   useEffect(
     () => () => {
@@ -507,7 +522,11 @@ export default function EmployeeDesk() {
         onClick={() => setShowHistory((v) => !v)}
         className="mt-1 w-full py-1 text-center text-[11px] font-semibold text-slate-400"
       >
-        {showHistory ? "Ẩn lịch sử" : "Lịch sử vừa thu"}
+        {showHistory
+          ? "Ẩn lịch sử"
+          : canDeleteSales
+            ? "Lịch sử bán hôm nay (mọi người)"
+            : "Lịch sử vừa thu"}
       </button>
 
       {showHistory ? (
@@ -523,6 +542,7 @@ export default function EmployeeDesk() {
                     month: "2-digit",
                     hour: "2-digit",
                     minute: "2-digit",
+                    second: "2-digit",
                   })
                 : "—";
               const isCk = row.paymentMethod === "banking";
@@ -547,6 +567,14 @@ export default function EmployeeDesk() {
                       >
                         {isCk ? "CK" : "TM"}
                       </span>
+                      {canDeleteSales ? (
+                        <>
+                          {" · "}
+                          <span className="font-semibold text-slate-600">
+                            {formatActorLabel(row)}
+                          </span>
+                        </>
+                      ) : null}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
@@ -573,12 +601,21 @@ export default function EmployeeDesk() {
               );
             })
           )}
-          <p className="pt-1 text-center text-[11px] text-slate-400">
-            {formatActorLabel({
-              createdByName: displayName,
-              createdByUsername: profile?.username,
-            })}
-          </p>
+          {canDeleteSales ? (
+            <Link
+              href="/manager/sales"
+              className="block pt-2 text-center text-xs font-bold text-brand-800"
+            >
+              Sổ món đã bán · chọn ngày →
+            </Link>
+          ) : (
+            <p className="pt-1 text-center text-[11px] text-slate-400">
+              {formatActorLabel({
+                createdByName: displayName,
+                createdByUsername: profile?.username,
+              })}
+            </p>
+          )}
         </div>
       ) : (
         <div className="h-28" aria-hidden />

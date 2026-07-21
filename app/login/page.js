@@ -5,14 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
-  loginAsDefaultSuperAdmin,
-  SUPERADMIN_DEFAULT_PASSWORD,
-  SUPERADMIN_USERNAME,
-} from "@/lib/bootstrap";
-import {
   loadDeviceLogin,
   peekSavedUsername,
-  saveDeviceLogin,
 } from "@/lib/deviceSession";
 import { homePathForRole } from "@/lib/roles";
 
@@ -52,8 +46,6 @@ function LoginForm() {
   const [loading, setLoading] = useState(false);
   const [autoLogging, setAutoLogging] = useState(false);
   const [checkingDevice, setCheckingDevice] = useState(true);
-  const [quickLoading, setQuickLoading] = useState(false);
-  const [showAdmin, setShowAdmin] = useState(false);
   const autoTriedRef = useRef(false);
 
   useEffect(() => {
@@ -93,7 +85,6 @@ function LoginForm() {
         showToast("Đã vào lại — máy nhớ đăng nhập", "success");
       } catch (error) {
         console.error(error);
-        // Giữ form đã điền; nhân viên chỉ cần bấm Đăng nhập nếu mạng lỗi tạm thời
         showToast("Máy nhớ tài khoản — bấm Đăng nhập để vào", "info");
       } finally {
         setAutoLogging(false);
@@ -119,30 +110,7 @@ function LoginForm() {
     }
   };
 
-  const handleQuickAdmin = async () => {
-    setQuickLoading(true);
-    try {
-      await loginAsDefaultSuperAdmin();
-      setIdentifier(SUPERADMIN_USERNAME);
-      setPassword(SUPERADMIN_DEFAULT_PASSWORD);
-      if (remember) {
-        saveDeviceLogin({
-          username: SUPERADMIN_USERNAME,
-          password: SUPERADMIN_DEFAULT_PASSWORD,
-        });
-      }
-      showToast("Đã vào Super Admin", "success");
-    } catch (error) {
-      console.error(error);
-      showToast(friendlyAuthError(error), "error");
-      setIdentifier(SUPERADMIN_USERNAME);
-      setPassword("");
-    } finally {
-      setQuickLoading(false);
-    }
-  };
-
-  const busy = loading || quickLoading || authLoading || autoLogging;
+  const busy = loading || authLoading || autoLogging;
 
   if (checkingDevice || autoLogging || authLoading) {
     return (
@@ -172,7 +140,8 @@ function LoginForm() {
             Cửa nhân viên
           </h1>
           <p className="mt-3 max-w-sm text-sm text-blue-100">
-            Đăng nhập <strong>một lần</strong> — máy tự nhớ để vào bán hàng ngay.
+            Đăng nhập bằng <strong>tên + mật khẩu</strong>. Bật ghi nhớ nếu muốn
+            máy tự vào lại lần sau.
           </p>
         </div>
 
@@ -233,7 +202,7 @@ function LoginForm() {
                 Ghi nhớ trên máy này
               </span>
               <span className="mt-0.5 block text-xs text-slate-500">
-                Lần sau mở app là vào thẳng — không phải nhập lại.
+                Lần sau mở app là vào thẳng — tắt nếu máy dùng chung.
               </span>
             </span>
           </label>
@@ -243,36 +212,8 @@ function LoginForm() {
             disabled={busy}
             className="touch-btn h-16 w-full bg-brand-700 text-lg text-white disabled:opacity-60"
           >
-            {loading ? "Đang vào..." : "Vào bán hàng"}
+            {loading ? "Đang vào..." : "Đăng nhập"}
           </button>
-
-          <div className="mt-5">
-            <button
-              type="button"
-              onClick={() => setShowAdmin((v) => !v)}
-              className="w-full text-center text-xs font-semibold text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
-            >
-              {showAdmin ? "Ẩn khu quản lý" : "Quản lý / Admin"}
-            </button>
-
-            {showAdmin ? (
-              <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-3">
-                <p className="mb-2 text-center text-xs font-semibold text-slate-500">
-                  Super Admin lần đầu
-                </p>
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={handleQuickAdmin}
-                  className="touch-btn h-12 w-full bg-emerald-600 text-sm text-white disabled:opacity-60"
-                >
-                  {quickLoading
-                    ? "Đang vào..."
-                    : "Vào Super Admin (canhquan)"}
-                </button>
-              </div>
-            ) : null}
-          </div>
         </form>
       </div>
     </div>

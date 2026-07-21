@@ -90,7 +90,11 @@ export function AuthProvider({ children }) {
     return () => unsubscribe();
   }, []);
 
-  /** Đăng nhập bằng TÊN — map sang email nội bộ, không hỏi email */
+  /**
+   * Đăng nhập bằng TÊN — map sang email nội bộ, không hỏi email.
+   * Super Admin lần đầu (chưa có Auth): chỉ tạo khi gõ đúng canhquan + MK mặc định.
+   * Không còn nút vào một chạm.
+   */
   const login = async (identifier, password, options = {}) => {
     const { remember = true } = options;
     const username = extractUsername(identifier);
@@ -98,11 +102,36 @@ export function AuthProvider({ children }) {
       throw new Error("Nhập tên đăng nhập");
     }
     const authEmail = usernameToEmail(username);
-    const credential = await signInWithEmailAndPassword(
-      auth,
-      authEmail,
-      password
-    );
+
+    let credential;
+    try {
+      credential = await signInWithEmailAndPassword(
+        auth,
+        authEmail,
+        password
+      );
+    } catch (error) {
+      const code = error?.code || "";
+      const { SUPERADMIN_USERNAME, SUPERADMIN_DEFAULT_PASSWORD } =
+        await import("@/lib/authIdentity");
+      const isDefaultSa =
+        username === SUPERADMIN_USERNAME &&
+        String(password) === SUPERADMIN_DEFAULT_PASSWORD;
+      const maybeMissing =
+        code === "auth/user-not-found" ||
+        code === "auth/invalid-credential" ||
+        code === "auth/invalid-login-credentials" ||
+        code === "auth/wrong-password";
+
+      if (isDefaultSa && maybeMissing) {
+        const { loginAsDefaultSuperAdmin } = await import("@/lib/bootstrap");
+        const result = await loginAsDefaultSuperAdmin();
+        credential = { user: result.user };
+      } else {
+        throw error;
+      }
+    }
+
     rememberLastUsername(username);
     if (remember) {
       saveDeviceLogin({ username, password });
