@@ -170,7 +170,17 @@ function ExpensesContent() {
   };
 
   return (
-    <AppShell title="Chi tiêu" subtitle="Quỹ cửa hàng · hạng mục chi">
+    <AppShell title="Quỹ cửa hàng" subtitle="Nạp quỹ · chi tiêu theo hạng mục">
+      <section className="mb-4 rounded-[1.25rem] bg-brand-700 px-4 py-3.5 text-white shadow-md">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/75">
+          Quỹ vận hành quán
+        </p>
+        <p className="mt-1 text-sm leading-snug text-white/90">
+          Quản lý và cổ đông đều xem / nạp / chi tại đây. Tiền từ sổ vốn muốn
+          đưa vào két: trang Vốn → Chi tiêu vốn (bật chuyển quỹ).
+        </p>
+      </section>
+
       <section className="mb-4 grid grid-cols-1 gap-2">
         <StatCard
           label="Số dư quỹ cửa hàng"

@@ -322,7 +322,7 @@ function SettingsContent() {
             className="touch-btn mb-4 h-14 w-full gap-2 bg-rose-600 text-white"
           >
             <Wallet className="h-5 w-5" />
-            Chi tiêu · Quỹ cửa hàng
+            Quỹ cửa hàng · nạp & chi
           </Link>
 
           <Link

@@ -396,7 +396,7 @@ function DashboardContent() {
             className="touch-btn h-12 justify-start gap-2 bg-rose-600 px-3 text-sm text-white"
           >
             <Wallet className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Chi tiêu · quỹ</span>
+            <span className="truncate">Quỹ cửa hàng</span>
           </Link>
 
           <Link

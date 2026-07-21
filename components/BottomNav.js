@@ -16,18 +16,18 @@ import { cn } from "@/lib/utils";
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/manager/expenses", label: "Chi tiêu", icon: Wallet },
+  { href: "/manager/expenses", label: "Quỹ", icon: Wallet },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 /**
  * Cổ đông / tài khoản quản trị: tối đa 4 tab — việc hằng ngày trước.
- * Cài đặt qua icon header. Vốn + Chi tiêu (quỹ cửa hàng).
+ * Cài đặt qua icon header. Vốn + Quỹ cửa hàng.
  */
 const ownerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/manager/expenses", label: "Chi tiêu", icon: Wallet },
+  { href: "/manager/expenses", label: "Quỹ", icon: Wallet },
   { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
 ];
 

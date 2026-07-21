@@ -23,6 +23,7 @@ import {
   Wallet,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
@@ -30,6 +31,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import { actorFields, formatActorLabel } from "@/lib/audit";
+import { transferCapitalToShopFund } from "@/lib/expenses";
 import {
   createInvestment,
   filterInvestmentsForRole,
@@ -291,6 +293,8 @@ function CapitalContent() {
   const [expAmount, setExpAmount] = useState("");
   const [expNote, setExpNote] = useState("");
   const [expDate, setExpDate] = useState(todayInputValue());
+  /** Mặc định bật: chi vốn đồng thời nạp vào quỹ cửa hàng */
+  const [expToShopFund, setExpToShopFund] = useState(true);
   const [savingExp, setSavingExp] = useState(false);
 
   const [editName, setEditName] = useState("");
@@ -476,18 +480,30 @@ function CapitalContent() {
 
     setSavingExp(true);
     try {
-      await addCapitalExpense({
-        amount: expAmount,
-        note: expNote,
-        dateKey: inputValueToDateKey(expDate),
-        expenseDate: timestampForBusinessDate(expDate),
-        user,
-        profile,
-      });
-      showToast("Đã ghi chi tiêu vốn", "success");
+      if (expToShopFund) {
+        await transferCapitalToShopFund({
+          amount: expAmount,
+          note: expNote,
+          dateInput: expDate,
+          user,
+          profile,
+        });
+        showToast("Đã chi vốn và nạp vào quỹ cửa hàng", "success");
+      } else {
+        await addCapitalExpense({
+          amount: expAmount,
+          note: expNote,
+          dateKey: inputValueToDateKey(expDate),
+          expenseDate: timestampForBusinessDate(expDate),
+          user,
+          profile,
+        });
+        showToast("Đã ghi chi tiêu vốn (không nạp quỹ)", "success");
+      }
       setExpAmount("");
       setExpNote("");
       setExpDate(todayInputValue());
+      setExpToShopFund(true);
       setCapitalWrite(null);
     } catch (error) {
       console.error(error);
@@ -653,6 +669,24 @@ function CapitalContent() {
               />
             </div>
           </section>
+
+          <Link
+            href="/manager/expenses"
+            className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-emerald-700 px-4 text-white"
+          >
+            <span className="flex items-center gap-2 text-left">
+              <Wallet className="h-5 w-5 shrink-0" aria-hidden />
+              <span>
+                <span className="block text-sm font-extrabold">
+                  Quỹ cửa hàng
+                </span>
+                <span className="block text-xs font-medium text-white/80">
+                  Xem số dư · nạp · chi tiêu quán
+                </span>
+              </span>
+            </span>
+            <span className="text-sm text-white/80">Mở →</span>
+          </Link>
 
           {canManageShareholderCapital ? (
             <div className="mb-4 grid grid-cols-1 gap-2">
@@ -833,10 +867,9 @@ function CapitalContent() {
                   </h2>
                 </div>
                 <p className="text-xs text-rose-800/80">
-                  Chi từ sổ vốn cổ đông — không trừ quỹ cửa hàng / không tính
-                  chi phí tháng. Muốn đưa tiền vào két quán: ghi chi tiêu vốn
-                  rồi vào Chi tiêu → Nạp quỹ (cùng số tiền). Không ghi lại
-                  cùng khoản ở cả hai sổ chi tiêu.
+                  Chi từ sổ vốn cổ đông. Bật &quot;Chuyển vào quỹ cửa hàng&quot;
+                  để trừ vốn và nạp két quán cùng lúc (không tính doanh thu).
+                  Tắt nếu chỉ ghi chi vốn, không đụng quỹ quán.
                 </p>
 
                 <form onSubmit={saveExpense} className="space-y-3">
@@ -883,8 +916,25 @@ function CapitalContent() {
                       className="field-input"
                       value={expNote}
                       onChange={(e) => setExpNote(e.target.value)}
-                      placeholder="VD: Trả lương quản lý tháng 7"
+                      placeholder="VD: Chuyển 30tr vào quỹ vận hành"
                     />
+                  </label>
+
+                  <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-5 w-5 accent-emerald-700"
+                      checked={expToShopFund}
+                      onChange={(e) => setExpToShopFund(e.target.checked)}
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-emerald-900">
+                        Chuyển vào quỹ cửa hàng
+                      </span>
+                      <span className="mt-0.5 block text-xs text-emerald-800/80">
+                        Trừ sổ vốn + tăng số dư tab Quỹ (cùng số tiền).
+                      </span>
+                    </span>
                   </label>
 
                   <p className="rounded-2xl bg-white/80 px-3 py-2 text-xs text-slate-600">
@@ -907,7 +957,11 @@ function CapitalContent() {
                     ) : (
                       <Save className="h-5 w-5" aria-hidden />
                     )}
-                    {savingExp ? "Đang lưu..." : "Lưu chi tiêu vốn"}
+                    {savingExp
+                      ? "Đang lưu..."
+                      : expToShopFund
+                        ? "Chi vốn → nạp quỹ"
+                        : "Lưu chi tiêu vốn"}
                   </button>
                 </form>
               </section>
