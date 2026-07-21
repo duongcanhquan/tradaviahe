@@ -18,8 +18,10 @@ import {
   Loader2,
   Package,
   Pencil,
+  Plus,
   Save,
   Wallet,
+  X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -294,6 +296,9 @@ function CapitalContent() {
   const [editName, setEditName] = useState("");
   const [editAmount, setEditAmount] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
+  /** null | contribute | expense | edit — form ghi chỉ mở khi bấm */
+  const [capitalWrite, setCapitalWrite] = useState(null);
+  const [assetWriteOpen, setAssetWriteOpen] = useState(false);
 
   const [assetMode, setAssetMode] = useState("select");
   const [assetSelect, setAssetSelect] = useState("");
@@ -445,6 +450,7 @@ function CapitalContent() {
       );
       setCapAmount("");
       setCapNote("");
+      setCapitalWrite(null);
     } catch (error) {
       console.error(error);
       showToast(error.message || "Lưu vốn thất bại", "error");
@@ -482,6 +488,7 @@ function CapitalContent() {
       setExpAmount("");
       setExpNote("");
       setExpDate(todayInputValue());
+      setCapitalWrite(null);
     } catch (error) {
       console.error(error);
       showToast(error.message || "Lưu chi tiêu thất bại", "error");
@@ -512,6 +519,7 @@ function CapitalContent() {
       await updateInitialCapitalAmount(entry.id, editAmount);
       showToast("Đã cập nhật vốn đầu tư ban đầu", "success");
       setEditAmount("");
+      setCapitalWrite(null);
     } catch (error) {
       console.error(error);
       showToast(error.message || "Sửa vốn ban đầu thất bại", "error");
@@ -559,6 +567,7 @@ function CapitalContent() {
       setAssetName("");
       setAssetAmount("");
       setAssetNote("");
+      setAssetWriteOpen(false);
     } catch (error) {
       console.error(error);
       showToast("Lưu thất bại", "error");
@@ -590,8 +599,8 @@ function CapitalContent() {
     ? "Vốn & tài sản"
     : "Hàng hóa & thiết bị";
   const pageSubtitle = canViewInvestmentCapital
-    ? "Sổ vốn cổ đông · Chi tiêu vốn · Hàng hóa / thiết bị quán"
-    : "Nhập hàng hóa · Thiết bị (không gồm tiền đầu tư)";
+    ? "Xem sổ trước · bấm để ghi vốn / chi"
+    : "Xem tồn tài sản · bấm để nhập mới";
 
   return (
     <AppShell title={pageTitle} subtitle={pageSubtitle}>
@@ -646,8 +655,79 @@ function CapitalContent() {
           </section>
 
           {canManageShareholderCapital ? (
-            <>
-              <section className="card-panel mb-4 space-y-4 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
+            <div className="mb-4 grid grid-cols-1 gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Ghi sổ vốn
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCapitalWrite((w) =>
+                      w === "contribute" ? null : "contribute"
+                    )
+                  }
+                  className={cn(
+                    "touch-btn h-12 justify-start gap-2 px-3 text-sm",
+                    capitalWrite === "contribute"
+                      ? "bg-emerald-700 text-white"
+                      : "bg-emerald-50 text-emerald-900 ring-1 ring-emerald-100"
+                  )}
+                >
+                  <Banknote className="h-4 w-4" aria-hidden />
+                  Ghi vốn góp
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCapitalWrite((w) => (w === "expense" ? null : "expense"))
+                  }
+                  className={cn(
+                    "touch-btn h-12 justify-start gap-2 px-3 text-sm",
+                    capitalWrite === "expense"
+                      ? "bg-rose-700 text-white"
+                      : "bg-rose-50 text-rose-900 ring-1 ring-rose-100"
+                  )}
+                >
+                  <Wallet className="h-4 w-4" aria-hidden />
+                  Chi tiêu vốn
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCapitalWrite((w) => (w === "edit" ? null : "edit"))
+                  }
+                  className={cn(
+                    "touch-btn h-12 justify-start gap-2 px-3 text-sm",
+                    capitalWrite === "edit"
+                      ? "bg-violet-700 text-white"
+                      : "bg-violet-50 text-violet-900 ring-1 ring-violet-100"
+                  )}
+                >
+                  <Pencil className="h-4 w-4" aria-hidden />
+                  Sửa vốn ban đầu
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="card-panel mb-4 text-sm text-slate-600">
+              Bạn đang xem sổ vốn cổ đông (đã góp · đã chi · số dư · % cổ phần).
+              Chỉ tài khoản quản trị được ghi/sửa vốn và chi tiêu vốn.
+            </p>
+          )}
+
+          {canManageShareholderCapital && capitalWrite === "contribute" ? (
+<section className="card-panel mb-4 space-y-4 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setCapitalWrite(null)}
+                    className="touch-btn h-10 gap-1 rounded-xl bg-white/80 px-3 text-sm text-slate-600 ring-1 ring-slate-200"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                    Đóng
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <Banknote className="h-5 w-5 text-emerald-700" aria-hidden />
                   <h2 className="section-title text-emerald-900">
@@ -732,8 +812,20 @@ function CapitalContent() {
                   </button>
                 </form>
               </section>
+          ) : null}
 
-              <section className="card-panel mb-4 space-y-4 border-rose-100 bg-gradient-to-b from-rose-50/70 to-white">
+          {canManageShareholderCapital && capitalWrite === "expense" ? (
+<section className="card-panel mb-4 space-y-4 border-rose-100 bg-gradient-to-b from-rose-50/70 to-white">
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setCapitalWrite(null)}
+                    className="touch-btn h-10 gap-1 rounded-xl bg-white/80 px-3 text-sm text-slate-600 ring-1 ring-slate-200"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                    Đóng
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <Wallet className="h-5 w-5 text-rose-700" aria-hidden />
                   <h2 className="section-title text-rose-900">
@@ -817,8 +909,20 @@ function CapitalContent() {
                   </button>
                 </form>
               </section>
+          ) : null}
 
-              <section className="card-panel mb-4 space-y-4 border-violet-100 bg-gradient-to-b from-violet-50/70 to-white">
+          {canManageShareholderCapital && capitalWrite === "edit" ? (
+<section className="card-panel mb-4 space-y-4 border-violet-100 bg-gradient-to-b from-violet-50/70 to-white">
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setCapitalWrite(null)}
+                    className="touch-btn h-10 gap-1 rounded-xl bg-white/80 px-3 text-sm text-slate-600 ring-1 ring-slate-200"
+                  >
+                    <X className="h-4 w-4" aria-hidden />
+                    Đóng
+                  </button>
+                </div>
                 <div className="flex items-center gap-2">
                   <Pencil className="h-5 w-5 text-violet-700" aria-hidden />
                   <h2 className="section-title text-violet-900">
@@ -889,13 +993,7 @@ function CapitalContent() {
                   </form>
                 )}
               </section>
-            </>
-          ) : (
-            <p className="card-panel mb-4 text-sm text-slate-600">
-              Bạn đang xem sổ vốn cổ đông (đã góp · đã chi · số dư · % cổ phần).
-              Chỉ tài khoản quản trị được ghi/sửa vốn và chi tiêu vốn.
-            </p>
-          )}
+          ) : null}
 
           <section className="card-panel mb-4">
             <h2 className="section-title mb-1">Tỷ lệ cổ phần</h2>
@@ -994,22 +1092,36 @@ function CapitalContent() {
 
       {(!canViewInvestmentCapital || tab === "assets") && canManageShop ? (
         <>
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setAssetWriteOpen((o) => !o)}
+              className={cn(
+                "touch-btn h-12 w-full justify-between gap-2 px-4 text-sm",
+                assetWriteOpen
+                  ? "bg-brand-700 text-white"
+                  : "bg-white text-brand-800 ring-1 ring-brand-100"
+              )}
+            >
+              <span className="flex items-center gap-2">
+                <Package className="h-4 w-4" aria-hidden />
+                {assetWriteOpen ? "Đóng form nhập" : "Nhập hàng hóa / thiết bị"}
+              </span>
+              {assetWriteOpen ? (
+                <X className="h-4 w-4" aria-hidden />
+              ) : (
+                <Plus className="h-4 w-4" aria-hidden />
+              )}
+            </button>
+          </div>
+
+          {assetWriteOpen ? (
           <section className="card-panel mb-4 space-y-4">
-            <div className="flex items-center gap-2">
-              <Package className="h-5 w-5 text-brand-700" aria-hidden />
-              <h2 className="section-title">Nhập hàng hóa / thiết bị</h2>
-            </div>
-            {!canViewInvestmentCapital ? (
-              <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Bạn kiểm soát dòng tiền quán và nhập hàng hóa/thiết bị. Tiền đầu
-                tư của cổ đông chỉ Chủ đầu tư xem được.
-              </p>
-            ) : (
-              <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Tài sản quán nhập tay tại đây — tách với sổ vốn cổ đông. Chi vốn
-                “cho quán” không tự tạo dòng thiết bị.
-              </p>
-            )}
+            <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+              {!canViewInvestmentCapital
+                ? "Nhập hàng hóa/thiết bị quán. Vốn cổ đông chỉ Chủ đầu tư xem được."
+                : "Tài sản quán nhập tay — tách với sổ vốn cổ đông."}
+            </p>
 
             <form onSubmit={saveAsset} className="space-y-3">
               <PersonPicker
@@ -1117,6 +1229,7 @@ function CapitalContent() {
               </button>
             </form>
           </section>
+          ) : null}
 
           <section className="mb-4 grid grid-cols-1 gap-3">
             <StatCard

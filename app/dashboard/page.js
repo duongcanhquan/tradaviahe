@@ -287,69 +287,10 @@ function DashboardContent() {
   return (
     <AppShell
       title="Đối soát"
-      subtitle="Tổng kết ngày · tuần · tháng · tồn kho"
+      subtitle="Doanh thu nhanh · thao tác phụ bên dưới"
     >
-      <div className="mb-4 grid grid-cols-1 gap-2">
-        <Link
-          href="/dashboard/monthly"
-          className="touch-btn h-14 w-full justify-between bg-emerald-600 px-5 text-white"
-        >
-          <span className="flex items-center gap-2">
-            <CalendarDays className="h-5 w-5" aria-hidden />
-            {canViewDividends
-              ? "Tổng kết tháng · cổ tức · tiền nhận"
-              : "Chi tiết thu hàng hóa theo tháng"}
-          </span>
-          <span className="text-sm font-medium text-white/80">Mở →</span>
-        </Link>
-
-        {canCloseShift ? (
-          <Link
-            href="/manager/inventory"
-            className="touch-btn h-14 w-full justify-between bg-slate-900 px-5 text-white"
-          >
-            <span className="flex items-center gap-2">
-              <Package className="h-5 w-5" aria-hidden />
-              Tồn kho · cập nhật danh mục còn lại
-            </span>
-            <span className="text-sm font-medium text-white/80">Mở →</span>
-          </Link>
-        ) : null}
-
-        <Link
-          href="/dashboard/capital"
-          className="touch-btn h-14 w-full justify-between bg-brand-700 px-5 text-white"
-        >
-          <span className="flex items-center gap-2">
-            <Landmark className="h-5 w-5" aria-hidden />
-            {canViewInvestmentCapital
-              ? "Ghi nhận vốn đầu tư & tài sản"
-              : "Hàng hóa & thiết bị"}
-          </span>
-          <span className="text-sm font-medium text-white/80">Mở →</span>
-        </Link>
-
-        {canViewDividends && canManageSystem ? (
-          <Link
-            href="/dashboard/settings"
-            className="touch-btn h-12 w-full justify-between border border-slate-200 bg-white px-5 text-slate-800"
-          >
-            <span className="flex items-center gap-2">
-              <Percent className="h-5 w-5 text-brand-700" aria-hidden />
-              % Quỹ đối ngoại (chia lãi)
-            </span>
-            <span className="text-sm text-slate-400">Cấu hình →</span>
-          </Link>
-        ) : null}
-      </div>
-
-      {/* Tổng kết ngày / tuần / tháng */}
+      {/* Doanh thu trước — việc mở app mỗi ngày */}
       <section className="mb-4 space-y-3">
-        <h2 className="section-title">Tổng kết doanh thu</h2>
-        <p className="text-xs text-slate-500">
-          Bấm Ngày · Tuần · Tháng để xem tổng tiền ngay
-        </p>
-
         <div className="grid grid-cols-3 gap-2">
           {REVENUE_PERIODS.map((item) => {
             const active = period === item.id;
@@ -360,7 +301,7 @@ function DashboardContent() {
                 type="button"
                 onClick={() => setPeriod(item.id)}
                 className={cn(
-                  "touch-btn min-h-[4.75rem] flex-col gap-1 px-2 py-2.5 text-center",
+                  "touch-btn min-h-[4.5rem] flex-col gap-1 px-2 py-2.5 text-center",
                   active
                     ? "bg-emerald-600 text-white shadow-md"
                     : "bg-white text-slate-800 ring-1 ring-slate-200"
@@ -412,6 +353,59 @@ function DashboardContent() {
             </div>
           </div>
         </div>
+      </section>
+
+      {/* Lối tắt gọn — 2 cột, không che doanh thu */}
+      <section className="mb-4">
+        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Thao tác nhanh
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <Link
+            href="/dashboard/monthly"
+            className="touch-btn h-12 justify-start gap-2 bg-emerald-600 px-3 text-sm text-white"
+          >
+            <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">
+              {canViewDividends ? "Tháng · cổ tức" : "Thu theo tháng"}
+            </span>
+          </Link>
+
+          {canCloseShift ? (
+            <Link
+              href="/manager/inventory"
+              className="touch-btn h-12 justify-start gap-2 bg-slate-900 px-3 text-sm text-white"
+            >
+              <Package className="h-4 w-4 shrink-0" aria-hidden />
+              <span className="truncate">Tồn kho</span>
+            </Link>
+          ) : null}
+
+          <Link
+            href="/dashboard/capital"
+            className="touch-btn h-12 justify-start gap-2 bg-brand-700 px-3 text-sm text-white"
+          >
+            <Landmark className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">
+              {canViewInvestmentCapital ? "Vốn cổ đông" : "Hàng hóa / TB"}
+            </span>
+          </Link>
+
+          {canViewDividends && canManageSystem ? (
+            <Link
+              href="/dashboard/settings"
+              className="touch-btn h-12 justify-start gap-2 border border-slate-200 bg-white px-3 text-sm text-slate-800"
+            >
+              <Percent className="h-4 w-4 shrink-0 text-brand-700" aria-hidden />
+              <span className="truncate">% Quỹ</span>
+            </Link>
+          ) : null}
+        </div>
+      </section>
+
+      {/* Tổng kết ngày / tuần / tháng — chi tiết phía dưới đã có hero */}
+      <section className="mb-4 space-y-3">
+        <h2 className="section-title">Chi tiết kỳ đang chọn</h2>
 
         {canViewDividends ? (
           <div className="grid grid-cols-1 gap-2">

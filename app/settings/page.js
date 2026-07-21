@@ -315,18 +315,24 @@ function SettingsContent() {
       {canManageUsers ? (
         <Link
           href="/admin/users"
-          className="touch-btn mb-4 h-14 w-full gap-2 bg-brand-700 text-white"
+          className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-brand-700 px-5 text-white"
         >
-          <UserCog className="h-5 w-5" />
-          Admin — Quản lý người dùng
+          <span className="flex items-center gap-2">
+            <UserCog className="h-5 w-5" />
+            Người dùng · Admin
+          </span>
+          <span className="text-sm text-white/80">Mở →</span>
         </Link>
       ) : canManageEmployees ? (
         <Link
           href="/admin/users"
-          className="touch-btn mb-4 h-14 w-full gap-2 bg-emerald-700 text-white"
+          className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-emerald-700 px-5 text-white"
         >
-          <UserCog className="h-5 w-5" />
-          Quản lý nhân viên / người dùng
+          <span className="flex items-center gap-2">
+            <UserCog className="h-5 w-5" />
+            Nhân viên
+          </span>
+          <span className="text-sm text-white/80">Mở →</span>
         </Link>
       ) : null}
 
