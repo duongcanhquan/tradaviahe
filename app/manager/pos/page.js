@@ -9,7 +9,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
  */
 export default function PosPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "employee", "investor"]}>
+    <ProtectedRoute allowRoles={["manager", "employee", "investor", "superadmin"]}>
       <EmployeeDesk />
     </ProtectedRoute>
   );

@@ -8,8 +8,11 @@ import { vi } from "date-fns/locale";
 import {
   ArrowLeft,
   Loader2,
-  Trash2,
+  Pencil,
   Receipt,
+  Save,
+  Trash2,
+  X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -20,9 +23,13 @@ import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
 import { isGoodsIncome } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
-import { deleteSaleTransaction } from "@/lib/sales";
+import {
+  deleteSaleTransaction,
+  updateSaleTransaction,
+} from "@/lib/sales";
 import {
   cn,
+  dateKeyToInputValue,
   formatCurrency,
   inputValueToDateKey,
   todayInputValue,
@@ -53,14 +60,35 @@ function matchesSelectedDay(t, dateInput) {
   return format(new Date(ms), "dd/MM/yyyy") === key;
 }
 
+function rowDateInput(row) {
+  if (row?.businessDate) return dateKeyToInputValue(row.businessDate);
+  const ms = txTimeMs(row);
+  if (ms) {
+    try {
+      return format(new Date(ms), "yyyy-MM-dd");
+    } catch {
+      /* fall through */
+    }
+  }
+  return todayInputValue();
+}
+
 function SalesLogContent() {
   const { showToast } = useToast();
-  const { role, canDeleteSales } = useAuth();
+  const { role, canDeleteSales, canEditSales } = useAuth();
+  const canManageSales = canDeleteSales || canEditSales;
   const [allTx, setAllTx] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dateInput, setDateInput] = useState(todayInputValue());
   const [deletingId, setDeletingId] = useState(null);
   const [payFilter, setPayFilter] = useState("all"); // all | cash | banking
+
+  const [editing, setEditing] = useState(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [editPay, setEditPay] = useState("cash");
+  const [editDate, setEditDate] = useState(todayInputValue());
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -110,6 +138,39 @@ function SalesLogContent() {
     return format(d, "EEEE, dd/MM/yyyy", { locale: vi });
   }, [dateInput]);
 
+  const openEdit = (row) => {
+    if (!canEditSales || !row?.id) return;
+    setEditing(row);
+    setEditAmount(String(row.amount ?? ""));
+    setEditNote(row.note || "");
+    setEditPay(row.paymentMethod === "banking" ? "banking" : "cash");
+    setEditDate(rowDateInput(row));
+  };
+
+  const saveEdit = async (e) => {
+    e.preventDefault();
+    if (!canEditSales || !editing?.id) return;
+    setSavingEdit(true);
+    try {
+      await updateSaleTransaction({
+        id: editing.id,
+        amount: editAmount,
+        note: editNote,
+        paymentMethod: editPay,
+        dateInput: editDate,
+        role,
+      });
+      showToast("Đã cập nhật giao dịch bán", "success");
+      setEditing(null);
+      if (editDate) setDateInput(editDate);
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Sửa thất bại", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handleDelete = async (row) => {
     if (!canDeleteSales || !row?.id) return;
     const ok = window.confirm(
@@ -120,6 +181,7 @@ function SalesLogContent() {
     try {
       await deleteSaleTransaction(row.id, role);
       showToast("Đã xóa khoản bán", "success");
+      if (editing?.id === row.id) setEditing(null);
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Xóa thất bại", "error");
@@ -129,7 +191,10 @@ function SalesLogContent() {
   };
 
   return (
-    <AppShell title="Món đã bán" subtitle="Theo giờ · ngày — xem & xóa nếu nhầm">
+    <AppShell
+      title="Món đã bán"
+      subtitle="Quản lý / Chủ ĐT / Super Admin — xem · sửa · xóa"
+    >
       <Link
         href="/dashboard"
         className="mb-4 inline-flex min-h-11 items-center gap-2 text-sm font-semibold text-brand-800"
@@ -208,11 +273,103 @@ function SalesLogContent() {
         </div>
       </section>
 
+      {canEditSales && editing ? (
+        <section className="card-panel mb-4 space-y-3 border-amber-100 bg-gradient-to-b from-amber-50/80 to-white">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Pencil className="h-5 w-5 text-amber-800" aria-hidden />
+              <h2 className="section-title text-amber-950">Sửa giao dịch bán</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setEditing(null)}
+              className="touch-btn h-10 gap-1 rounded-xl bg-white px-3 text-sm text-slate-600 ring-1 ring-slate-200"
+            >
+              <X className="h-4 w-4" aria-hidden />
+              Đóng
+            </button>
+          </div>
+
+          <form onSubmit={saveEdit} className="space-y-3">
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700">
+                Ngày nghiệp vụ
+              </span>
+              <input
+                type="date"
+                className="field-input"
+                value={editDate}
+                max={todayInputValue()}
+                onChange={(e) => setEditDate(e.target.value)}
+                required
+              />
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700">
+                Hình thức
+              </span>
+              <select
+                className="field-input"
+                value={editPay}
+                onChange={(e) => setEditPay(e.target.value)}
+              >
+                <option value="cash">Tiền mặt</option>
+                <option value="banking">Chuyển khoản</option>
+              </select>
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700">
+                Số tiền (VNĐ)
+              </span>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                className="field-input money"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+                required
+              />
+              {editAmount ? (
+                <p className="mt-1.5 text-xs font-medium text-amber-800">
+                  = <Money amount={editAmount} />
+                </p>
+              ) : null}
+            </label>
+            <label className="block">
+              <span className="mb-2 block text-sm font-semibold text-slate-700">
+                Món / ghi chú
+              </span>
+              <input
+                className="field-input"
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+                placeholder="VD: Trà đá x2, Trà chanh x1"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={savingEdit}
+              className="touch-btn h-14 w-full gap-2 bg-slate-900 text-white"
+            >
+              {savingEdit ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Save className="h-5 w-5" aria-hidden />
+              )}
+              {savingEdit ? "Đang lưu..." : "Lưu giao dịch"}
+            </button>
+          </form>
+        </section>
+      ) : null}
+
       <section className="mb-6 space-y-2">
         <div className="flex items-center justify-between gap-2">
           <h2 className="section-title mb-0">Chi tiết món / lần thu</h2>
-          {canDeleteSales ? (
-            <p className="text-[11px] font-semibold text-rose-700">Có thể xóa</p>
+          {canManageSales ? (
+            <p className="text-[11px] font-semibold text-brand-800">
+              Có thể sửa · xóa
+            </p>
           ) : null}
         </div>
 
@@ -264,6 +421,16 @@ function SalesLogContent() {
                       <p className="money text-lg font-extrabold text-emerald-700">
                         <Money amount={row.amount} />
                       </p>
+                      {canEditSales ? (
+                        <button
+                          type="button"
+                          onClick={() => openEdit(row)}
+                          className="inline-flex h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white"
+                        >
+                          <Pencil className="h-3.5 w-3.5" aria-hidden />
+                          Sửa
+                        </button>
+                      ) : null}
                       {canDeleteSales ? (
                         <button
                           type="button"
@@ -293,7 +460,7 @@ function SalesLogContent() {
 
 export default function SalesLogPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "investor"]}>
+    <ProtectedRoute allowRoles={["manager", "investor", "superadmin"]}>
       <SalesLogContent />
     </ProtectedRoute>
   );
