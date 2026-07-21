@@ -38,13 +38,10 @@ import {
 } from "@/lib/investments";
 import {
   CAPITAL_KINDS,
-  EXPENSE_CATEGORIES,
-  EXPENSE_CATEGORY_OPTIONS,
   addCapitalContribution,
   addCapitalExpense,
   capitalKindLabel,
   displayNamesForRole,
-  expenseCategoryLabel,
   filterShareholderCapitalEntries,
   findInitialEntry,
   isShopManagerName,
@@ -52,7 +49,13 @@ import {
   summarizeShareholderCapital,
   updateInitialCapitalAmount,
 } from "@/lib/shareholderCapital";
-import { cn, formatCurrency } from "@/lib/utils";
+import {
+  cn,
+  formatCurrency,
+  inputValueToDateKey,
+  timestampForBusinessDate,
+  todayInputValue,
+} from "@/lib/utils";
 
 const PIE_COLORS = [
   "#1e40af",
@@ -66,6 +69,7 @@ const PIE_COLORS = [
 ];
 
 function formatEntryDate(row) {
+  if (row.dateKey) return row.dateKey;
   const ms =
     row.timestamp?.toMillis?.() ??
     row.date?.toMillis?.() ??
@@ -84,11 +88,9 @@ function typeChipClass(type) {
   return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
 }
 
-function capitalKindChipClass(kind, expenseCategory) {
+function capitalKindChipClass(kind) {
   if (kind === CAPITAL_KINDS.expense) {
-    return expenseCategory === EXPENSE_CATEGORIES.shop
-      ? "bg-amber-50 text-amber-800 ring-1 ring-amber-100"
-      : "bg-rose-50 text-rose-800 ring-1 ring-rose-100";
+    return "bg-rose-50 text-rose-800 ring-1 ring-rose-100";
   }
   if (kind === CAPITAL_KINDS.initial) {
     return "bg-violet-50 text-violet-800 ring-1 ring-violet-100";
@@ -212,13 +214,14 @@ function CapitalHistoryList({ rows, emptyText }) {
 
   return rows.map((row) => {
     const isExpense = row.kind === CAPITAL_KINDS.expense;
+    const title = isExpense
+      ? formatActorLabel(row)
+      : row.investorName || "—";
     return (
       <article key={row.id} className="card-panel space-y-2">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate font-bold text-slate-900">
-              {row.investorName}
-            </p>
+            <p className="truncate font-bold text-slate-900">{title}</p>
             <p className="text-xs text-slate-500">{formatEntryDate(row)}</p>
           </div>
           <p
@@ -232,22 +235,19 @@ function CapitalHistoryList({ rows, emptyText }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span
-            className={cn(
-              "chip",
-              capitalKindChipClass(row.kind, row.expenseCategory)
-            )}
-          >
+          <span className={cn("chip", capitalKindChipClass(row.kind))}>
             {capitalKindLabel(row.kind)}
-            {isExpense
-              ? ` · ${expenseCategoryLabel(row.expenseCategory)}`
-              : ""}
           </span>
         </div>
         {row.note ? <p className="text-xs text-slate-500">{row.note}</p> : null}
-        {row.createdByName || row.createdByUsername ? (
+        {!isExpense && (row.createdByName || row.createdByUsername) ? (
           <p className="text-xs font-medium text-brand-800">
             Nhập bởi: {formatActorLabel(row)}
+          </p>
+        ) : null}
+        {isExpense ? (
+          <p className="text-xs font-medium text-rose-800">
+            Người gửi: {formatActorLabel(row)} · {formatEntryDate(row)}
           </p>
         ) : null}
       </article>
@@ -286,12 +286,9 @@ function CapitalContent() {
   const [capInitial, setCapInitial] = useState(true);
   const [savingCap, setSavingCap] = useState(false);
 
-  const [expMode, setExpMode] = useState("select");
-  const [expSelect, setExpSelect] = useState("");
-  const [expCustom, setExpCustom] = useState("");
   const [expAmount, setExpAmount] = useState("");
-  const [expCategory, setExpCategory] = useState(EXPENSE_CATEGORIES.shop);
   const [expNote, setExpNote] = useState("");
+  const [expDate, setExpDate] = useState(todayInputValue());
   const [savingExp, setSavingExp] = useState(false);
 
   const [editName, setEditName] = useState("");
@@ -462,39 +459,29 @@ function CapitalContent() {
       showToast("Chỉ tài khoản quản trị được ghi chi tiêu vốn", "error");
       return;
     }
-
-    const investorName = resolveName(expMode, expSelect, expCustom);
-    if (!investorName) {
-      showToast("Chọn hoặc nhập tên cổ đông", "error");
-      return;
-    }
-    if (isShopManagerName(investorName, users)) {
-      showToast("Quản lý cửa hàng không phải cổ đông — chọn Chủ đầu tư", "error");
-      return;
-    }
     if (!expAmount || Number(expAmount) <= 0) {
       showToast("Nhập số tiền chi hợp lệ", "error");
+      return;
+    }
+    if (!expDate) {
+      showToast("Chọn ngày chi", "error");
       return;
     }
 
     setSavingExp(true);
     try {
       await addCapitalExpense({
-        investorName,
         amount: expAmount,
-        expenseCategory: expCategory,
         note: expNote,
+        dateKey: inputValueToDateKey(expDate),
+        expenseDate: timestampForBusinessDate(expDate),
         user,
         profile,
       });
-      showToast(
-        expCategory === EXPENSE_CATEGORIES.shop
-          ? "Đã ghi chi cho quán (chỉ trừ sổ cổ đông)"
-          : "Đã ghi chi tiêu cổ đông",
-        "success"
-      );
+      showToast("Đã ghi chi tiêu vốn", "success");
       setExpAmount("");
       setExpNote("");
+      setExpDate(todayInputValue());
     } catch (error) {
       console.error(error);
       showToast(error.message || "Lưu chi tiêu thất bại", "error");
@@ -754,51 +741,24 @@ function CapitalContent() {
                   </h2>
                 </div>
                 <p className="text-xs text-rose-800/80">
-                  Chi cho quán chỉ trừ sổ cổ đông — thiết bị/hàng hóa quán nhập
-                  tay ở tab Hàng hóa / TB. Chi cổ đông (lương QL…) ở lại sổ này.
+                  Chi quỹ vốn chung — không chọn cổ đông. Hệ thống lưu người gửi
+                  và ngày chi.
                 </p>
 
                 <form onSubmit={saveExpense} className="space-y-3">
-                  <PersonPicker
-                    mode={expMode}
-                    setMode={setExpMode}
-                    selectValue={expSelect}
-                    setSelectValue={setExpSelect}
-                    customValue={expCustom}
-                    setCustomValue={setExpCustom}
-                    options={shareholderOptions}
-                    selectLabel="Cổ đông"
-                    customLabel="Tên cổ đông"
-                    customPlaceholder="VD: Nguyễn Văn A"
-                  />
-
-                  <div>
+                  <label className="block">
                     <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Nhóm chi
+                      Ngày chi
                     </span>
-                    <div className="grid grid-cols-1 gap-2">
-                      {EXPENSE_CATEGORY_OPTIONS.map((item) => (
-                        <button
-                          key={item.value}
-                          type="button"
-                          onClick={() => setExpCategory(item.value)}
-                          className={cn(
-                            "rounded-2xl border px-4 py-3 text-left transition",
-                            expCategory === item.value
-                              ? "border-rose-300 bg-white ring-2 ring-rose-200"
-                              : "border-slate-200 bg-white/70"
-                          )}
-                        >
-                          <p className="text-sm font-bold text-slate-900">
-                            {item.label}
-                          </p>
-                          <p className="mt-0.5 text-xs text-slate-500">
-                            {item.hint}
-                          </p>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                    <input
+                      type="date"
+                      className="field-input"
+                      value={expDate}
+                      onChange={(e) => setExpDate(e.target.value)}
+                      max={todayInputValue()}
+                      required
+                    />
+                  </label>
 
                   <label className="block">
                     <span className="mb-2 block text-sm font-semibold text-slate-700">
@@ -832,6 +792,16 @@ function CapitalContent() {
                       placeholder="VD: Trả lương quản lý tháng 7"
                     />
                   </label>
+
+                  <p className="rounded-2xl bg-white/80 px-3 py-2 text-xs text-slate-600">
+                    Người gửi:{" "}
+                    <span className="font-semibold text-slate-900">
+                      {profile?.name ||
+                        profile?.username ||
+                        user?.email ||
+                        "—"}
+                    </span>
+                  </p>
 
                   <button
                     type="submit"
@@ -995,11 +965,8 @@ function CapitalContent() {
                         <span className="truncate font-medium">{s.name}</span>
                       </span>
                       <span className="money shrink-0 text-right font-bold text-slate-800">
-                        {s.percent.toFixed(1)}% · góp{" "}
+                        {s.percent.toFixed(1)}% ·{" "}
                         <Money amount={s.contributed} />
-                        <span className="mt-0.5 block text-xs font-semibold text-slate-500">
-                          dư <Money amount={s.balance} />
-                        </span>
                       </span>
                     </li>
                   ))}
