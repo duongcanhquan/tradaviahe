@@ -379,7 +379,7 @@ function DashboardContent() {
               className="touch-btn h-12 justify-start gap-2 bg-slate-900 px-3 text-sm text-white"
             >
               <Package className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="truncate">Tồn kho</span>
+              <span className="truncate">Nhập hàng</span>
             </Link>
           ) : null}
 
@@ -523,7 +523,7 @@ function DashboardContent() {
               href="/manager/inventory"
               className="text-xs font-bold text-brand-800"
             >
-              Sửa tồn →
+              Nhập hàng →
             </Link>
           ) : null}
         </div>

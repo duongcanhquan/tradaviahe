@@ -120,12 +120,13 @@ function InventoryContent() {
 
   return (
     <AppShell
-      title="Tồn kho"
-      subtitle="Đối soát hàng còn theo nhóm"
+      title="Nhập hàng"
+      subtitle="Cập nhật tồn kho món bán — giống quản lý"
       dense
     >
       <p className="mb-3 text-xs text-slate-500">
-        Xem nhanh danh mục còn trong kho. Doanh thu ngày/tuần/tháng xem ở{" "}
+        Quản lý · Chủ đầu tư · Super Admin đều nhập/sửa số còn trong kho. Doanh
+        thu xem ở{" "}
         <Link href="/dashboard" className="font-bold text-brand-800 underline">
           Đối soát
         </Link>
@@ -241,7 +242,7 @@ function InventoryContent() {
           ) : (
             <Save className="h-5 w-5" aria-hidden />
           )}
-          {saving ? "Đang lưu..." : "Lưu tồn kho"}
+          {saving ? "Đang lưu..." : "Lưu nhập hàng / tồn kho"}
         </button>
       </div>
     </AppShell>
@@ -250,7 +251,7 @@ function InventoryContent() {
 
 export default function InventoryPage() {
   return (
-    <ProtectedRoute allowRoles={["manager", "investor"]}>
+    <ProtectedRoute allowRoles={["manager", "investor", "superadmin"]}>
       <InventoryContent />
     </ProtectedRoute>
   );

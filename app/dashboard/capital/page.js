@@ -750,6 +750,24 @@ function CapitalContent() {
 
   return (
     <AppShell title={pageTitle} subtitle={pageSubtitle}>
+      {canManageShop ? (
+        <Link
+          href="/manager/inventory"
+          className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-slate-900 px-4 text-white"
+        >
+          <span className="flex items-center gap-2 text-left">
+            <Package className="h-5 w-5 shrink-0" aria-hidden />
+            <span>
+              <span className="block text-sm font-extrabold">Nhập hàng</span>
+              <span className="block text-xs font-medium text-white/75">
+                Cập nhật tồn kho món bán (giống quản lý)
+              </span>
+            </span>
+          </span>
+          <span className="text-sm text-white/80">Mở →</span>
+        </Link>
+      ) : null}
+
       {canViewInvestmentCapital ? (
         <div
           role="tablist"

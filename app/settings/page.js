@@ -326,8 +326,16 @@ function SettingsContent() {
           </Link>
 
           <Link
-            href="/manager/products"
+            href="/manager/inventory"
             className="touch-btn mb-4 h-14 w-full gap-2 bg-slate-900 text-white"
+          >
+            <Package className="h-5 w-5" />
+            Nhập hàng · tồn kho
+          </Link>
+
+          <Link
+            href="/manager/products"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-emerald-700 text-white"
           >
             <Package className="h-5 w-5" />
             Món · giá bán
