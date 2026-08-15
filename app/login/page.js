@@ -49,7 +49,8 @@ function LoginForm() {
   const autoTriedRef = useRef(false);
 
   useEffect(() => {
-    if (authLoading || !user) return;
+    // Đợi role sẵn sàng để tránh nhảy nhầm vào POS rồi quay lại.
+    if (authLoading || !user || !role) return;
     const next = searchParams.get("next");
     const safeNext =
       next && next.startsWith("/") && !next.startsWith("//") ? next : null;

@@ -2,7 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot } from "firebase/firestore";
+import {
+  Timestamp,
+  collection,
+  onSnapshot,
+  query,
+  where,
+} from "firebase/firestore";
 import { format } from "date-fns";
 import {
   Banknote,
@@ -26,7 +32,6 @@ import {
 } from "@/lib/shareholderCapital";
 import {
   calculateMonthlyReport,
-  filterTransactionsByMonth,
 } from "@/lib/monthly";
 import {
   RECEIPT_METHODS,
@@ -94,8 +99,16 @@ function MonthlyContent() {
   const monthKey = monthKeyFromParts(year, monthIndex);
 
   useEffect(() => {
-    const unsub = onSnapshot(
+    const start = new Date(year, monthIndex, 1);
+    const end = new Date(year, monthIndex + 1, 1);
+    setLoadingTx(true);
+    const monthQuery = query(
       collection(db, "transactions"),
+      where("timestamp", ">=", Timestamp.fromDate(start)),
+      where("timestamp", "<", Timestamp.fromDate(end))
+    );
+    const unsub = onSnapshot(
+      monthQuery,
       (snap) => {
         setTransactions(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         setLoadingTx(false);
@@ -107,7 +120,7 @@ function MonthlyContent() {
       }
     );
     return () => unsub();
-  }, [showToast]);
+  }, [monthIndex, showToast, year]);
 
   useEffect(() => {
     if (!canViewDividends) {
@@ -172,10 +185,7 @@ function MonthlyContent() {
     return () => unsub();
   }, [canManageShareholderReceipts, monthKey, showToast]);
 
-  const monthTx = useMemo(
-    () => filterTransactionsByMonth(transactions, year, monthIndex),
-    [transactions, year, monthIndex]
-  );
+  const monthTx = transactions;
 
   const goodsIncome = useMemo(
     () => sumGoodsIncomeByMethod(monthTx),

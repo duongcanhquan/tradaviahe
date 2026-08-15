@@ -9,6 +9,7 @@ import {
   orderBy,
   query,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 import {
   ArrowDown,
@@ -33,7 +34,6 @@ import { isGoodsIncome } from "@/lib/receipts";
 import { subscribeGlobalSettings } from "@/lib/settings";
 import {
   DEFAULT_PRODUCT_GROUPS,
-  ensureDefaultProductGroups,
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import {
@@ -43,7 +43,6 @@ import {
 } from "@/lib/products";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
-import { format as formatDate } from "date-fns";
 
 /**
  * Bàn thu siêu nhanh (POS):
@@ -68,10 +67,6 @@ export default function EmployeeDesk() {
   const [deletingId, setDeletingId] = useState(null);
   const [sortMode, setSortMode] = useState(false);
   const flashTimer = useRef(null);
-
-  useEffect(() => {
-    ensureDefaultProductGroups().catch(() => {});
-  }, []);
 
   useEffect(() => {
     const unsub = subscribeProductGroups(
@@ -119,10 +114,16 @@ export default function EmployeeDesk() {
 
   useEffect(() => {
     if (!user?.uid) return;
-    const unsub = onSnapshot(
+    const today = todayKey();
+    // POS chỉ hiển thị lịch sử hôm nay: để Firestore lọc trước thay vì tải
+    // toàn bộ transactions rồi mới lọc trên điện thoại.
+    const recentQuery = query(
       collection(db, "transactions"),
+      where("businessDate", "==", today)
+    );
+    const unsub = onSnapshot(
+      recentQuery,
       (snap) => {
-        const today = todayKey();
         let rows = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
           .filter(isGoodsIncome)
@@ -135,14 +136,7 @@ export default function EmployeeDesk() {
         // Quản lý / chủ ĐT / SA: xem mọi lần thu hôm nay để kiểm soát & xóa
         // Nhân viên: chỉ khoản mình ghi (gần đây)
         if (canDeleteSales) {
-          rows = rows
-            .filter((t) => {
-              if (t.businessDate === today) return true;
-              const ms = t.timestamp?.toMillis?.();
-              if (!ms) return false;
-              return formatDate(new Date(ms), "dd/MM/yyyy") === today;
-            })
-            .slice(0, 20);
+          rows = rows.slice(0, 20);
         } else {
           rows = rows
             .filter((t) => t.createdBy === user.uid)

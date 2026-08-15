@@ -1,9 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot } from "firebase/firestore";
-import { format } from "date-fns";
-import { vi } from "date-fns/locale";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -11,6 +9,8 @@ import {
   Trash2,
   Wallet,
 } from "lucide-react";
+import { format } from "date-fns";
+import { vi } from "date-fns/locale";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
@@ -18,6 +18,7 @@ import { useToast } from "@/components/Toast";
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
 import {
+  FUND_TYPES,
   deleteShopFundEntry,
   expenseCategoryLabel,
   EXPENSE_CATEGORIES,
@@ -69,8 +70,13 @@ function ExpensesContent() {
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
-    const unsub = onSnapshot(
+    // Chỉ tải nạp quỹ + chi quỹ — không kéo cả sổ bán hàng.
+    const fundQuery = query(
       collection(db, "transactions"),
+      where("type", "in", [FUND_TYPES.fundIn, FUND_TYPES.expense])
+    );
+    const unsub = onSnapshot(
+      fundQuery,
       (snap) => {
         const list = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { hasRoleAccess, homePathForRole } from "@/lib/roles";
@@ -9,6 +9,10 @@ export default function ProtectedRoute({ children, allowRoles }) {
   const { user, role, loading } = useAuth();
   const router = useRouter();
   const pathname = usePathname();
+  const allowKey = useMemo(
+    () => (Array.isArray(allowRoles) ? allowRoles.join(",") : ""),
+    [allowRoles]
+  );
   const allowed = hasRoleAccess(role, allowRoles);
 
   useEffect(() => {
@@ -19,10 +23,10 @@ export default function ProtectedRoute({ children, allowRoles }) {
       return;
     }
 
-    if (allowRoles?.length && role && !allowed) {
+    if (allowKey && role && !allowed) {
       router.replace(homePathForRole(role));
     }
-  }, [allowRoles, allowed, loading, pathname, role, router, user]);
+  }, [allowKey, allowed, loading, pathname, role, router, user]);
 
   if (loading || (user && !role)) {
     return (
@@ -33,7 +37,7 @@ export default function ProtectedRoute({ children, allowRoles }) {
   }
 
   if (!user) return null;
-  if (allowRoles?.length && role && !allowed) return null;
+  if (allowKey && role && !allowed) return null;
 
   return children;
 }

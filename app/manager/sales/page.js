@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { format, isValid, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
@@ -52,14 +52,6 @@ function formatTxDateTime(t) {
   }
 }
 
-function matchesSelectedDay(t, dateInput) {
-  const key = dateInput ? inputValueToDateKey(dateInput) : todayKey();
-  if (t?.businessDate && String(t.businessDate) === key) return true;
-  const ms = txTimeMs(t);
-  if (!ms) return false;
-  return format(new Date(ms), "dd/MM/yyyy") === key;
-}
-
 function rowDateInput(row) {
   if (row?.businessDate) return dateKeyToInputValue(row.businessDate);
   const ms = txTimeMs(row);
@@ -91,8 +83,16 @@ function SalesLogContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    const unsub = onSnapshot(
+    const dayKey = dateInput ? inputValueToDateKey(dateInput) : todayKey();
+    // Chỉ tải đúng ngày đang xem — không kéo cả lịch sử.
+    const dayQuery = query(
       collection(db, "transactions"),
+      where("businessDate", "==", dayKey),
+      where("type", "==", "income")
+    );
+    setLoading(true);
+    const unsub = onSnapshot(
+      dayQuery,
       (snap) => {
         const rows = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))
@@ -108,17 +108,17 @@ function SalesLogContent() {
       }
     );
     return () => unsub();
-  }, [showToast]);
+  }, [dateInput, showToast]);
 
   const dayRows = useMemo(() => {
-    let rows = allTx.filter((t) => matchesSelectedDay(t, dateInput));
+    let rows = allTx;
     if (payFilter === "cash") {
       rows = rows.filter((t) => t.paymentMethod !== "banking");
     } else if (payFilter === "banking") {
       rows = rows.filter((t) => t.paymentMethod === "banking");
     }
     return rows;
-  }, [allTx, dateInput, payFilter]);
+  }, [allTx, payFilter]);
 
   const dayTotal = useMemo(() => {
     let cash = 0;

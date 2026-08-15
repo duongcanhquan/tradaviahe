@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot, orderBy, query } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  orderBy,
+  query,
+  Timestamp,
+  where,
+} from "firebase/firestore";
 import {
   startOfMonth,
   endOfMonth,
@@ -33,7 +40,6 @@ import { db } from "@/lib/firebase";
 import { deleteSaleTransaction } from "@/lib/sales";
 import {
   DEFAULT_PRODUCT_GROUPS,
-  ensureDefaultProductGroups,
   subscribeProductGroups,
 } from "@/lib/productGroups";
 import { isSellable } from "@/lib/products";
@@ -100,12 +106,20 @@ function DashboardContent() {
   };
 
   useEffect(() => {
-    ensureDefaultProductGroups().catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const unsubTx = onSnapshot(
+    const now = new Date();
+    const monthStart = startOfMonth(now);
+    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
+    const earliestNeeded = new Date(
+      Math.min(monthStart.getTime(), weekStart.getTime())
+    );
+    // Dashboard chỉ dùng ngày/tuần/tháng hiện tại. Lọc từ Firestore để không
+    // tải toàn bộ lịch sử giao dịch ở mỗi lần đăng nhập.
+    const transactionsQuery = query(
       collection(db, "transactions"),
+      where("timestamp", ">=", Timestamp.fromDate(earliestNeeded))
+    );
+    const unsubTx = onSnapshot(
+      transactionsQuery,
       (snap) => {
         const rows = snap.docs
           .map((d) => ({ id: d.id, ...d.data() }))

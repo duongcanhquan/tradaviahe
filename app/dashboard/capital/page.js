@@ -1,16 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { collection, onSnapshot } from "firebase/firestore";
 import { format } from "date-fns";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  Legend,
-} from "recharts";
 import {
   Banknote,
   Box,
@@ -65,6 +58,16 @@ import {
   timestampForBusinessDate,
   todayInputValue,
 } from "@/lib/utils";
+
+const CapitalOwnershipChart = dynamic(
+  () => import("@/components/CapitalOwnershipChart"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-64 animate-pulse rounded-2xl bg-slate-100" />
+    ),
+  }
+);
 
 const PIE_COLORS = [
   "#1e40af",
@@ -1213,41 +1216,7 @@ function CapitalContent() {
               </div>
             ) : (
               <>
-                <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={48}
-                        outerRadius={88}
-                        paddingAngle={2}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell
-                            key={entry.name}
-                            fill={PIE_COLORS[index % PIE_COLORS.length]}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value, name, props) => [
-                          `${formatCurrency(value)} (${(props?.payload?.percent || 0).toFixed(1)}%)`,
-                          name,
-                        ]}
-                      />
-                      <Legend
-                        verticalAlign="bottom"
-                        formatter={(value) => (
-                          <span className="text-xs text-slate-700">{value}</span>
-                        )}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
+                <CapitalOwnershipChart data={pieData} />
 
                 <ul className="mt-2 space-y-2 border-t border-slate-100 pt-3">
                   {capitalSummary.shares.map((s, index) => (
