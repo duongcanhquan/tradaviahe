@@ -30,6 +30,7 @@ import { useToast } from "@/components/Toast";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
 import { db } from "@/lib/firebase";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { isGoodsIncome } from "@/lib/receipts";
 import { subscribeGlobalSettings } from "@/lib/settings";
 import {

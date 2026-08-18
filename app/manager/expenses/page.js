@@ -31,6 +31,7 @@ import {
   summarizeShopFund,
 } from "@/lib/expenses";
 import { db } from "@/lib/firebase";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
 
 function txTimeMs(t) {
@@ -87,7 +88,7 @@ function ExpensesContent() {
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được sổ quỹ", "error");
+        showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
         setLoading(false);
       }
     );

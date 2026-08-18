@@ -37,6 +37,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { deleteSaleTransaction } from "@/lib/sales";
 import {
   DEFAULT_PRODUCT_GROUPS,
@@ -129,7 +130,10 @@ function DashboardContent() {
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được giao dịch — kiểm tra quyền Firestore", "error");
+        showToast(
+          firestoreErrorMessage(error, "Không tải được giao dịch — kiểm tra quyền Firestore"),
+          "error"
+        );
         setLoadingTx(false);
       }
     );

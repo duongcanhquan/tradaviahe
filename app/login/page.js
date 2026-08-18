@@ -8,12 +8,16 @@ import {
   loadDeviceLogin,
   peekSavedUsername,
 } from "@/lib/deviceSession";
+import { firebaseConfigReady, missingFirebaseEnv } from "@/lib/firebase";
 import { homePathForRole } from "@/lib/roles";
 
 function friendlyAuthError(error) {
   const code = error?.code || "";
   const msg = String(error?.message || "");
 
+  if (code === "auth/unauthorized-domain") {
+    return "Domain chưa được phép — vào Firebase Console → Authentication → Settings → Authorized domains, thêm tradaviahe.vercel.app.";
+  }
   if (msg.includes("Nhập tên đăng nhập") || msg.includes("đã đổi")) {
     return msg;
   }
@@ -145,6 +149,20 @@ function LoginForm() {
             máy tự vào lại lần sau.
           </p>
         </div>
+
+        {!firebaseConfigReady ? (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-semibold">Thiếu cấu hình Firebase trên máy này</p>
+            <p className="mt-1">
+              Copy <code className="rounded bg-amber-100 px-1">.env.example</code> →{" "}
+              <code className="rounded bg-amber-100 px-1">.env.local</code> rồi chạy lại{" "}
+              <code className="rounded bg-amber-100 px-1">npm run dev</code>.
+            </p>
+            <p className="mt-1 text-xs text-amber-800">
+              Thiếu: {missingFirebaseEnv.join(", ")}
+            </p>
+          </div>
+        ) : null}
 
         <form
           onSubmit={handleSubmit}

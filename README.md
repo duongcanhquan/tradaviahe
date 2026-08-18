@@ -11,33 +11,38 @@
 ## Chạy local
 ```bash
 npm install
+cp .env.example .env.local   # hoặc copy biến từ Vercel
 npm run dev
 ```
 
 Mở http://localhost:3000
 
 ## Firebase setup
+
+### 1. Biến môi trường
+Copy `.env.example` → `.env.local` (local) hoặc cấu hình trên **Vercel → Settings → Environment Variables** (production).
+
+### 2. Authorized domains (bắt buộc cho Vercel)
+Firebase Console → **Authentication → Settings → Authorized domains** → thêm:
+- `tradaviahe.vercel.app`
+- (tuỳ chọn) `*.vercel.app` nếu dùng preview deploy
+
+Nếu thiếu bước này, app trên Vercel báo lỗi đăng nhập / không vào được dữ liệu.
+
+### 3. Firestore indexes
+Sau khi pull code mới, deploy index một lần:
+```bash
+npm run firebase:indexes
+```
+(hoặc bấm link trong console trình duyệt khi Firestore báo thiếu index)
+
+### 4. Auth + hồ sơ user
 1. Bật Email/Password trong Authentication.
 2. Tạo user trên Firebase Auth.
 3. Tạo document `users/{uid}` với fields:
    - `uid`, `email`, `name`, `role` (`manager` | `investor`)
 4. (Tuỳ chọn) Seed sản phẩm trong app: Cài đặt → Seed sản phẩm mẫu.
-5. Rules Firestore tối thiểu cho dev (siết lại khi production):
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    // Cho phép đọc map tên đăng nhập → Auth (trước khi login)
-    match /login_index/{username} {
-      allow read: if true;
-      allow write: if request.auth != null;
-    }
-    match /{document=**} {
-      allow read, write: if request.auth != null;
-    }
-  }
-}
-```
+5. Rules Firestore tối thiểu cho dev (siết lại khi production) — xem `firestore.rules`:
 
 Đăng nhập chỉ cần **tên tài khoản + mật khẩu** (không dùng email). App tạo email nội bộ `tên@tradaviahe.app` phía sau.
 

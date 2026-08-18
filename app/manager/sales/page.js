@@ -21,6 +21,7 @@ import { useToast } from "@/components/Toast";
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
 import { db } from "@/lib/firebase";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { isGoodsIncome } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
 import {
@@ -103,7 +104,7 @@ function SalesLogContent() {
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được sổ bán hàng", "error");
+        showToast(firestoreErrorMessage(error, "Không tải được sổ bán hàng"), "error");
         setLoading(false);
       }
     );
