@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { collection, onSnapshot } from "firebase/firestore";
 import { format } from "date-fns";
 import {
   Banknote,
@@ -22,7 +21,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
-import { db } from "@/lib/firebase";
+import { subscribeCollection } from "@/lib/liveCollection";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
@@ -394,10 +393,9 @@ function CapitalContent() {
   }, [canViewInvestmentCapital, showToast]);
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, "users"),
-      (snap) => {
-        const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const unsub = subscribeCollection(
+      "users",
+      (list) => {
         setUsers(list);
 
         // Cổ đông = chỉ role investor (quản lý / NV không vào danh sách)
