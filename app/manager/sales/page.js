@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { format, isValid, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
@@ -20,8 +19,8 @@ import { Money } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
-import { db } from "@/lib/firebase";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
+import { subscribeCollection } from "@/lib/liveCollection";
 import { isGoodsIncome } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
 import {
@@ -85,18 +84,12 @@ function SalesLogContent() {
 
   useEffect(() => {
     const dayKey = dateInput ? inputValueToDateKey(dateInput) : todayKey();
-    // Chỉ tải đúng ngày đang xem — không kéo cả lịch sử.
-    const dayQuery = query(
-      collection(db, "transactions"),
-      where("businessDate", "==", dayKey),
-      where("type", "==", "income")
-    );
     setLoading(true);
-    const unsub = onSnapshot(
-      dayQuery,
-      (snap) => {
-        const rows = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+    const unsub = subscribeCollection(
+      "transactions",
+      (list) => {
+        const rows = list
+          .filter((t) => (t.businessDate || "") === dayKey)
           .filter(isGoodsIncome)
           .sort((a, b) => txTimeMs(b) - txTimeMs(a));
         setAllTx(rows);

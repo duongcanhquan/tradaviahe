@@ -2,13 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  Timestamp,
-  collection,
-  onSnapshot,
-  query,
-  where,
-} from "firebase/firestore";
 import { format } from "date-fns";
 import {
   Banknote,
@@ -24,7 +17,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
-import { db } from "@/lib/firebase";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
+import { subscribeCollection } from "@/lib/liveCollection";
 import {
   filterShareholderCapitalEntries,
   subscribeShareholderCapital,
@@ -99,23 +93,27 @@ function MonthlyContent() {
   const monthKey = monthKeyFromParts(year, monthIndex);
 
   useEffect(() => {
-    const start = new Date(year, monthIndex, 1);
-    const end = new Date(year, monthIndex + 1, 1);
+    const prefix = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
+    const start = new Date(year, monthIndex, 1).getTime();
+    const end = new Date(year, monthIndex + 1, 1).getTime();
     setLoadingTx(true);
-    const monthQuery = query(
-      collection(db, "transactions"),
-      where("timestamp", ">=", Timestamp.fromDate(start)),
-      where("timestamp", "<", Timestamp.fromDate(end))
-    );
-    const unsub = onSnapshot(
-      monthQuery,
-      (snap) => {
-        setTransactions(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    const unsub = subscribeCollection(
+      "transactions",
+      (list) => {
+        setTransactions(
+          list.filter((t) => {
+            if (t.businessDate && String(t.businessDate).startsWith(prefix)) {
+              return true;
+            }
+            const ms = t?.timestamp?.toMillis?.() || 0;
+            return ms >= start && ms < end;
+          })
+        );
         setLoadingTx(false);
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được giao dịch", "error");
+        showToast(firestoreErrorMessage(error, "Không tải được giao dịch"), "error");
         setLoadingTx(false);
       }
     );
@@ -139,11 +137,9 @@ function MonthlyContent() {
         setLoadingInv(false);
       }
     );
-    const unsubUsers = onSnapshot(
-      collection(db, "users"),
-      (snap) => {
-        setUsers(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      },
+    const unsubUsers = subscribeCollection(
+      "users",
+      (rows) => setUsers(rows),
       () => setUsers([])
     );
     const unsubSettings = subscribeGlobalSettings(

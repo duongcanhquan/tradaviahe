@@ -29,12 +29,12 @@ Firebase Console → **Authentication → Settings → Authorized domains** → 
 
 Nếu thiếu bước này, app trên Vercel báo lỗi đăng nhập / không vào được dữ liệu.
 
-### 3. Firestore indexes
-Sau khi pull code mới, deploy index một lần:
+### 3. Firestore indexes + rules
+Chạy **trong thư mục `tradaviahe`** (không phải thư mục ngoài):
 ```bash
-npm run firebase:indexes
+cd tradaviahe
+npm run firebase:firestore
 ```
-(hoặc bấm link trong console trình duyệt khi Firestore báo thiếu index)
 
 ### 4. Auth + hồ sơ user
 1. Bật Email/Password trong Authentication.

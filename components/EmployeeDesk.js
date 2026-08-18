@@ -2,15 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import {
-  addDoc,
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  serverTimestamp,
-  where,
-} from "firebase/firestore";
+import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import {
   ArrowDown,
   ArrowUp,
@@ -37,10 +29,12 @@ import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
 } from "@/lib/productGroups";
+import { subscribeCollection } from "@/lib/liveCollection";
 import {
   comparePosOrder,
   isSellable,
   moveProductInOrder,
+  subscribeProducts,
 } from "@/lib/products";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
@@ -85,20 +79,14 @@ export default function EmployeeDesk() {
   }, []);
 
   useEffect(() => {
-    const q = query(collection(db, "products"), orderBy("name"));
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        setProducts(
-          snap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .filter(isSellable)
-        );
+    const unsub = subscribeProducts(
+      (list) => {
+        setProducts(list.filter(isSellable));
         setLoading(false);
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được món", "error");
+        showToast(firestoreErrorMessage(error, "Không tải được món"), "error");
         setLoading(false);
       }
     );
@@ -118,15 +106,11 @@ export default function EmployeeDesk() {
     const today = todayKey();
     // POS chỉ hiển thị lịch sử hôm nay: để Firestore lọc trước thay vì tải
     // toàn bộ transactions rồi mới lọc trên điện thoại.
-    const recentQuery = query(
-      collection(db, "transactions"),
-      where("businessDate", "==", today)
-    );
-    const unsub = onSnapshot(
-      recentQuery,
-      (snap) => {
-        let rows = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+    const unsub = subscribeCollection(
+      "transactions",
+      (list) => {
+        let rows = list
+          .filter((t) => (t.businessDate || todayKey()) === today)
           .filter(isGoodsIncome)
           .sort(
             (a, b) =>

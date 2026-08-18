@@ -3,14 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
-  collection,
-  onSnapshot,
-  orderBy,
-  query,
-  Timestamp,
-  where,
-} from "firebase/firestore";
-import {
   startOfMonth,
   endOfMonth,
   startOfDay,
@@ -36,14 +28,14 @@ import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
-import { db } from "@/lib/firebase";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
+import { subscribeCollection } from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
 import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
 } from "@/lib/productGroups";
-import { isSellable } from "@/lib/products";
+import { isSellable, subscribeProducts } from "@/lib/products";
 import {
   isGoodsIncome,
   sumGoodsIncomeByMethod,
@@ -107,50 +99,30 @@ function DashboardContent() {
   };
 
   useEffect(() => {
-    const now = new Date();
-    const monthStart = startOfMonth(now);
-    const weekStart = startOfWeek(now, { weekStartsOn: 1 });
-    const earliestNeeded = new Date(
-      Math.min(monthStart.getTime(), weekStart.getTime())
-    );
-    // Dashboard chỉ dùng ngày/tuần/tháng hiện tại. Lọc từ Firestore để không
-    // tải toàn bộ lịch sử giao dịch ở mỗi lần đăng nhập.
-    const transactionsQuery = query(
-      collection(db, "transactions"),
-      where("timestamp", ">=", Timestamp.fromDate(earliestNeeded))
-    );
-    const unsubTx = onSnapshot(
-      transactionsQuery,
-      (snap) => {
-        const rows = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
-          .sort((a, b) => txTimeMs(b) - txTimeMs(a));
-        setAllTx(rows);
+    const unsubTx = subscribeCollection(
+      "transactions",
+      (rows) => {
+        setAllTx([...rows].sort((a, b) => txTimeMs(b) - txTimeMs(a)));
         setLoadingTx(false);
       },
       (error) => {
         console.error(error);
         showToast(
-          firestoreErrorMessage(error, "Không tải được giao dịch — kiểm tra quyền Firestore"),
+          firestoreErrorMessage(error, "Không tải được giao dịch"),
           "error"
         );
         setLoadingTx(false);
       }
     );
 
-    const unsubProducts = onSnapshot(
-      query(collection(db, "products"), orderBy("name")),
-      (snap) => {
-        setProducts(
-          snap.docs
-            .map((d) => ({ id: d.id, ...d.data() }))
-            .filter(isSellable)
-        );
+    const unsubProducts = subscribeProducts(
+      (list) => {
+        setProducts(list.filter(isSellable));
         setLoadingStock(false);
       },
       (error) => {
         console.error(error);
-        showToast("Không tải được tồn kho", "error");
+        showToast(firestoreErrorMessage(error, "Không tải được tồn kho"), "error");
         setLoadingStock(false);
       }
     );

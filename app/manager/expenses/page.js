@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
@@ -30,8 +29,8 @@ import {
   recordShopExpense,
   summarizeShopFund,
 } from "@/lib/expenses";
-import { db } from "@/lib/firebase";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
+import { subscribeCollection } from "@/lib/liveCollection";
 import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
 
 function txTimeMs(t) {
@@ -72,18 +71,13 @@ function ExpensesContent() {
 
   useEffect(() => {
     // Chỉ tải nạp quỹ + chi quỹ — không kéo cả sổ bán hàng.
-    const fundQuery = query(
-      collection(db, "transactions"),
-      where("type", "in", [FUND_TYPES.fundIn, FUND_TYPES.expense])
-    );
-    const unsub = onSnapshot(
-      fundQuery,
-      (snap) => {
-        const list = snap.docs
-          .map((d) => ({ id: d.id, ...d.data() }))
+    const unsub = subscribeCollection(
+      "transactions",
+      (list) => {
+        const rows = list
           .filter(isShopFundEntry)
           .sort((a, b) => txTimeMs(b) - txTimeMs(a));
-        setRows(list);
+        setRows(rows);
         setLoading(false);
       },
       (error) => {

@@ -7,7 +7,8 @@
         "build": "next build",
         "start": "next start",
         "lint": "next lint",
-        "firebase:indexes": "firebase deploy --only firestore:indexes --project tradaviahe-218ca"
+        "firebase:indexes": "firebase deploy --only firestore:indexes --project tradaviahe-218ca",
+        "firebase:firestore": "firebase deploy --only firestore --project tradaviahe-218ca"
     },
     "dependencies": {
         "clsx": "^2.1.1",
