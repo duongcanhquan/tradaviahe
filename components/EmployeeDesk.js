@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import {
   ArrowDown,
   ArrowUp,
@@ -19,9 +18,8 @@ import AppShell from "@/components/AppShell";
 import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
-import { actorFields, formatActorLabel } from "@/lib/audit";
+import { formatActorLabel } from "@/lib/audit";
 import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
-import { db } from "@/lib/firebase";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { isGoodsIncome } from "@/lib/receipts";
 import { subscribeGlobalSettings } from "@/lib/settings";
@@ -36,7 +34,7 @@ import {
   moveProductInOrder,
   subscribeProducts,
 } from "@/lib/products";
-import { deleteSaleTransaction } from "@/lib/sales";
+import { deleteSaleTransaction, recordPosSale } from "@/lib/sales";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
 /**
@@ -203,18 +201,12 @@ export default function EmployeeDesk() {
   };
 
   const writeSale = async ({ items, amount, paymentMethod }) => {
-    const note = items.map((item) => `${item.name} x${item.qty}`).join(", ");
-    const actor = actorFields(user, profile);
-    await addDoc(collection(db, "transactions"), {
+    await recordPosSale({
       amount,
-      type: "income",
-      category: "bán hàng",
-      timestamp: serverTimestamp(),
-      businessDate: todayKey(),
-      note,
       paymentMethod,
-      source: "pos",
-      ...actor,
+      items,
+      user,
+      profile,
     });
   };
 
