@@ -26,10 +26,15 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
+import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
+import {
+  formatRangeLabel,
+  hasDateRange,
+} from "@/lib/dateRange";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
@@ -37,7 +42,7 @@ import {
   transferCapitalToShopFund,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { sumGoodsIncomeByMethod } from "@/lib/receipts";
+import { sumCapitalBankingIncome } from "@/lib/construction";
 import {
   createInvestment,
   filterInvestmentsForRole,
@@ -304,7 +309,7 @@ function CapitalHistoryList({
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const hasDateFilter = Boolean(dateFrom || dateTo);
+  const hasDateFilter = hasDateRange(dateFrom, dateTo);
 
   const periodTotals = useMemo(() => {
     let inAmount = 0;
@@ -314,7 +319,11 @@ function CapitalHistoryList({
       if (row.kind === CAPITAL_KINDS.expense) outAmount += amount;
       else inAmount += amount;
     }
-    return { inAmount, outAmount };
+    return {
+      inAmount,
+      outAmount,
+      net: inAmount - outAmount,
+    };
   }, [filtered]);
 
   return (
@@ -328,67 +337,53 @@ function CapitalHistoryList({
         </p>
       </div>
 
-      <div className="rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200 space-y-2.5">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Lọc theo ngày
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">
-              Từ ngày
-            </span>
-            <input
-              type="date"
-              className="field-input"
-              value={dateFrom}
-              max={dateTo || todayInputValue()}
-              onChange={(e) => setDateFrom(e.target.value)}
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-600">
-              Đến ngày
-            </span>
-            <input
-              type="date"
-              className="field-input"
-              value={dateTo}
-              min={dateFrom || undefined}
-              max={todayInputValue()}
-              onChange={(e) => setDateTo(e.target.value)}
-            />
-          </label>
-        </div>
-        {hasDateFilter ? (
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="text-xs text-slate-600">
-              Kỳ lọc: góp{" "}
-              <span className="font-semibold text-emerald-700">
-                <Money amount={periodTotals.inAmount} />
-              </span>
-              {" · "}
-              chi{" "}
-              <span className="font-semibold text-rose-700">
-                <Money amount={periodTotals.outAmount} />
-              </span>
+      <DateRangeFilter
+        dense
+        dateFrom={dateFrom}
+        dateTo={dateTo}
+        onFromChange={setDateFrom}
+        onToChange={setDateTo}
+        onClear={() => {
+          setDateFrom("");
+          setDateTo("");
+        }}
+        summary={
+          hasDateFilter ? (
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
+              <p>
+                Góp:{" "}
+                <span className="font-bold text-emerald-700">
+                  <Money amount={periodTotals.inAmount} />
+                </span>
+              </p>
+              <p>
+                Chi:{" "}
+                <span className="font-bold text-rose-700">
+                  <Money amount={periodTotals.outAmount} />
+                </span>
+              </p>
+              <p>
+                Net:{" "}
+                <span
+                  className={cn(
+                    "font-bold",
+                    periodTotals.net >= 0
+                      ? "text-emerald-700"
+                      : "text-rose-700"
+                  )}
+                >
+                  <Money amount={periodTotals.net} />
+                </span>
+              </p>
+            </div>
+          ) : (
+            <p className="text-[11px] text-slate-500">
+              Kỳ · {formatRangeLabel(dateFrom, dateTo)} — chọn ngày để tổng kết
+              góp / chi.
             </p>
-            <button
-              type="button"
-              onClick={() => {
-                setDateFrom("");
-                setDateTo("");
-              }}
-              className="touch-btn h-9 rounded-xl bg-slate-100 px-3 text-xs font-semibold text-slate-700"
-            >
-              Xóa lọc ngày
-            </button>
-          </div>
-        ) : (
-          <p className="text-xs text-slate-500">
-            Để trống = xem mọi ngày. Chọn khoảng để xem đủ giao dịch trong kỳ.
-          </p>
-        )}
-      </div>
+          )
+        }
+      />
 
       {!filtered.length ? (
         <div className="card-panel text-sm text-slate-500">
@@ -616,7 +611,7 @@ function CapitalContent() {
     const unsub = subscribeCollection(
       "transactions",
       (list) => {
-        setBankingIncomeTotal(sumGoodsIncomeByMethod(list).banking);
+        setBankingIncomeTotal(sumCapitalBankingIncome(list));
         setLoadingBanking(false);
       },
       (error) => {
@@ -1069,7 +1064,7 @@ function CapitalContent() {
                 tone="muted"
               />
               <StatCard
-                label="Thu CK bán hàng"
+                label="Thu CK (bán + XD)"
                 value={
                   loadingCapital || loadingBanking
                     ? 0
@@ -1088,7 +1083,8 @@ function CapitalContent() {
               tone="success"
             />
             <p className="rounded-2xl bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-100">
-              Số dư vốn = đã góp − chi từ vốn + thu CK bán hàng.{" "}
+              Số dư vốn = đã góp − chi từ vốn + thu CK (bán hàng + dịch vụ xây
+              dựng).{" "}
               <span className="font-semibold">Tổng đã góp / % cổ phần</span>{" "}
               không đổi khi khách chuyển khoản. Tiền mặt bán hàng vào{" "}
               <Link
@@ -1096,6 +1092,13 @@ function CapitalContent() {
                 className="font-semibold text-emerald-700 underline"
               >
                 quỹ cửa hàng
+              </Link>
+              ; tiền mặt dịch vụ XD vào{" "}
+              <Link
+                href="/manager/construction"
+                className="font-semibold text-teal-700 underline"
+              >
+                quỹ xây dựng
               </Link>
               .
             </p>

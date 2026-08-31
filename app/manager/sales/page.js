@@ -6,6 +6,8 @@ import { format, isValid, parseISO } from "date-fns";
 import { vi } from "date-fns/locale";
 import {
   ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Pencil,
   Receipt,
@@ -14,11 +16,17 @@ import {
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
+import {
+  filterRowsByDateRange,
+  formatRangeLabel,
+  hasDateRange,
+} from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { isGoodsIncome } from "@/lib/receipts";
@@ -31,10 +39,10 @@ import {
   cn,
   dateKeyToInputValue,
   formatCurrency,
-  inputValueToDateKey,
   todayInputValue,
-  todayKey,
 } from "@/lib/utils";
+
+const PAGE_SIZE = 10;
 
 function txTimeMs(t) {
   return t?.timestamp?.toMillis?.() ?? 0;
@@ -71,7 +79,9 @@ function SalesLogContent() {
   const canManageSales = canDeleteSales || canEditSales;
   const [allTx, setAllTx] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [dateInput, setDateInput] = useState(todayInputValue());
+  const [dateFrom, setDateFrom] = useState(todayInputValue());
+  const [dateTo, setDateTo] = useState(todayInputValue());
+  const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState(null);
   const [payFilter, setPayFilter] = useState("all"); // all | cash | banking
 
@@ -83,13 +93,11 @@ function SalesLogContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    const dayKey = dateInput ? inputValueToDateKey(dateInput) : todayKey();
     setLoading(true);
     const unsub = subscribeCollection(
       "transactions",
       (list) => {
         const rows = list
-          .filter((t) => (t.businessDate || "") === dayKey)
           .filter(isGoodsIncome)
           .sort((a, b) => txTimeMs(b) - txTimeMs(a));
         setAllTx(rows);
@@ -97,40 +105,71 @@ function SalesLogContent() {
       },
       (error) => {
         console.error(error);
-        showToast(firestoreErrorMessage(error, "Không tải được sổ bán hàng"), "error");
+        showToast(
+          firestoreErrorMessage(error, "Không tải được sổ bán hàng"),
+          "error"
+        );
         setLoading(false);
       }
     );
     return () => unsub();
-  }, [dateInput, showToast]);
+  }, [showToast]);
+
+  const ranged = useMemo(
+    () => filterRowsByDateRange(allTx, dateFrom, dateTo),
+    [allTx, dateFrom, dateTo]
+  );
 
   const dayRows = useMemo(() => {
-    let rows = allTx;
+    let rows = ranged;
     if (payFilter === "cash") {
       rows = rows.filter((t) => t.paymentMethod !== "banking");
     } else if (payFilter === "banking") {
       rows = rows.filter((t) => t.paymentMethod === "banking");
     }
     return rows;
-  }, [allTx, payFilter]);
+  }, [ranged, payFilter]);
 
-  const dayTotal = useMemo(() => {
+  const summary = useMemo(() => {
     let cash = 0;
     let banking = 0;
-    for (const t of dayRows) {
+    for (const t of ranged) {
       const amount = Number(t.amount) || 0;
       if (t.paymentMethod === "banking") banking += amount;
       else cash += amount;
     }
-    return { cash, banking, total: cash + banking, count: dayRows.length };
-  }, [dayRows]);
+    return {
+      cash,
+      banking,
+      total: cash + banking,
+      count: ranged.length,
+      filteredCount: dayRows.length,
+    };
+  }, [ranged, dayRows.length]);
 
-  const dayLabel = useMemo(() => {
-    if (!dateInput) return todayKey();
-    const d = parseISO(String(dateInput));
-    if (!isValid(d)) return inputValueToDateKey(dateInput);
-    return format(d, "EEEE, dd/MM/yyyy", { locale: vi });
-  }, [dateInput]);
+  const totalPages = Math.max(1, Math.ceil(dayRows.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return dayRows.slice(start, start + PAGE_SIZE);
+  }, [dayRows, safePage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [dateFrom, dateTo, payFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const rangeLabel = useMemo(() => {
+    if (!hasDateRange(dateFrom, dateTo)) return "Mọi ngày";
+    if (dateFrom && dateTo && dateFrom === dateTo) {
+      const d = parseISO(String(dateFrom));
+      if (isValid(d)) return format(d, "EEEE, dd/MM/yyyy", { locale: vi });
+    }
+    return formatRangeLabel(dateFrom, dateTo);
+  }, [dateFrom, dateTo]);
 
   const openEdit = (row) => {
     if (!canEditSales || !row?.id) return;
@@ -156,7 +195,10 @@ function SalesLogContent() {
       });
       showToast("Đã cập nhật giao dịch bán", "success");
       setEditing(null);
-      if (editDate) setDateInput(editDate);
+      if (editDate) {
+        setDateFrom(editDate);
+        setDateTo(editDate);
+      }
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Sửa thất bại", "error");
@@ -197,20 +239,20 @@ function SalesLogContent() {
         Về đối soát
       </Link>
 
-      <section className="card-panel mb-4 space-y-3">
-        <label className="block">
-          <span className="mb-2 block text-sm font-semibold text-slate-700">
-            Chọn ngày
-          </span>
-          <input
-            type="date"
-            className="field-input"
-            value={dateInput}
-            max={todayInputValue()}
-            onChange={(e) => setDateInput(e.target.value)}
-          />
-        </label>
-        <p className="text-xs font-medium capitalize text-slate-500">{dayLabel}</p>
+      <section className="mb-4 space-y-3">
+        <DateRangeFilter
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          onClear={() => {
+            setDateFrom("");
+            setDateTo("");
+          }}
+          summary={
+            <p className="text-xs capitalize text-slate-600">{rangeLabel}</p>
+          }
+        />
 
         <div className="flex gap-1.5">
           {[
@@ -241,7 +283,7 @@ function SalesLogContent() {
             Tiền mặt
           </p>
           <p className="money mt-1 text-lg font-extrabold">
-            <Money amount={dayTotal.cash} />
+            <Money amount={summary.cash} />
           </p>
         </div>
         <div className="rounded-[1.25rem] bg-brand-700 px-4 py-3 text-white shadow-sm">
@@ -249,17 +291,20 @@ function SalesLogContent() {
             Chuyển khoản
           </p>
           <p className="money mt-1 text-lg font-extrabold">
-            <Money amount={dayTotal.banking} />
+            <Money amount={summary.banking} />
           </p>
         </div>
         <div className="col-span-2 rounded-[1.25rem] bg-slate-900 px-4 py-3 text-white shadow-sm">
           <div className="flex items-end justify-between gap-3">
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
-                Tổng ngày · {dayTotal.count} lần
+                Tổng kỳ · {summary.count} lần
+                {payFilter !== "all"
+                  ? ` · đang lọc ${summary.filteredCount}`
+                  : ""}
               </p>
               <p className="money mt-1 text-2xl font-extrabold">
-                <Money amount={dayTotal.total} />
+                <Money amount={summary.total} />
               </p>
             </div>
             <Receipt className="h-8 w-8 text-white/40" aria-hidden />
@@ -277,29 +322,25 @@ function SalesLogContent() {
             <button
               type="button"
               onClick={() => setEditing(null)}
-              className="touch-btn h-10 gap-1 rounded-xl bg-white px-3 text-sm text-slate-600 ring-1 ring-slate-200"
+              className="rounded-xl bg-white p-2 text-slate-500 ring-1 ring-slate-200"
             >
-              <X className="h-4 w-4" aria-hidden />
-              Đóng
+              <X className="h-4 w-4" />
             </button>
           </div>
-
           <form onSubmit={saveEdit} className="space-y-3">
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">
-                Ngày nghiệp vụ
-              </span>
+              <span className="mb-1 block text-sm font-semibold">Số tiền</span>
               <input
-                type="date"
-                className="field-input"
-                value={editDate}
-                max={todayInputValue()}
-                onChange={(e) => setEditDate(e.target.value)}
+                type="number"
+                min="1"
+                className="field-input money"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
                 required
               />
             </label>
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">
+              <span className="mb-1 block text-sm font-semibold">
                 Hình thức
               </span>
               <select
@@ -312,147 +353,152 @@ function SalesLogContent() {
               </select>
             </label>
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">
-                Số tiền (VNĐ)
-              </span>
+              <span className="mb-1 block text-sm font-semibold">Ngày</span>
               <input
-                type="number"
-                inputMode="numeric"
-                min="1"
-                className="field-input money"
-                value={editAmount}
-                onChange={(e) => setEditAmount(e.target.value)}
+                type="date"
+                className="field-input"
+                value={editDate}
+                max={todayInputValue()}
+                onChange={(e) => setEditDate(e.target.value)}
                 required
               />
-              {editAmount ? (
-                <p className="mt-1.5 text-xs font-medium text-amber-800">
-                  = <Money amount={editAmount} />
-                </p>
-              ) : null}
             </label>
             <label className="block">
-              <span className="mb-2 block text-sm font-semibold text-slate-700">
-                Món / ghi chú
-              </span>
+              <span className="mb-1 block text-sm font-semibold">Ghi chú</span>
               <input
                 className="field-input"
                 value={editNote}
                 onChange={(e) => setEditNote(e.target.value)}
-                placeholder="VD: Trà đá x2, Trà chanh x1"
               />
             </label>
             <button
               type="submit"
               disabled={savingEdit}
-              className="touch-btn h-14 w-full gap-2 bg-slate-900 text-white"
+              className="touch-btn h-12 w-full gap-2 bg-amber-700 text-white disabled:opacity-50"
             >
               {savingEdit ? (
                 <Loader2 className="h-5 w-5 animate-spin" />
               ) : (
-                <Save className="h-5 w-5" aria-hidden />
+                <Save className="h-5 w-5" />
               )}
-              {savingEdit ? "Đang lưu..." : "Lưu giao dịch"}
+              Lưu
             </button>
           </form>
         </section>
       ) : null}
 
-      <section className="mb-6 space-y-2">
+      <section className="mb-8 space-y-2">
         <div className="flex items-center justify-between gap-2">
-          <h2 className="section-title mb-0">Chi tiết món / lần thu</h2>
-          {canManageSales ? (
-            <p className="text-[11px] font-semibold text-brand-800">
-              Có thể sửa · xóa
-            </p>
-          ) : null}
+          <h2 className="section-title mb-0">Danh sách</h2>
+          <p className="text-xs text-slate-500">
+            {dayRows.length} dòng
+            {dayRows.length > PAGE_SIZE ? ` · ${safePage}/${totalPages}` : ""}
+          </p>
         </div>
 
         {loading ? (
           <div className="card-panel flex h-24 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-brand-700" />
           </div>
-        ) : dayRows.length === 0 ? (
+        ) : pageRows.length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
-            Không có món bán trong ngày này.
+            Không có giao dịch trong khoảng này.
           </div>
         ) : (
-          <ul className="space-y-2">
-            {dayRows.map((row) => {
-              const isCk = row.paymentMethod === "banking";
-              return (
-                <li
-                  key={row.id}
-                  className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-base font-extrabold leading-snug text-slate-900">
-                        {row.note || "Thu bán hàng"}
-                      </p>
-                      <p className="mt-1.5 text-xs font-semibold text-slate-500">
-                        {formatTxDateTime(row)}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-600">
-                        <span className="font-bold text-brand-800">
-                          {formatActorLabel(row)}
-                        </span>
-                        {row.createdByRole
-                          ? ` · ${roleLabel(row.createdByRole)}`
-                          : ""}
-                        {" · "}
-                        <span
-                          className={
-                            isCk
-                              ? "font-bold text-brand-700"
-                              : "font-bold text-emerald-700"
-                          }
-                        >
-                          {isCk ? "Chuyển khoản" : "Tiền mặt"}
-                        </span>
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-col items-end gap-2">
-                      <p className="money text-lg font-extrabold text-emerald-700">
-                        <Money amount={row.amount} />
-                      </p>
-                      {canEditSales ? (
-                        <button
-                          type="button"
-                          onClick={() => openEdit(row)}
-                          className="inline-flex h-10 items-center gap-1 rounded-xl bg-slate-900 px-3 text-xs font-bold text-white"
-                        >
-                          <Pencil className="h-3.5 w-3.5" aria-hidden />
-                          Sửa
-                        </button>
-                      ) : null}
-                      {canDeleteSales ? (
-                        <button
-                          type="button"
-                          disabled={deletingId === row.id}
-                          onClick={() => handleDelete(row)}
-                          className="inline-flex h-10 items-center gap-1 rounded-xl bg-rose-50 px-3 text-xs font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
-                        >
-                          {deletingId === row.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                          )}
-                          Xóa
-                        </button>
-                      ) : null}
-                    </div>
+          pageRows.map((row) => {
+            const isCk = row.paymentMethod === "banking";
+            return (
+              <article key={row.id} className="card-panel space-y-2 !py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-slate-900">
+                      {row.note || "Thu bán hàng"}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {formatTxDateTime(row)}
+                    </p>
+                    <p className="mt-1 text-xs font-semibold text-slate-700">
+                      <span className="font-extrabold text-brand-800">
+                        {formatActorLabel(row)}
+                      </span>
+                      {row.createdByRole
+                        ? ` · ${roleLabel(row.createdByRole)}`
+                        : ""}
+                      {" · "}
+                      <span
+                        className={
+                          isCk ? "text-brand-700" : "text-emerald-700"
+                        }
+                      >
+                        {isCk ? "Chuyển khoản" : "Tiền mặt"}
+                      </span>
+                    </p>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
+                  <p className="money shrink-0 text-base font-extrabold text-emerald-700">
+                    <Money amount={row.amount} />
+                  </p>
+                </div>
+                {canManageSales ? (
+                  <div className="flex gap-2">
+                    {canEditSales ? (
+                      <button
+                        type="button"
+                        onClick={() => openEdit(row)}
+                        className="touch-btn h-10 flex-1 gap-1 bg-amber-50 text-xs font-bold text-amber-900 ring-1 ring-amber-100"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        Sửa
+                      </button>
+                    ) : null}
+                    {canDeleteSales ? (
+                      <button
+                        type="button"
+                        disabled={deletingId === row.id}
+                        onClick={() => handleDelete(row)}
+                        className="touch-btn h-10 flex-1 gap-1 bg-rose-50 text-xs font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                        {deletingId === row.id ? "…" : "Xóa"}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })
         )}
+
+        {totalPages > 1 ? (
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <button
+              type="button"
+              disabled={safePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold ring-1 ring-slate-200 disabled:opacity-35"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Trước
+            </button>
+            <p className="shrink-0 text-xs font-semibold text-slate-500">
+              {safePage} / {totalPages}
+            </p>
+            <button
+              type="button"
+              disabled={safePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold ring-1 ring-slate-200 disabled:opacity-35"
+            >
+              Sau
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
       </section>
     </AppShell>
   );
 }
 
-export default function SalesLogPage() {
+export default function SalesPage() {
   return (
     <ProtectedRoute allowRoles={["manager", "investor", "superadmin"]}>
       <SalesLogContent />

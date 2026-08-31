@@ -6,6 +6,7 @@ import { doc, setDoc } from "firebase/firestore";
 import Link from "next/link";
 import {
   Beaker,
+  Building2,
   KeyRound,
   LogOut,
   Package,
@@ -319,6 +320,30 @@ function SettingsContent() {
       {canManageShop ? (
         <>
           <Link
+            href="/manager/construction"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-orange-700 text-white"
+          >
+            <Building2 className="h-5 w-5" />
+            Mảng xây dựng · quỹ & hạng mục
+          </Link>
+
+          <Link
+            href="/manager/production"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-teal-700 text-white"
+          >
+            <Beaker className="h-5 w-5" />
+            Pha mẻ · ủ trà · trừ NL
+          </Link>
+
+          <Link
+            href="/manager/products"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
+          >
+            <Package className="h-5 w-5" />
+            Món · công thức cost mẻ
+          </Link>
+
+          <Link
             href="/manager/expenses"
             className="touch-btn mb-4 h-14 w-full gap-2 bg-rose-600 text-white"
           >
@@ -335,27 +360,11 @@ function SettingsContent() {
           </Link>
 
           <Link
-            href="/manager/products"
+            href="/admin/products"
             className="touch-btn mb-4 h-14 w-full gap-2 bg-emerald-700 text-white"
           >
             <Package className="h-5 w-5" />
-            Món · giá bán
-          </Link>
-
-          <Link
-            href="/manager/production"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-teal-700 text-white"
-          >
-            <Beaker className="h-5 w-5" />
-            Sổ pha · ghi mẻ
-          </Link>
-
-          <Link
-            href="/admin/products"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
-          >
-            <Package className="h-5 w-5" />
-            Setup món · giá · nhóm SP
+            Setup nhóm SP (Admin)
           </Link>
 
           <section className="card-panel mb-4 space-y-3">

@@ -13,10 +13,16 @@ import {
   Wallet,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
+import {
+  filterRowsByDateRange,
+  formatRangeLabel,
+  monthInputBounds,
+} from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { subscribeCollection } from "@/lib/liveCollection";
 import {
@@ -36,6 +42,7 @@ import {
   sumGoodsIncomeByMethod,
   summarizeReceipts,
 } from "@/lib/receipts";
+import { isShopOperatingExpense } from "@/lib/expenses";
 import {
   DEFAULT_RELATION_FUND_PERCENT,
   subscribeGlobalSettings,
@@ -68,7 +75,10 @@ function MonthlyContent() {
   const [monthValue, setMonthValue] = useState(
     monthInputValue(now.getFullYear(), now.getMonth())
   );
-  const [transactions, setTransactions] = useState([]);
+  const initialBounds = monthInputBounds(now.getFullYear(), now.getMonth());
+  const [dateFrom, setDateFrom] = useState(initialBounds.from);
+  const [dateTo, setDateTo] = useState(initialBounds.to);
+  const [allTx, setAllTx] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
   const [users, setUsers] = useState([]);
   const [receipts, setReceipts] = useState([]);
@@ -93,22 +103,17 @@ function MonthlyContent() {
   const monthKey = monthKeyFromParts(year, monthIndex);
 
   useEffect(() => {
-    const prefix = `${year}-${String(monthIndex + 1).padStart(2, "0")}`;
-    const start = new Date(year, monthIndex, 1).getTime();
-    const end = new Date(year, monthIndex + 1, 1).getTime();
+    const bounds = monthInputBounds(year, monthIndex);
+    setDateFrom(bounds.from);
+    setDateTo(bounds.to);
+  }, [year, monthIndex]);
+
+  useEffect(() => {
     setLoadingTx(true);
     const unsub = subscribeCollection(
       "transactions",
       (list) => {
-        setTransactions(
-          list.filter((t) => {
-            if (t.businessDate && String(t.businessDate).startsWith(prefix)) {
-              return true;
-            }
-            const ms = t?.timestamp?.toMillis?.() || 0;
-            return ms >= start && ms < end;
-          })
-        );
+        setAllTx(list);
         setLoadingTx(false);
       },
       (error) => {
@@ -118,7 +123,12 @@ function MonthlyContent() {
       }
     );
     return () => unsub();
-  }, [monthIndex, showToast, year]);
+  }, [showToast]);
+
+  const monthTx = useMemo(
+    () => filterRowsByDateRange(allTx, dateFrom, dateTo),
+    [allTx, dateFrom, dateTo]
+  );
 
   useEffect(() => {
     if (!canViewDividends) {
@@ -181,10 +191,16 @@ function MonthlyContent() {
     return () => unsub();
   }, [canManageShareholderReceipts, monthKey, showToast]);
 
-  const monthTx = transactions;
-
   const goodsIncome = useMemo(
     () => sumGoodsIncomeByMethod(monthTx),
+    [monthTx]
+  );
+
+  const periodExpense = useMemo(
+    () =>
+      monthTx
+        .filter(isShopOperatingExpense)
+        .reduce((sum, t) => sum + (Number(t.amount) || 0), 0),
     [monthTx]
   );
 
@@ -285,6 +301,28 @@ function MonthlyContent() {
           />
         </label>
 
+        <DateRangeFilter
+          dense
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          onClear={() => {
+            const bounds = monthInputBounds(year, monthIndex);
+            setDateFrom(bounds.from);
+            setDateTo(bounds.to);
+          }}
+          summary={
+            <p className="text-[11px] text-slate-600">
+              Tổng kết theo:{" "}
+              <span className="font-semibold">
+                {formatRangeLabel(dateFrom, dateTo)}
+              </span>
+              . Đổi tháng sẽ reset khoảng ngày.
+            </p>
+          }
+        />
+
         {canViewDividends && canManageSystem ? (
           <Link
             href="/dashboard/settings"
@@ -306,7 +344,7 @@ function MonthlyContent() {
         <section className="space-y-3">
           <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-6 text-white shadow-md">
             <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
-              Tổng thu hàng hóa tháng này
+              Tổng thu hàng hóa · {formatRangeLabel(dateFrom, dateTo)}
             </p>
             <p className="money mt-2 text-4xl font-extrabold leading-none">
               <Money amount={goodsIncome.total} />
@@ -329,6 +367,18 @@ function MonthlyContent() {
                 <Money amount={goodsIncome.banking} />
               </p>
             </div>
+            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+              <p className="text-xs font-semibold text-slate-500">Chi quỹ</p>
+              <p className="money mt-1 text-xl font-extrabold text-rose-700">
+                <Money amount={periodExpense} />
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+              <p className="text-xs font-semibold text-slate-500">Thu − chi</p>
+              <p className="money mt-1 text-xl font-extrabold text-emerald-700">
+                <Money amount={goodsIncome.total - periodExpense} />
+              </p>
+            </div>
           </div>
 
           <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
@@ -340,6 +390,24 @@ function MonthlyContent() {
         <>
           <section className="card-panel mb-4 space-y-3">
             <h2 className="section-title">Kết quả kinh doanh</h2>
+            <p className="text-xs text-slate-500">
+              Kỳ · {formatRangeLabel(dateFrom, dateTo)}
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="rounded-xl bg-emerald-50 px-3 py-2">
+                <p className="text-xs text-emerald-800">Thu TM</p>
+                <p className="money font-extrabold text-emerald-700">
+                  <Money amount={goodsIncome.cash} />
+                </p>
+              </div>
+              <div className="rounded-xl bg-brand-50 px-3 py-2">
+                <p className="text-xs text-brand-800">Thu CK</p>
+                <p className="money font-extrabold text-brand-800">
+                  <Money amount={goodsIncome.banking} />
+                </p>
+              </div>
+            </div>
 
             <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3">
               <span className="text-sm font-medium text-emerald-800">

@@ -163,18 +163,27 @@ function ProductionContent() {
   };
 
   return (
-    <AppShell title="Sổ pha / mẻ" subtitle="Ghi nhận · trừ NL pha ngay">
-      <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Ghi mẻ (vd 1 bình 12L ≈ 100 cốc) → trừ trà/nước pha ngay. Khi bán POS chỉ
-        trừ NL kèm (đá, đường…). Quy ước công thức tại{" "}
-        <Link
-          href="/manager/products"
-          className="font-bold text-brand-800 underline"
-        >
-          Món · giá
-        </Link>
-        .
-      </p>
+    <AppShell
+      title="Pha mẻ · ủ trà"
+      subtitle="Ghi nhận mẻ · trừ NL pha ngay"
+    >
+      <div className="mb-3 rounded-2xl bg-teal-50 px-3 py-2.5 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
+        <p className="font-extrabold">Quy trình</p>
+        <ol className="mt-1 list-decimal space-y-0.5 pl-4">
+          <li>
+            Setup công thức tại{" "}
+            <Link
+              href="/manager/products"
+              className="font-bold text-teal-800 underline"
+            >
+              Món · Công thức mẻ
+            </Link>{" "}
+            (NL pha + số suất/mẻ + NL kèm mỗi cốc).
+          </li>
+          <li>Mỗi lần ủ / pha bình → ghi mẻ bên dưới → trừ trà, nước…</li>
+          <li>Bán POS chỉ trừ đá, đường, ly… (NL kèm).</li>
+        </ol>
+      </div>
 
       {canManageShop ? (
         <button
@@ -185,7 +194,7 @@ function ProductionContent() {
           }}
           className={cn(
             "touch-btn mb-4 h-14 w-full gap-2 text-sm font-bold",
-            open ? "bg-slate-800 text-white" : "bg-brand-700 text-white"
+            open ? "bg-slate-800 text-white" : "bg-teal-700 text-white"
           )}
         >
           {open ? (
@@ -196,7 +205,7 @@ function ProductionContent() {
           ) : (
             <>
               <Plus className="h-5 w-5" />
-              Ghi mẻ pha hôm nay
+              Ghi mẻ pha / ủ hôm nay
             </>
           )}
         </button>
@@ -210,10 +219,18 @@ function ProductionContent() {
           </div>
 
           {recipeProducts.length === 0 ? (
-            <p className="text-sm text-amber-800">
-              Chưa có món nào có NL pha mẻ. Vào Món · giá → Công thức → thêm
-              dòng &quot;Pha mẻ&quot;.
-            </p>
+            <div className="space-y-3">
+              <p className="text-sm text-amber-900">
+                Chưa có món nào có <strong>NL pha mẻ</strong>. Trà đá đang để
+                &quot;cost nhập tay&quot; thì chưa ghi được mẻ.
+              </p>
+              <Link
+                href="/manager/products"
+                className="touch-btn h-12 w-full bg-amber-600 text-sm font-bold text-white"
+              >
+                Mở Món · chọn Công thức mẻ
+              </Link>
+            </div>
           ) : (
             <form onSubmit={handleSave} className="space-y-3">
               <label className="block">

@@ -10,21 +10,21 @@ import {
   Trash2,
   Wallet,
 } from "lucide-react";
-import {
-  endOfDay,
-  format,
-  isValid,
-  parse,
-  parseISO,
-  startOfDay,
-} from "date-fns";
+import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import AppShell from "@/components/AppShell";
+import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
+import {
+  filterRowsByDateRange,
+  formatRangeLabel,
+  hasDateRange,
+  rowBusinessMs,
+} from "@/lib/dateRange";
 import {
   deleteShopFundEntry,
   expenseCategoryLabel,
@@ -59,34 +59,6 @@ function formatTxTime(t) {
   }
 }
 
-/** Ngày nghiệp vụ của dòng quỹ (ms), ưu tiên timestamp rồi businessDate. */
-function rowBusinessMs(row) {
-  const ms = txTimeMs(row);
-  if (ms) return ms;
-  const key = String(row?.businessDate || "").trim();
-  if (!key) return 0;
-  const d = parse(key, "dd/MM/yyyy", new Date());
-  return isValid(d) ? d.getTime() : 0;
-}
-
-function parseInputDay(value, end) {
-  if (!value) return null;
-  const d = parseISO(String(value));
-  if (!isValid(d)) return null;
-  return end ? endOfDay(d).getTime() : startOfDay(d).getTime();
-}
-
-function rowInDateRange(row, fromInput, toInput) {
-  const fromMs = parseInputDay(fromInput, false);
-  const toMs = parseInputDay(toInput, true);
-  if (fromMs == null && toMs == null) return true;
-  const ms = rowBusinessMs(row);
-  if (!ms) return false;
-  if (fromMs != null && ms < fromMs) return false;
-  if (toMs != null && ms > toMs) return false;
-  return true;
-}
-
 const FILTERS = [
   { id: "all", label: "Tất cả" },
   { id: "fund_in", label: "Nạp quỹ" },
@@ -97,6 +69,7 @@ function ExpensesContent() {
   const { showToast } = useToast();
   const { user, profile, role, canManageShop, canManageShareholderCapital } =
     useAuth();
+  const [allTx, setAllTx] = useState([]);
   const [rows, setRows] = useState([]);
   const [cashSalesTotal, setCashSalesTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -120,6 +93,7 @@ function ExpensesContent() {
     const unsub = subscribeCollection(
       "transactions",
       (list) => {
+        setAllTx(list);
         const fundRows = list
           .filter(isShopFundEntry)
           .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
@@ -144,8 +118,21 @@ function ExpensesContent() {
     [rows, cashSalesTotal]
   );
 
+  const rangedFundRows = useMemo(
+    () => filterRowsByDateRange(rows, dateFrom, dateTo),
+    [rows, dateFrom, dateTo]
+  );
+
+  const cashInPeriod = useMemo(
+    () =>
+      sumGoodsIncomeByMethod(
+        filterRowsByDateRange(allTx, dateFrom, dateTo)
+      ).cash,
+    [allTx, dateFrom, dateTo]
+  );
+
   const filtered = useMemo(() => {
-    let list = rows.filter((r) => rowInDateRange(r, dateFrom, dateTo));
+    let list = rangedFundRows;
     if (filter === "fund_in") list = list.filter(isFundIn);
     else if (filter !== "all") {
       list = list.filter(
@@ -154,12 +141,19 @@ function ExpensesContent() {
       );
     }
     return list;
-  }, [rows, filter, dateFrom, dateTo]);
+  }, [rangedFundRows, filter]);
 
-  const periodSummary = useMemo(
-    () => summarizeShopFund(filtered, 0),
-    [filtered]
-  );
+  const periodSummary = useMemo(() => {
+    const base = summarizeShopFund(rangedFundRows, cashInPeriod);
+    return {
+      ...base,
+      net: base.fundIn + base.cashSales - base.expense,
+    };
+  }, [rangedFundRows, cashInPeriod]);
+
+  const categorySource = hasDateRange(dateFrom, dateTo)
+    ? periodSummary
+    : summary;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -270,18 +264,14 @@ function ExpensesContent() {
     }
   };
 
-  const hasDateFilter = Boolean(dateFrom || dateTo);
+  const hasDateFilter = hasDateRange(dateFrom, dateTo);
 
   return (
     <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
-      <section className="mb-4 rounded-[1.25rem] bg-brand-700 px-4 py-3.5 text-white shadow-md">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/75">
-          Quỹ vận hành quán
-        </p>
-        <p className="mt-1 text-sm leading-snug text-white/90">
-          Tiền mặt bán hàng vào quỹ này. Chuyển khoản khách vào số dư vốn (trang
-          Vốn) — không đổi vốn góp cổ phần. Nạp từ sổ vốn: tick “Tiền từ sổ
-          vốn” hoặc trang Vốn → Chi tiêu vốn.
+      <section className="mb-3 rounded-2xl bg-brand-700 px-3.5 py-2.5 text-white shadow-md">
+        <p className="text-sm leading-snug text-white/95">
+          Thu TM bán hàng vào quỹ. CK khách vào số dư vốn. Nạp từ sổ vốn: tick
+          “Tiền từ sổ vốn”.
         </p>
       </section>
 
@@ -308,11 +298,9 @@ function ExpensesContent() {
             tone="danger"
           />
         </div>
-        <p className="rounded-2xl bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-100">
-          Số dư = thu TM bán hàng + nạp quỹ − chi tiêu. Nạp quỹ{" "}
-          <span className="font-semibold">không</span> tính doanh thu. Thu
-          chuyển khoản bán hàng <span className="font-semibold">không</span> vào
-          quỹ — xem số dư vốn.
+        <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600 ring-1 ring-slate-100">
+          Số dư = thu TM + nạp − chi. Nạp không tính doanh thu. CK bán hàng
+          không vào quỹ.
         </p>
       </section>
 
@@ -523,26 +511,29 @@ function ExpensesContent() {
       ) : null}
 
       <section className="mb-3">
-        <h2 className="section-title mb-2">Theo hạng mục</h2>
-        <div className="grid grid-cols-2 gap-2">
+        <h2 className="section-title mb-1.5">
+          Theo hạng mục
+          {hasDateFilter ? " · kỳ lọc" : ""}
+        </h2>
+        <div className="grid grid-cols-2 gap-1.5">
           {EXPENSE_CATEGORIES.map((c) => {
-            const value = summary.byCategory[c.value] || 0;
+            const value = categorySource.byCategory[c.value] || 0;
             return (
               <button
                 key={c.value}
                 type="button"
                 onClick={() => setFilter(c.value)}
                 className={cn(
-                  "rounded-2xl px-3 py-3 text-left ring-1 transition active:scale-[0.98]",
+                  "rounded-xl px-2.5 py-2 text-left ring-1 transition active:scale-[0.98]",
                   filter === c.value
                     ? "bg-brand-50 ring-brand-200"
                     : "bg-white ring-slate-200"
                 )}
               >
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
                   {c.label}
                 </p>
-                <p className="mt-1 text-sm font-extrabold text-slate-900">
+                <p className="mt-0.5 text-sm font-extrabold text-slate-900">
                   <Money amount={value} />
                 </p>
               </button>
@@ -553,7 +544,7 @@ function ExpensesContent() {
 
       <section className="mb-4">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <h2 className="section-title">Sổ quỹ</h2>
+          <h2 className="section-title mb-0">Sổ quỹ</h2>
           <p className="text-xs text-slate-500">
             {filtered.length} dòng
             {filtered.length > PAGE_SIZE
@@ -562,73 +553,70 @@ function ExpensesContent() {
           </p>
         </div>
 
-        <div className="card-panel mb-3 space-y-2.5">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Lọc theo ngày
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">
-                Từ ngày
-              </span>
-              <input
-                type="date"
-                className="field-input"
-                value={dateFrom}
-                max={dateTo || todayInputValue()}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </label>
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">
-                Đến ngày
-              </span>
-              <input
-                type="date"
-                className="field-input"
-                value={dateTo}
-                min={dateFrom || undefined}
-                max={todayInputValue()}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </label>
-          </div>
-          {hasDateFilter ? (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-xs text-slate-600">
-                Kỳ lọc: nạp{" "}
-                <span className="font-semibold text-emerald-700">
-                  <Money amount={periodSummary.fundIn} />
-                </span>
-                {" · "}
-                chi{" "}
-                <span className="font-semibold text-rose-700">
-                  <Money amount={periodSummary.expense} />
-                </span>
+        <DateRangeFilter
+          dense
+          className="mb-2"
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          onClear={clearDateFilter}
+          summary={
+            hasDateFilter ? (
+              <div className="space-y-1.5">
+                <p className="text-[11px] font-semibold text-slate-500">
+                  Tổng kết kỳ · {formatRangeLabel(dateFrom, dateTo)}
+                </p>
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  <p>
+                    Thu TM:{" "}
+                    <span className="font-bold text-emerald-700">
+                      <Money amount={periodSummary.cashSales} />
+                    </span>
+                  </p>
+                  <p>
+                    Nạp:{" "}
+                    <span className="font-bold text-emerald-700">
+                      <Money amount={periodSummary.fundIn} />
+                    </span>
+                  </p>
+                  <p>
+                    Chi:{" "}
+                    <span className="font-bold text-rose-700">
+                      <Money amount={periodSummary.expense} />
+                    </span>
+                  </p>
+                  <p>
+                    Biến động:{" "}
+                    <span
+                      className={cn(
+                        "font-bold",
+                        periodSummary.net >= 0
+                          ? "text-emerald-700"
+                          : "text-rose-700"
+                      )}
+                    >
+                      <Money amount={periodSummary.net} />
+                    </span>
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-500">
+                Chọn khoảng ngày để xem tổng kết kỳ (TM + nạp + chi).
               </p>
-              <button
-                type="button"
-                onClick={clearDateFilter}
-                className="touch-btn h-9 rounded-xl bg-slate-100 px-3 text-xs font-semibold text-slate-700"
-              >
-                Xóa lọc ngày
-              </button>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-500">
-              Để trống = xem mọi ngày. Chọn khoảng để xem đủ giao dịch trong kỳ.
-            </p>
-          )}
-        </div>
+            )
+          }
+        />
 
-        <div className="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-1">
+        <div className="-mx-1 mb-2 flex gap-1 overflow-x-auto px-1 pb-0.5">
           {FILTERS.map((f) => (
             <button
               key={f.id}
               type="button"
               onClick={() => setFilter(f.id)}
               className={cn(
-                "shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+                "shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold transition",
                 filter === f.id
                   ? "bg-slate-900 text-white"
                   : "bg-slate-100 text-slate-600"
@@ -640,29 +628,29 @@ function ExpensesContent() {
         </div>
 
         {loading ? (
-          <div className="card-panel flex h-24 items-center justify-center">
-            <Loader2 className="h-6 w-6 animate-spin text-brand-700" />
+          <div className="card-panel flex h-20 items-center justify-center">
+            <Loader2 className="h-5 w-5 animate-spin text-brand-700" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="card-panel text-sm text-slate-500">
+          <div className="card-panel py-4 text-sm text-slate-500">
             Chưa có dòng nào trong bộ lọc này.
           </div>
         ) : (
           <>
-            <ul className="space-y-2">
+            <ul className="space-y-1.5">
               {pageRows.map((row) => {
                 const fund = isFundIn(row);
                 return (
                   <li
                     key={row.id}
-                    className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
+                    className="rounded-xl bg-white px-3 py-2.5 shadow-sm ring-1 ring-slate-200"
                   >
-                    <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-1.5">
+                        <div className="flex flex-wrap items-center gap-1">
                           <span
                             className={cn(
-                              "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                              "rounded-full px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide",
                               fund
                                 ? "bg-emerald-50 text-emerald-800"
                                 : "bg-rose-50 text-rose-800"
@@ -674,13 +662,13 @@ function ExpensesContent() {
                           </span>
                           {fund && row.paymentMethod === "banking" ? (
                             <span className="text-[10px] font-semibold text-slate-400">
-                              Chuyển khoản
+                              CK
                             </span>
                           ) : null}
                         </div>
                         <p
                           className={cn(
-                            "mt-1.5 text-lg font-extrabold",
+                            "mt-0.5 text-base font-extrabold",
                             fund ? "text-emerald-700" : "text-rose-700"
                           )}
                         >
@@ -688,11 +676,11 @@ function ExpensesContent() {
                           <Money amount={row.amount} />
                         </p>
                         {row.note ? (
-                          <p className="mt-1 text-sm text-slate-700">
+                          <p className="truncate text-xs text-slate-600">
                             {row.note}
                           </p>
                         ) : null}
-                        <p className="mt-1.5 text-xs text-slate-500">
+                        <p className="mt-0.5 text-[11px] text-slate-500">
                           {formatTxTime(row)}
                           {" · "}
                           {formatActorLabel(row)}
@@ -704,12 +692,12 @@ function ExpensesContent() {
                           aria-label="Xóa"
                           disabled={deletingId === row.id}
                           onClick={() => handleDelete(row)}
-                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 ring-1 ring-slate-200 active:scale-95 disabled:opacity-40"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-50 text-slate-500 ring-1 ring-slate-200 active:scale-95 disabled:opacity-40"
                         >
                           {deletingId === row.id ? (
-                            <Loader2 className="h-4 w-4 animate-spin" />
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
-                            <Trash2 className="h-4 w-4" aria-hidden />
+                            <Trash2 className="h-3.5 w-3.5" aria-hidden />
                           )}
                         </button>
                       ) : null}
@@ -720,12 +708,12 @@ function ExpensesContent() {
             </ul>
 
             {totalPages > 1 ? (
-              <div className="mt-3 flex items-center justify-between gap-2">
+              <div className="mt-2 flex items-center justify-between gap-2">
                 <button
                   type="button"
                   disabled={safePage <= 1}
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                  className="touch-btn h-10 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
                 >
                   <ChevronLeft className="h-4 w-4" aria-hidden />
                   Trước
@@ -737,7 +725,7 @@ function ExpensesContent() {
                   type="button"
                   disabled={safePage >= totalPages}
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                  className="touch-btn h-10 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
                 >
                   Sau
                   <ChevronRight className="h-4 w-4" aria-hidden />

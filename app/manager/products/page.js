@@ -146,18 +146,82 @@ function ProductsContent() {
 
   const openCreate = (kind) => {
     setEditingId(null);
+    const isFinished = kind !== PRODUCT_KIND.INGREDIENT;
     setForm({
       ...emptyForm,
       kind,
       unit: kind === PRODUCT_KIND.INGREDIENT ? "g" : "ly",
-      costMode: COST_MODE.MANUAL,
+      // Thành phẩm pha (trà đá…) mặc định công thức để tính cost mẻ
+      costMode: isFinished ? COST_MODE.RECIPE : COST_MODE.MANUAL,
       groupId: groups[0]?.id || "drinks",
+      estimatedServings: "100",
+      recipe: [],
     });
     setOpen(true);
   };
 
-  const openEdit = (row) => {
+  const switchToRecipe = () => {
+    setForm((f) => {
+      if (f.costMode === COST_MODE.RECIPE) return f;
+      const first = ingredients[0];
+      const hasLines = (f.recipe || []).some(
+        (l) => l.productId && Number(l.qty) > 0
+      );
+      if (hasLines || !first) {
+        return { ...f, costMode: COST_MODE.RECIPE };
+      }
+      return {
+        ...f,
+        costMode: COST_MODE.RECIPE,
+        recipe: [
+          {
+            productId: first.id,
+            qty: "300",
+            phase: RECIPE_PHASE.BATCH,
+          },
+          {
+            productId: first.id,
+            qty: "1",
+            phase: RECIPE_PHASE.SERVE,
+          },
+        ],
+      };
+    });
+  };
+
+  const openEdit = (row, { forceRecipe = false } = {}) => {
     setEditingId(row.id);
+    const useRecipe =
+      forceRecipe || row.costMode === COST_MODE.RECIPE;
+    let recipe = Array.isArray(row.recipe)
+      ? row.recipe.map((l) => ({
+          productId: l.productId,
+          qty: String(l.qty ?? ""),
+          phase:
+            l.phase === RECIPE_PHASE.BATCH
+              ? RECIPE_PHASE.BATCH
+              : RECIPE_PHASE.SERVE,
+        }))
+      : [];
+    if (
+      useRecipe &&
+      forceRecipe &&
+      !recipe.some((l) => l.productId && Number(l.qty) > 0) &&
+      ingredients[0]
+    ) {
+      recipe = [
+        {
+          productId: ingredients[0].id,
+          qty: "300",
+          phase: RECIPE_PHASE.BATCH,
+        },
+        {
+          productId: ingredients[0].id,
+          qty: "1",
+          phase: RECIPE_PHASE.SERVE,
+        },
+      ];
+    }
     setForm({
       name: row.name || "",
       kind: row.kind === PRODUCT_KIND.INGREDIENT
@@ -166,24 +230,14 @@ function ProductsContent() {
       unit: row.unit || "cái",
       price: row.price != null ? String(row.price) : "",
       cost: row.cost != null ? String(Number(row.cost) || 0) : "",
-      costMode:
-        row.costMode === COST_MODE.RECIPE ? COST_MODE.RECIPE : COST_MODE.MANUAL,
+      costMode: useRecipe ? COST_MODE.RECIPE : COST_MODE.MANUAL,
       groupId: row.groupId || "",
       inStock: row.inStock != null ? String(row.inStock) : "0",
       active: row.active !== false,
       estimatedServings: String(
         Math.max(1, Number(row.estimatedServings) || 100)
       ),
-      recipe: Array.isArray(row.recipe)
-        ? row.recipe.map((l) => ({
-            productId: l.productId,
-            qty: String(l.qty ?? ""),
-            phase:
-              l.phase === RECIPE_PHASE.BATCH
-                ? RECIPE_PHASE.BATCH
-                : RECIPE_PHASE.SERVE,
-          }))
-        : [],
+      recipe,
     });
     setOpen(true);
   };
@@ -406,15 +460,42 @@ function ProductsContent() {
           : "Admin — nhóm SP · giá · công thức"
       }
     >
-      <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Công thức 2 lớp: pha mẻ + kèm suất. Ghi mẻ để trừ NL pha:{" "}
+      <div className="mb-3 grid grid-cols-2 gap-2">
         <Link
           href="/manager/production"
-          className="font-bold text-brand-800 underline"
+          className="touch-btn h-14 flex-col gap-0.5 bg-teal-700 px-2 text-white"
         >
-          Sổ pha / mẻ
+          <span className="text-sm font-extrabold">Pha mẻ · ủ trà</span>
+          <span className="text-[10px] font-medium text-white/80">
+            Ghi mẻ · trừ NL pha
+          </span>
         </Link>
-        .
+        <button
+          type="button"
+          onClick={() => {
+            setTab("finished");
+            openCreate(PRODUCT_KIND.FINISHED);
+          }}
+          className="touch-btn h-14 flex-col gap-0.5 bg-amber-600 px-2 text-white"
+        >
+          <span className="text-sm font-extrabold">Thêm món + CT</span>
+          <span className="text-[10px] font-medium text-white/80">
+            Cost mẻ ÷ suất + kèm
+          </span>
+        </button>
+      </div>
+      <p className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
+        <span className="font-extrabold">Cách làm trà đá:</span> (1) Tab Nguyên
+        liệu — nhập trà, nước, đá, đường + giá nhập. (2) Thành phẩm → chọn{" "}
+        <span className="font-bold">Công thức</span> — NL pha mẻ + NL kèm mỗi
+        cốc + số suất/mẻ → xem cost. (3){" "}
+        <Link
+          href="/manager/production"
+          className="font-bold text-teal-800 underline"
+        >
+          Pha mẻ
+        </Link>{" "}
+        mỗi lần ủ → trừ kho NL pha. Bán POS chỉ trừ NL kèm.
       </p>
       <div className="mb-4 grid grid-cols-3 gap-2">
         <button
@@ -739,6 +820,17 @@ function ProductsContent() {
                   )}
 
                   {row.kind !== PRODUCT_KIND.INGREDIENT &&
+                  row.costMode !== COST_MODE.RECIPE ? (
+                    <button
+                      type="button"
+                      onClick={() => openEdit(row, { forceRecipe: true })}
+                      className="mt-2 w-full rounded-xl bg-amber-50 px-3 py-2 text-left text-xs font-bold text-amber-950 ring-1 ring-amber-200"
+                    >
+                      Chưa có công thức mẻ → bấm để setup cost (pha ÷ suất + kèm)
+                    </button>
+                  ) : null}
+
+                  {row.kind !== PRODUCT_KIND.INGREDIENT &&
                   row.costMode === COST_MODE.RECIPE &&
                   Array.isArray(row.recipe) &&
                   row.recipe.length ? (
@@ -949,7 +1041,7 @@ function ProductsContent() {
                     className={cn(
                       "touch-btn h-12 text-sm",
                       form.costMode === COST_MODE.MANUAL
-                        ? "bg-amber-600 text-white"
+                        ? "bg-slate-800 text-white"
                         : "bg-slate-100 text-slate-700"
                     )}
                   >
@@ -957,20 +1049,32 @@ function ProductsContent() {
                   </button>
                   <button
                     type="button"
-                    onClick={() =>
-                      setForm((f) => ({ ...f, costMode: COST_MODE.RECIPE }))
-                    }
+                    onClick={switchToRecipe}
                     className={cn(
                       "touch-btn h-12 gap-1 text-sm",
                       form.costMode === COST_MODE.RECIPE
                         ? "bg-amber-600 text-white"
-                        : "bg-slate-100 text-slate-700"
+                        : "bg-amber-50 text-amber-950 ring-1 ring-amber-200"
                     )}
                   >
                     <Calculator className="h-4 w-4" />
-                    Công thức
+                    Công thức mẻ
                   </button>
                 </div>
+
+                {form.costMode === COST_MODE.MANUAL ? (
+                  <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-100">
+                    Món pha sẵn (trà đá, trà chanh…) hãy chọn{" "}
+                    <button
+                      type="button"
+                      onClick={switchToRecipe}
+                      className="font-extrabold underline"
+                    >
+                      Công thức mẻ
+                    </button>{" "}
+                    để tính cost = (NL pha ÷ số suất) + NL kèm mỗi cốc.
+                  </p>
+                ) : null}
 
                 {form.costMode === COST_MODE.MANUAL ? (
                   <label className="mb-3 block">

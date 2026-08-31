@@ -14,6 +14,10 @@ import {
 import { vi } from "date-fns/locale";
 import {
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Beaker,
+  Building2,
   Landmark,
   Package,
   Percent,
@@ -23,11 +27,17 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import BankingByDateForm from "@/components/BankingByDateForm";
+import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
+import {
+  formatRangeLabel,
+  hasDateRange,
+  parseRangeBound,
+} from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
@@ -41,6 +51,7 @@ import {
   sumGoodsIncomeByMethod,
   summarizeGoodsIncomeByActor,
 } from "@/lib/receipts";
+import { isShopOperatingExpense } from "@/lib/expenses";
 import { roleLabel } from "@/lib/roles";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -49,6 +60,8 @@ const REVENUE_PERIODS = [
   { id: "week", label: "Tuần" },
   { id: "month", label: "Tháng" },
 ];
+
+const RECENT_PAGE_SIZE = 10;
 
 function txTimeMs(t) {
   return t?.timestamp?.toMillis?.() ?? 0;
@@ -77,6 +90,9 @@ function DashboardContent() {
   const [loadingTx, setLoadingTx] = useState(true);
   const [loadingStock, setLoadingStock] = useState(true);
   const [period, setPeriod] = useState("day");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [recentPage, setRecentPage] = useState(1);
   const [deletingId, setDeletingId] = useState(null);
 
   const handleDeleteSale = async (row) => {
@@ -168,6 +184,31 @@ function DashboardContent() {
     };
   }, []);
 
+  const customRangeActive = hasDateRange(dateFrom, dateTo);
+
+  const selectedRange = useMemo(() => {
+    if (customRangeActive) {
+      const fromMs = parseRangeBound(dateFrom, false);
+      const toMs = parseRangeBound(dateTo, true);
+      const preset = ranges[period] || ranges.day;
+      return {
+        from: fromMs ?? preset.from,
+        to: toMs ?? preset.to,
+        label: formatRangeLabel(dateFrom, dateTo),
+        shortLabel: "Theo khoảng ngày",
+      };
+    }
+    return ranges[period] || ranges.day;
+  }, [customRangeActive, dateFrom, dateTo, ranges, period]);
+
+  const selectedGoods = useMemo(
+    () =>
+      sumGoodsIncomeByMethod(
+        filterTxInRange(allTx, selectedRange.from, selectedRange.to)
+      ),
+    [allTx, selectedRange]
+  );
+
   const goodsByPeriod = useMemo(() => {
     return {
       day: sumGoodsIncomeByMethod(
@@ -182,40 +223,50 @@ function DashboardContent() {
     };
   }, [allTx, ranges]);
 
-  const selectedGoods = goodsByPeriod[period] || goodsByPeriod.day;
-  const selectedRange = ranges[period] || ranges.day;
-
-  const monthTx = useMemo(
-    () => filterTxInRange(allTx, ranges.month.from, ranges.month.to),
-    [allTx, ranges]
-  );
-
   const periodTx = useMemo(
     () => filterTxInRange(allTx, selectedRange.from, selectedRange.to),
     [allTx, selectedRange]
   );
 
-  const totals = useMemo(() => {
-    const income = monthTx
-      .filter((t) => t.type === "income")
+  const periodTotals = useMemo(() => {
+    const goods = sumGoodsIncomeByMethod(periodTx);
+    const expense = periodTx
+      .filter(isShopOperatingExpense)
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
-    const expense = monthTx
-      .filter((t) => t.type === "expense")
+    const fundIn = periodTx
+      .filter((t) => t.type === "fund_in" && t.businessLine !== "construction")
       .reduce((sum, t) => sum + (Number(t.amount) || 0), 0);
     return {
-      income,
+      cash: goods.cash,
+      banking: goods.banking,
+      income: goods.total,
       expense,
-      profit: income - expense,
+      fundIn,
+      profit: goods.total - expense,
     };
-  }, [monthTx]);
+  }, [periodTx]);
 
   const recentIncome = useMemo(() => {
-    return periodTx
-      .filter((t) =>
-        canViewDividends ? t.type === "income" : isGoodsIncome(t)
-      )
-      .slice(0, 30);
-  }, [periodTx, canViewDividends]);
+    return periodTx.filter(isGoodsIncome);
+  }, [periodTx]);
+
+  const recentTotalPages = Math.max(
+    1,
+    Math.ceil(recentIncome.length / RECENT_PAGE_SIZE)
+  );
+  const recentSafePage = Math.min(recentPage, recentTotalPages);
+  const recentPageRows = useMemo(() => {
+    const start = (recentSafePage - 1) * RECENT_PAGE_SIZE;
+    return recentIncome.slice(start, start + RECENT_PAGE_SIZE);
+  }, [recentIncome, recentSafePage]);
+
+  useEffect(() => {
+    setRecentPage(1);
+  }, [period, dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (recentPage > recentTotalPages) setRecentPage(recentTotalPages);
+  }, [recentPage, recentTotalPages]);
 
   const salesByActor = useMemo(
     () => summarizeGoodsIncomeByActor(periodTx),
@@ -285,13 +336,17 @@ function DashboardContent() {
       <section className="mb-4 space-y-3">
         <div className="grid grid-cols-3 gap-2">
           {REVENUE_PERIODS.map((item) => {
-            const active = period === item.id;
+            const active = !customRangeActive && period === item.id;
             const total = loadingTx ? 0 : goodsByPeriod[item.id].total;
             return (
               <button
                 key={item.id}
                 type="button"
-                onClick={() => setPeriod(item.id)}
+                onClick={() => {
+                  setPeriod(item.id);
+                  setDateFrom("");
+                  setDateTo("");
+                }}
                 className={cn(
                   "touch-btn min-h-[4.5rem] flex-col gap-1 px-2 py-2.5 text-center",
                   active
@@ -319,6 +374,18 @@ function DashboardContent() {
             );
           })}
         </div>
+
+        <DateRangeFilter
+          dense
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          onFromChange={setDateFrom}
+          onToChange={setDateTo}
+          onClear={() => {
+            setDateFrom("");
+            setDateTo("");
+          }}
+        />
 
         <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-5 text-white shadow-md">
           <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
@@ -353,6 +420,30 @@ function DashboardContent() {
           Thao tác nhanh
         </p>
         <div className="grid grid-cols-2 gap-2">
+          <Link
+            href="/manager/construction"
+            className="touch-btn h-12 justify-start gap-2 bg-orange-700 px-3 text-sm text-white"
+          >
+            <Building2 className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">Mảng xây dựng</span>
+          </Link>
+
+          <Link
+            href="/manager/production"
+            className="touch-btn h-12 justify-start gap-2 bg-teal-700 px-3 text-sm text-white"
+          >
+            <Beaker className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">Pha mẻ · ủ trà</span>
+          </Link>
+
+          <Link
+            href="/manager/products"
+            className="touch-btn h-12 justify-start gap-2 bg-amber-600 px-3 text-sm text-white"
+          >
+            <Package className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="truncate">Công thức · cost</span>
+          </Link>
+
           <Link
             href="/dashboard/monthly"
             className="touch-btn h-12 justify-start gap-2 bg-emerald-600 px-3 text-sm text-white"
@@ -411,33 +502,41 @@ function DashboardContent() {
         </div>
       </section>
 
-      {/* Tổng kết ngày / tuần / tháng — chi tiết phía dưới đã có hero */}
+      {/* Tổng kết kỳ đang chọn */}
       <section className="mb-4 space-y-3">
-        <h2 className="section-title">Chi tiết kỳ đang chọn</h2>
+        <h2 className="section-title">Tổng kết kỳ · {selectedRange.shortLabel}</h2>
 
-        {canViewDividends ? (
-          <div className="grid grid-cols-1 gap-2">
-            <StatCard
-              label="Thu bán hàng tháng"
-              value={loadingTx ? 0 : totals.income}
-              tone="success"
-            />
-            <StatCard
-              label="Chi quỹ cửa hàng tháng"
-              value={loadingTx ? 0 : totals.expense}
-              tone="danger"
-            />
-            <StatCard
-              label="Lợi nhuận tháng (thu − chi)"
-              value={loadingTx ? 0 : totals.profit}
-              tone="brand"
-            />
-          </div>
-        ) : (
-          <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
-            Quản lý xem tổng kết ngày / tuần / tháng (TM + CK hàng hóa).
+        <div className="grid grid-cols-2 gap-2">
+          <StatCard
+            label="Thu TM"
+            value={loadingTx ? 0 : periodTotals.cash}
+            tone="success"
+          />
+          <StatCard
+            label="Thu CK"
+            value={loadingTx ? 0 : periodTotals.banking}
+            tone="brand"
+          />
+          <StatCard
+            label="Chi quỹ"
+            value={loadingTx ? 0 : periodTotals.expense}
+            tone="danger"
+          />
+          <StatCard
+            label="Thu − chi"
+            value={loadingTx ? 0 : periodTotals.profit}
+            tone="brand"
+          />
+        </div>
+        {periodTotals.fundIn > 0 ? (
+          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
+            Nạp quỹ trong kỳ:{" "}
+            <span className="font-semibold text-emerald-700">
+              <Money amount={periodTotals.fundIn} />
+            </span>{" "}
+            (không tính doanh thu)
           </p>
-        )}
+        ) : null}
       </section>
 
       {/* Ai bán / nhập tiền trong kỳ */}
@@ -586,12 +685,20 @@ function DashboardContent() {
           <h2 className="section-title mb-0">
             Thu gần đây · {selectedRange.shortLabel}
           </h2>
-          <Link
-            href="/manager/sales"
-            className="text-xs font-bold text-brand-800"
-          >
-            Sổ theo ngày →
-          </Link>
+          <div className="flex items-center gap-2">
+            <p className="text-xs text-slate-500">
+              {recentIncome.length} giao dịch
+              {recentIncome.length > RECENT_PAGE_SIZE
+                ? ` · ${recentSafePage}/${recentTotalPages}`
+                : ""}
+            </p>
+            <Link
+              href="/manager/sales"
+              className="text-xs font-bold text-brand-800"
+            >
+              Sổ theo ngày →
+            </Link>
+          </div>
         </div>
         {loadingTx ? (
           <div className="card-panel h-20 animate-pulse bg-white/80" />
@@ -600,66 +707,96 @@ function DashboardContent() {
             Chưa có khoản thu trong kỳ này. Vào Thu tiền → ghi TM hoặc CK.
           </div>
         ) : (
-          recentIncome.map((row) => {
-            const ms = row.timestamp?.toMillis?.() ?? 0;
-            const timeLabel = ms
-              ? new Date(ms).toLocaleString("vi-VN", {
-                  day: "2-digit",
-                  month: "2-digit",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : "—";
-            const isCk = row.paymentMethod === "banking";
-            const dayLabel = row.businessDate || null;
-            return (
-              <article key={row.id} className="card-panel space-y-1">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-slate-900">
-                      {row.note || row.category || "Thu"}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {dayLabel ? `Ngày ${dayLabel} · ` : ""}
-                      {timeLabel}
-                    </p>
-                    <p className="mt-1 text-xs font-semibold text-slate-700">
-                      <span className="font-extrabold text-brand-800">
-                        {formatActorLabel(row)}
-                      </span>
-                      {row.createdByRole
-                        ? ` · ${roleLabel(row.createdByRole)}`
-                        : ""}
-                      {" · "}
-                      <span
-                        className={
-                          isCk ? "text-brand-700" : "text-emerald-700"
-                        }
-                      >
-                        {isCk ? "Chuyển khoản" : "Tiền mặt"}
-                      </span>
-                    </p>
+          <>
+            {recentPageRows.map((row) => {
+              const ms = row.timestamp?.toMillis?.() ?? 0;
+              const timeLabel = ms
+                ? new Date(ms).toLocaleString("vi-VN", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "—";
+              const isCk = row.paymentMethod === "banking";
+              const dayLabel = row.businessDate || null;
+              return (
+                <article key={row.id} className="card-panel space-y-1 !py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-bold text-slate-900">
+                        {row.note || row.category || "Thu"}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {dayLabel ? `Ngày ${dayLabel} · ` : ""}
+                        {timeLabel}
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-slate-700">
+                        <span className="font-extrabold text-brand-800">
+                          {formatActorLabel(row)}
+                        </span>
+                        {row.createdByRole
+                          ? ` · ${roleLabel(row.createdByRole)}`
+                          : ""}
+                        {" · "}
+                        <span
+                          className={
+                            isCk ? "text-brand-700" : "text-emerald-700"
+                          }
+                        >
+                          {isCk ? "Chuyển khoản" : "Tiền mặt"}
+                        </span>
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <p className="money text-base font-extrabold text-emerald-700">
+                        <Money amount={row.amount} />
+                      </p>
+                      {canDeleteSales ? (
+                        <button
+                          type="button"
+                          disabled={deletingId === row.id}
+                          onClick={() => handleDeleteSale(row)}
+                          className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                          {deletingId === row.id ? "Đang xóa…" : "Xóa"}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                  <div className="flex shrink-0 flex-col items-end gap-2">
-                    <p className="money text-base font-extrabold text-emerald-700">
-                      <Money amount={row.amount} />
-                    </p>
-                    {canDeleteSales ? (
-                      <button
-                        type="button"
-                        disabled={deletingId === row.id}
-                        onClick={() => handleDeleteSale(row)}
-                        className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                        {deletingId === row.id ? "Đang xóa…" : "Xóa"}
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
-              </article>
-            );
-          })
+                </article>
+              );
+            })}
+
+            {recentTotalPages > 1 ? (
+              <div className="flex items-center justify-between gap-2 pt-1">
+                <button
+                  type="button"
+                  disabled={recentSafePage <= 1}
+                  onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
+                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                  Trước
+                </button>
+                <p className="shrink-0 text-xs font-semibold text-slate-500">
+                  {recentSafePage} / {recentTotalPages}
+                </p>
+                <button
+                  type="button"
+                  disabled={recentSafePage >= recentTotalPages}
+                  onClick={() =>
+                    setRecentPage((p) => Math.min(recentTotalPages, p + 1))
+                  }
+                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                >
+                  Sau
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </section>
     </AppShell>
