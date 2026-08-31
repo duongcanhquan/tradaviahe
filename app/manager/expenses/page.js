@@ -4,11 +4,20 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Trash2,
   Wallet,
 } from "lucide-react";
-import { format } from "date-fns";
+import {
+  endOfDay,
+  format,
+  isValid,
+  parse,
+  parseISO,
+  startOfDay,
+} from "date-fns";
 import { vi } from "date-fns/locale";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
@@ -17,7 +26,6 @@ import { useToast } from "@/components/Toast";
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
 import {
-  FUND_TYPES,
   deleteShopFundEntry,
   expenseCategoryLabel,
   EXPENSE_CATEGORIES,
@@ -32,7 +40,10 @@ import {
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { subscribeCollection } from "@/lib/liveCollection";
+import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
+
+const PAGE_SIZE = 10;
 
 function txTimeMs(t) {
   return t?.timestamp?.toMillis?.() ?? 0;
@@ -48,6 +59,34 @@ function formatTxTime(t) {
   }
 }
 
+/** Ngày nghiệp vụ của dòng quỹ (ms), ưu tiên timestamp rồi businessDate. */
+function rowBusinessMs(row) {
+  const ms = txTimeMs(row);
+  if (ms) return ms;
+  const key = String(row?.businessDate || "").trim();
+  if (!key) return 0;
+  const d = parse(key, "dd/MM/yyyy", new Date());
+  return isValid(d) ? d.getTime() : 0;
+}
+
+function parseInputDay(value, end) {
+  if (!value) return null;
+  const d = parseISO(String(value));
+  if (!isValid(d)) return null;
+  return end ? endOfDay(d).getTime() : startOfDay(d).getTime();
+}
+
+function rowInDateRange(row, fromInput, toInput) {
+  const fromMs = parseInputDay(fromInput, false);
+  const toMs = parseInputDay(toInput, true);
+  if (fromMs == null && toMs == null) return true;
+  const ms = rowBusinessMs(row);
+  if (!ms) return false;
+  if (fromMs != null && ms < fromMs) return false;
+  if (toMs != null && ms > toMs) return false;
+  return true;
+}
+
 const FILTERS = [
   { id: "all", label: "Tất cả" },
   { id: "fund_in", label: "Nạp quỹ" },
@@ -59,8 +98,12 @@ function ExpensesContent() {
   const { user, profile, role, canManageShop, canManageShareholderCapital } =
     useAuth();
   const [rows, setRows] = useState([]);
+  const [cashSalesTotal, setCashSalesTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
   const [mode, setMode] = useState(null); // null | fund_in | expense
 
   const [amount, setAmount] = useState("");
@@ -68,41 +111,76 @@ function ExpensesContent() {
   const [dateInput, setDateInput] = useState(todayInputValue());
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0].value);
   const [payMethod, setPayMethod] = useState("cash");
-  /** Nạp quỹ từ vốn cổ đông (TM hoặc CK) — trừ sổ vốn */
+  /** Nạp quỹ từ vốn cổ đông — trừ sổ vốn */
   const [fromCapital, setFromCapital] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
-    // Chỉ tải nạp quỹ + chi quỹ — không kéo cả sổ bán hàng.
     const unsub = subscribeCollection(
       "transactions",
       (list) => {
-        const rows = list
+        const fundRows = list
           .filter(isShopFundEntry)
-          .sort((a, b) => txTimeMs(b) - txTimeMs(a));
-        setRows(rows);
+          .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
+        setRows(fundRows);
+        setCashSalesTotal(sumGoodsIncomeByMethod(list).cash);
         setLoading(false);
       },
       (error) => {
         console.error(error);
-        showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
+        showToast(
+          firestoreErrorMessage(error, "Không tải được sổ quỹ"),
+          "error"
+        );
         setLoading(false);
       }
     );
     return () => unsub();
   }, [showToast]);
 
-  const summary = useMemo(() => summarizeShopFund(rows), [rows]);
+  const summary = useMemo(
+    () => summarizeShopFund(rows, cashSalesTotal),
+    [rows, cashSalesTotal]
+  );
 
   const filtered = useMemo(() => {
-    if (filter === "all") return rows;
-    if (filter === "fund_in") return rows.filter(isFundIn);
-    return rows.filter(
-      (r) =>
-        isShopExpense(r) && normalizeExpenseCategory(r.category) === filter
-    );
-  }, [rows, filter]);
+    let list = rows.filter((r) => rowInDateRange(r, dateFrom, dateTo));
+    if (filter === "fund_in") list = list.filter(isFundIn);
+    else if (filter !== "all") {
+      list = list.filter(
+        (r) =>
+          isShopExpense(r) && normalizeExpenseCategory(r.category) === filter
+      );
+    }
+    return list;
+  }, [rows, filter, dateFrom, dateTo]);
+
+  const periodSummary = useMemo(
+    () => summarizeShopFund(filtered, 0),
+    [filtered]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, safePage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filter, dateFrom, dateTo]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const clearDateFilter = () => {
+    setDateFrom("");
+    setDateTo("");
+  };
 
   const resetForm = () => {
     setAmount("");
@@ -138,8 +216,8 @@ function ExpensesContent() {
           });
           showToast(
             payMethod === "banking"
-              ? "Đã nạp quỹ (CK) và trừ sổ vốn"
-              : "Đã nạp quỹ (TM) và trừ sổ vốn",
+              ? "Đã nạp quỹ (chuyển khoản) và trừ sổ vốn"
+              : "Đã nạp quỹ (tiền mặt) và trừ sổ vốn",
             "success"
           );
         } else {
@@ -192,15 +270,18 @@ function ExpensesContent() {
     }
   };
 
+  const hasDateFilter = Boolean(dateFrom || dateTo);
+
   return (
-    <AppShell title="Quỹ cửa hàng" subtitle="Nạp quỹ · chi tiêu theo hạng mục">
+    <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
       <section className="mb-4 rounded-[1.25rem] bg-brand-700 px-4 py-3.5 text-white shadow-md">
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/75">
           Quỹ vận hành quán
         </p>
         <p className="mt-1 text-sm leading-snug text-white/90">
-          Quản lý và cổ đông đều xem / nạp / chi tại đây. Tiền từ sổ vốn muốn
-          đưa vào két: trang Vốn → Chi tiêu vốn (bật chuyển quỹ).
+          Tiền mặt bán hàng vào quỹ này. Chuyển khoản khách vào số dư vốn (trang
+          Vốn) — không đổi vốn góp cổ phần. Nạp từ sổ vốn: tick “Tiền từ sổ
+          vốn” hoặc trang Vốn → Chi tiêu vốn.
         </p>
       </section>
 
@@ -210,7 +291,12 @@ function ExpensesContent() {
           value={loading ? 0 : summary.balance}
           tone={summary.balance >= 0 ? "brand" : "danger"}
         />
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
+          <StatCard
+            label="Thu TM bán hàng"
+            value={loading ? 0 : summary.cashSales}
+            tone="success"
+          />
           <StatCard
             label="Đã nạp quỹ"
             value={loading ? 0 : summary.fundIn}
@@ -223,11 +309,10 @@ function ExpensesContent() {
           />
         </div>
         <p className="rounded-2xl bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-100">
-          Số dư = nạp quỹ − chi tiêu. Nạp quỹ{" "}
-          <span className="font-semibold">không</span> tính doanh thu. Chi tiêu
-          trừ quỹ và tính vào lợi nhuận tháng. Khác với{" "}
-          <span className="font-semibold">Chi tiêu vốn</span> (trang Vốn) — ghi
-          một lần một sổ, tránh trùng.
+          Số dư = thu TM bán hàng + nạp quỹ − chi tiêu. Nạp quỹ{" "}
+          <span className="font-semibold">không</span> tính doanh thu. Thu
+          chuyển khoản bán hàng <span className="font-semibold">không</span> vào
+          quỹ — xem số dư vốn.
         </p>
       </section>
 
@@ -469,7 +554,71 @@ function ExpensesContent() {
       <section className="mb-4">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h2 className="section-title">Sổ quỹ</h2>
-          <p className="text-xs text-slate-500">{filtered.length} dòng</p>
+          <p className="text-xs text-slate-500">
+            {filtered.length} dòng
+            {filtered.length > PAGE_SIZE
+              ? ` · trang ${safePage}/${totalPages}`
+              : ""}
+          </p>
+        </div>
+
+        <div className="card-panel mb-3 space-y-2.5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Lọc theo ngày
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-600">
+                Từ ngày
+              </span>
+              <input
+                type="date"
+                className="field-input"
+                value={dateFrom}
+                max={dateTo || todayInputValue()}
+                onChange={(e) => setDateFrom(e.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-slate-600">
+                Đến ngày
+              </span>
+              <input
+                type="date"
+                className="field-input"
+                value={dateTo}
+                min={dateFrom || undefined}
+                max={todayInputValue()}
+                onChange={(e) => setDateTo(e.target.value)}
+              />
+            </label>
+          </div>
+          {hasDateFilter ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs text-slate-600">
+                Kỳ lọc: nạp{" "}
+                <span className="font-semibold text-emerald-700">
+                  <Money amount={periodSummary.fundIn} />
+                </span>
+                {" · "}
+                chi{" "}
+                <span className="font-semibold text-rose-700">
+                  <Money amount={periodSummary.expense} />
+                </span>
+              </p>
+              <button
+                type="button"
+                onClick={clearDateFilter}
+                className="touch-btn h-9 rounded-xl bg-slate-100 px-3 text-xs font-semibold text-slate-700"
+              >
+                Xóa lọc ngày
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Để trống = xem mọi ngày. Chọn khoảng để xem đủ giao dịch trong kỳ.
+            </p>
+          )}
         </div>
 
         <div className="-mx-1 mb-3 flex gap-1.5 overflow-x-auto px-1 pb-1">
@@ -499,73 +648,103 @@ function ExpensesContent() {
             Chưa có dòng nào trong bộ lọc này.
           </div>
         ) : (
-          <ul className="space-y-2">
-            {filtered.map((row) => {
-              const fund = isFundIn(row);
-              return (
-                <li
-                  key={row.id}
-                  className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
+          <>
+            <ul className="space-y-2">
+              {pageRows.map((row) => {
+                const fund = isFundIn(row);
+                return (
+                  <li
+                    key={row.id}
+                    className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span
+                            className={cn(
+                              "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
+                              fund
+                                ? "bg-emerald-50 text-emerald-800"
+                                : "bg-rose-50 text-rose-800"
+                            )}
+                          >
+                            {fund
+                              ? "Nạp quỹ"
+                              : expenseCategoryLabel(row.category)}
+                          </span>
+                          {fund && row.paymentMethod === "banking" ? (
+                            <span className="text-[10px] font-semibold text-slate-400">
+                              Chuyển khoản
+                            </span>
+                          ) : null}
+                        </div>
+                        <p
                           className={cn(
-                            "rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide",
-                            fund
-                              ? "bg-emerald-50 text-emerald-800"
-                              : "bg-rose-50 text-rose-800"
+                            "mt-1.5 text-lg font-extrabold",
+                            fund ? "text-emerald-700" : "text-rose-700"
                           )}
                         >
-                          {fund
-                            ? "Nạp quỹ"
-                            : expenseCategoryLabel(row.category)}
-                        </span>
-                        {fund && row.paymentMethod === "banking" ? (
-                          <span className="text-[10px] font-semibold text-slate-400">
-                            CK
-                          </span>
+                          {fund ? "+" : "−"}
+                          <Money amount={row.amount} />
+                        </p>
+                        {row.note ? (
+                          <p className="mt-1 text-sm text-slate-700">
+                            {row.note}
+                          </p>
                         ) : null}
+                        <p className="mt-1.5 text-xs text-slate-500">
+                          {formatTxTime(row)}
+                          {" · "}
+                          {formatActorLabel(row)}
+                        </p>
                       </div>
-                      <p
-                        className={cn(
-                          "mt-1.5 text-lg font-extrabold",
-                          fund ? "text-emerald-700" : "text-rose-700"
-                        )}
-                      >
-                        {fund ? "+" : "−"}
-                        <Money amount={row.amount} />
-                      </p>
-                      {row.note ? (
-                        <p className="mt-1 text-sm text-slate-700">{row.note}</p>
+                      {canManageShop ? (
+                        <button
+                          type="button"
+                          aria-label="Xóa"
+                          disabled={deletingId === row.id}
+                          onClick={() => handleDelete(row)}
+                          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 ring-1 ring-slate-200 active:scale-95 disabled:opacity-40"
+                        >
+                          {deletingId === row.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Trash2 className="h-4 w-4" aria-hidden />
+                          )}
+                        </button>
                       ) : null}
-                      <p className="mt-1.5 text-xs text-slate-500">
-                        {formatTxTime(row)}
-                        {" · "}
-                        {formatActorLabel(row)}
-                      </p>
                     </div>
-                    {canManageShop ? (
-                      <button
-                        type="button"
-                        aria-label="Xóa"
-                        disabled={deletingId === row.id}
-                        onClick={() => handleDelete(row)}
-                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-slate-50 text-slate-500 ring-1 ring-slate-200 active:scale-95 disabled:opacity-40"
-                      >
-                        {deletingId === row.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" aria-hidden />
-                        )}
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {totalPages > 1 ? (
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  disabled={safePage <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                >
+                  <ChevronLeft className="h-4 w-4" aria-hidden />
+                  Trước
+                </button>
+                <p className="shrink-0 text-xs font-semibold text-slate-500">
+                  {safePage} / {totalPages}
+                </p>
+                <button
+                  type="button"
+                  disabled={safePage >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                >
+                  Sau
+                  <ChevronRight className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
+            ) : null}
+          </>
         )}
       </section>
     </AppShell>

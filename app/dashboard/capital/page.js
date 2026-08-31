@@ -2,10 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
-import { format } from "date-fns";
+import {
+  endOfDay,
+  format,
+  isValid,
+  parse,
+  parseISO,
+  startOfDay,
+} from "date-fns";
 import {
   Banknote,
   Box,
+  ChevronLeft,
+  ChevronRight,
   Landmark,
   Loader2,
   Package,
@@ -27,6 +36,8 @@ import {
   convertExistingCapitalExpenseToShopFund,
   transferCapitalToShopFund,
 } from "@/lib/expenses";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
+import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import {
   createInvestment,
   filterInvestmentsForRole,
@@ -88,6 +99,39 @@ function formatEntryDate(row) {
   if (!ms) return "—";
   return format(new Date(ms), "dd/MM/yyyy");
 }
+
+function capitalEntryMs(row) {
+  const ms =
+    row?.timestamp?.toMillis?.() ??
+    row?.date?.toMillis?.() ??
+    row?.createdAt?.toMillis?.() ??
+    0;
+  if (ms) return ms;
+  const key = String(row?.dateKey || "").trim();
+  if (!key) return 0;
+  const d = parse(key, "dd/MM/yyyy", new Date());
+  return isValid(d) ? d.getTime() : 0;
+}
+
+function parseInputDay(value, end) {
+  if (!value) return null;
+  const d = parseISO(String(value));
+  if (!isValid(d)) return null;
+  return end ? endOfDay(d).getTime() : startOfDay(d).getTime();
+}
+
+function capitalRowInDateRange(row, fromInput, toInput) {
+  const fromMs = parseInputDay(fromInput, false);
+  const toMs = parseInputDay(toInput, true);
+  if (fromMs == null && toMs == null) return true;
+  const ms = capitalEntryMs(row);
+  if (!ms) return false;
+  if (fromMs != null && ms < fromMs) return false;
+  if (toMs != null && ms > toMs) return false;
+  return true;
+}
+
+const CAPITAL_HISTORY_PAGE_SIZE = 10;
 
 function typeChipClass(type) {
   if (type === "equipment") {
@@ -224,72 +268,237 @@ function CapitalHistoryList({
   canEditExpense = false,
   onEditExpense,
 }) {
-  if (!rows.length) {
-    return <div className="card-panel text-sm text-slate-500">{emptyText}</div>;
-  }
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [page, setPage] = useState(1);
 
-  return rows.map((row) => {
-    const isExpense = row.kind === CAPITAL_KINDS.expense;
-    const title = isExpense
-      ? formatActorLabel(row)
-      : row.investorName || "—";
-    const linkedFund = Boolean(row.toShopFund || row.shopFundTxId);
-    return (
-      <article key={row.id} className="card-panel space-y-2">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate font-bold text-slate-900">{title}</p>
-            <p className="text-xs text-slate-500">{formatEntryDate(row)}</p>
+  const sorted = useMemo(
+    () =>
+      [...(rows || [])].sort(
+        (a, b) => capitalEntryMs(b) - capitalEntryMs(a)
+      ),
+    [rows]
+  );
+
+  const filtered = useMemo(
+    () => sorted.filter((r) => capitalRowInDateRange(r, dateFrom, dateTo)),
+    [sorted, dateFrom, dateTo]
+  );
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filtered.length / CAPITAL_HISTORY_PAGE_SIZE)
+  );
+  const safePage = Math.min(page, totalPages);
+
+  const pageRows = useMemo(() => {
+    const start = (safePage - 1) * CAPITAL_HISTORY_PAGE_SIZE;
+    return filtered.slice(start, start + CAPITAL_HISTORY_PAGE_SIZE);
+  }, [filtered, safePage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [dateFrom, dateTo, rows]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const hasDateFilter = Boolean(dateFrom || dateTo);
+
+  const periodTotals = useMemo(() => {
+    let inAmount = 0;
+    let outAmount = 0;
+    for (const row of filtered) {
+      const amount = Number(row.amount) || 0;
+      if (row.kind === CAPITAL_KINDS.expense) outAmount += amount;
+      else inAmount += amount;
+    }
+    return { inAmount, outAmount };
+  }, [filtered]);
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs text-slate-500">
+          {filtered.length} dòng
+          {filtered.length > CAPITAL_HISTORY_PAGE_SIZE
+            ? ` · trang ${safePage}/${totalPages}`
+            : ""}
+        </p>
+      </div>
+
+      <div className="rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200 space-y-2.5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          Lọc theo ngày
+        </p>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Từ ngày
+            </span>
+            <input
+              type="date"
+              className="field-input"
+              value={dateFrom}
+              max={dateTo || todayInputValue()}
+              onChange={(e) => setDateFrom(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-600">
+              Đến ngày
+            </span>
+            <input
+              type="date"
+              className="field-input"
+              value={dateTo}
+              min={dateFrom || undefined}
+              max={todayInputValue()}
+              onChange={(e) => setDateTo(e.target.value)}
+            />
+          </label>
+        </div>
+        {hasDateFilter ? (
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-slate-600">
+              Kỳ lọc: góp{" "}
+              <span className="font-semibold text-emerald-700">
+                <Money amount={periodTotals.inAmount} />
+              </span>
+              {" · "}
+              chi{" "}
+              <span className="font-semibold text-rose-700">
+                <Money amount={periodTotals.outAmount} />
+              </span>
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="touch-btn h-9 rounded-xl bg-slate-100 px-3 text-xs font-semibold text-slate-700"
+            >
+              Xóa lọc ngày
+            </button>
           </div>
-          <p
-            className={cn(
-              "money shrink-0 text-base font-extrabold",
-              isExpense ? "text-rose-700" : "text-emerald-800"
-            )}
-          >
-            {isExpense ? "−" : "+"}
-            <Money amount={row.amount} />
+        ) : (
+          <p className="text-xs text-slate-500">
+            Để trống = xem mọi ngày. Chọn khoảng để xem đủ giao dịch trong kỳ.
           </p>
+        )}
+      </div>
+
+      {!filtered.length ? (
+        <div className="card-panel text-sm text-slate-500">
+          {hasDateFilter
+            ? "Không có giao dịch trong khoảng ngày này."
+            : emptyText}
         </div>
-        <div className="flex flex-wrap gap-2">
-          <span className={cn("chip", capitalKindChipClass(row.kind))}>
-            {capitalKindLabel(row.kind)}
-          </span>
-          {isExpense && linkedFund ? (
-            <span className="chip bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100">
-              Đã vào quỹ cửa hàng
-            </span>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {pageRows.map((row) => {
+              const isExpense = row.kind === CAPITAL_KINDS.expense;
+              const title = isExpense
+                ? formatActorLabel(row)
+                : row.investorName || "—";
+              const linkedFund = Boolean(row.toShopFund || row.shopFundTxId);
+              return (
+                <article key={row.id} className="card-panel space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-bold text-slate-900">
+                        {title}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {formatEntryDate(row)}
+                      </p>
+                    </div>
+                    <p
+                      className={cn(
+                        "money shrink-0 text-base font-extrabold",
+                        isExpense ? "text-rose-700" : "text-emerald-800"
+                      )}
+                    >
+                      {isExpense ? "−" : "+"}
+                      <Money amount={row.amount} />
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className={cn("chip", capitalKindChipClass(row.kind))}>
+                      {capitalKindLabel(row.kind)}
+                    </span>
+                    {isExpense && linkedFund ? (
+                      <span className="chip bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100">
+                        Đã vào quỹ cửa hàng
+                      </span>
+                    ) : null}
+                    {isExpense && !linkedFund ? (
+                      <span className="chip bg-amber-50 text-amber-900 ring-1 ring-amber-100">
+                        Chưa vào quỹ
+                      </span>
+                    ) : null}
+                  </div>
+                  {row.note ? (
+                    <p className="text-xs text-slate-500">{row.note}</p>
+                  ) : null}
+                  {!isExpense &&
+                  (row.createdByName || row.createdByUsername) ? (
+                    <p className="text-xs font-medium text-brand-800">
+                      Nhập bởi: {formatActorLabel(row)}
+                    </p>
+                  ) : null}
+                  {isExpense ? (
+                    <p className="text-xs font-medium text-rose-800">
+                      Người gửi: {formatActorLabel(row)} · {formatEntryDate(row)}
+                    </p>
+                  ) : null}
+                  {isExpense && canEditExpense ? (
+                    <button
+                      type="button"
+                      onClick={() => onEditExpense?.(row)}
+                      className="touch-btn h-11 w-full gap-2 bg-slate-900 text-sm text-white"
+                    >
+                      <Pencil className="h-4 w-4" aria-hidden />
+                      Sửa / chuyển quỹ
+                    </button>
+                  ) : null}
+                </article>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 ? (
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                disabled={safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+              >
+                <ChevronLeft className="h-4 w-4" aria-hidden />
+                Trước
+              </button>
+              <p className="shrink-0 text-xs font-semibold text-slate-500">
+                {safePage} / {totalPages}
+              </p>
+              <button
+                type="button"
+                disabled={safePage >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+              >
+                Sau
+                <ChevronRight className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
           ) : null}
-          {isExpense && !linkedFund ? (
-            <span className="chip bg-amber-50 text-amber-900 ring-1 ring-amber-100">
-              Chưa vào quỹ
-            </span>
-          ) : null}
-        </div>
-        {row.note ? <p className="text-xs text-slate-500">{row.note}</p> : null}
-        {!isExpense && (row.createdByName || row.createdByUsername) ? (
-          <p className="text-xs font-medium text-brand-800">
-            Nhập bởi: {formatActorLabel(row)}
-          </p>
-        ) : null}
-        {isExpense ? (
-          <p className="text-xs font-medium text-rose-800">
-            Người gửi: {formatActorLabel(row)} · {formatEntryDate(row)}
-          </p>
-        ) : null}
-        {isExpense && canEditExpense ? (
-          <button
-            type="button"
-            onClick={() => onEditExpense?.(row)}
-            className="touch-btn h-11 w-full gap-2 bg-slate-900 text-sm text-white"
-          >
-            <Pencil className="h-4 w-4" aria-hidden />
-            Sửa / chuyển quỹ
-          </button>
-        ) : null}
-      </article>
-    );
-  });
+        </>
+      )}
+    </div>
+  );
 }
 
 function CapitalContent() {
@@ -311,6 +520,8 @@ function CapitalContent() {
   const [assetPersonOptions, setAssetPersonOptions] = useState([]);
   const [loadingAssets, setLoadingAssets] = useState(true);
   const [loadingCapital, setLoadingCapital] = useState(true);
+  const [bankingIncomeTotal, setBankingIncomeTotal] = useState(0);
+  const [loadingBanking, setLoadingBanking] = useState(true);
   const [tab, setTab] = useState(
     canViewInvestmentCapital ? "capital" : "assets"
   );
@@ -379,6 +590,7 @@ function CapitalContent() {
   useEffect(() => {
     if (!canViewInvestmentCapital) {
       setLoadingCapital(false);
+      setLoadingBanking(false);
       return undefined;
     }
     const unsub = subscribeShareholderCapital(
@@ -390,6 +602,30 @@ function CapitalContent() {
         console.error(error);
         showToast("Không tải được sổ vốn cổ đông", "error");
         setLoadingCapital(false);
+      }
+    );
+    return () => unsub();
+  }, [canViewInvestmentCapital, showToast]);
+
+  useEffect(() => {
+    if (!canViewInvestmentCapital) {
+      setBankingIncomeTotal(0);
+      setLoadingBanking(false);
+      return undefined;
+    }
+    const unsub = subscribeCollection(
+      "transactions",
+      (list) => {
+        setBankingIncomeTotal(sumGoodsIncomeByMethod(list).banking);
+        setLoadingBanking(false);
+      },
+      (error) => {
+        console.error(error);
+        showToast(
+          firestoreErrorMessage(error, "Không tải được thu CK"),
+          "error"
+        );
+        setLoadingBanking(false);
       }
     );
     return () => unsub();
@@ -433,8 +669,12 @@ function CapitalContent() {
   );
 
   const capitalSummary = useMemo(
-    () => summarizeShareholderCapital(shareholderCapitalEntries),
-    [shareholderCapitalEntries]
+    () =>
+      summarizeShareholderCapital(
+        shareholderCapitalEntries,
+        bankingIncomeTotal
+      ),
+    [shareholderCapitalEntries, bankingIncomeTotal]
   );
 
   const assets = useMemo(() => summarizeAssets(investments), [investments]);
@@ -829,11 +1069,36 @@ function CapitalContent() {
                 tone="muted"
               />
               <StatCard
-                label="Số dư vốn"
-                value={loadingCapital ? 0 : capitalSummary.totalBalance}
+                label="Thu CK bán hàng"
+                value={
+                  loadingCapital || loadingBanking
+                    ? 0
+                    : capitalSummary.bankingIncome
+                }
                 tone="success"
               />
             </div>
+            <StatCard
+              label="Số dư vốn"
+              value={
+                loadingCapital || loadingBanking
+                  ? 0
+                  : capitalSummary.totalBalance
+              }
+              tone="success"
+            />
+            <p className="rounded-2xl bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-100">
+              Số dư vốn = đã góp − chi từ vốn + thu CK bán hàng.{" "}
+              <span className="font-semibold">Tổng đã góp / % cổ phần</span>{" "}
+              không đổi khi khách chuyển khoản. Tiền mặt bán hàng vào{" "}
+              <Link
+                href="/manager/expenses"
+                className="font-semibold text-emerald-700 underline"
+              >
+                quỹ cửa hàng
+              </Link>
+              .
+            </p>
           </section>
 
           <Link
@@ -847,7 +1112,7 @@ function CapitalContent() {
                   Quỹ cửa hàng
                 </span>
                 <span className="block text-xs font-medium text-white/80">
-                  Xem số dư · nạp · chi tiêu quán
+                  Két tiền mặt · nạp · chi tiêu quán
                 </span>
               </span>
             </span>
@@ -911,8 +1176,8 @@ function CapitalContent() {
             </div>
           ) : (
             <p className="card-panel mb-4 text-sm text-slate-600">
-              Bạn đang xem sổ vốn cổ đông (đã góp · đã chi · số dư · % cổ phần).
-              Chỉ tài khoản quản trị được ghi/sửa vốn và chi tiêu vốn.
+              Bạn đang xem sổ vốn cổ đông (đã góp · đã chi · thu CK · số dư · %
+              cổ phần). Chỉ tài khoản quản trị được ghi/sửa vốn và chi tiêu vốn.
             </p>
           )}
 

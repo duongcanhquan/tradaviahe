@@ -2,26 +2,33 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { QrCode, X, Copy, Check } from "lucide-react";
-import { buildVietQrUrl } from "@/lib/bank";
-import { subscribeGlobalSettings } from "@/lib/settings";
+import { buildVietQrUrl, prefetchVietQrImage } from "@/lib/bank";
+import {
+  getCachedBank,
+  subscribeGlobalSettings,
+} from "@/lib/settings";
 import { cn } from "@/lib/utils";
 import { dateInfoCode, formatCurrency } from "@/lib/utils";
 
 const QUICK_AMOUNTS = [10000, 20000, 50000, 100000];
 
 export function SharedQrSheet({ open, onClose, initialAmount = "" }) {
-  const [bank, setBank] = useState(null);
+  const [bank, setBank] = useState(getCachedBank);
   const [amount, setAmount] = useState(initialAmount);
   const [copied, setCopied] = useState(false);
+
+  // Luôn giữ bank nóng (kể cả khi đóng) — lần mở sau hiện QR ngay.
+  useEffect(() => {
+    const unsub = subscribeGlobalSettings(
+      (settings) => setBank(settings.bank),
+      () => setBank(getCachedBank())
+    );
+    return () => unsub();
+  }, []);
 
   useEffect(() => {
     if (!open) return;
     setAmount(initialAmount || "");
-    const unsub = subscribeGlobalSettings(
-      (settings) => setBank(settings.bank),
-      () => setBank(null)
-    );
-    return () => unsub();
   }, [open, initialAmount]);
 
   const qrUrl = useMemo(() => {
@@ -32,6 +39,10 @@ export function SharedQrSheet({ open, onClose, initialAmount = "" }) {
       addInfo: `Trada_${dateInfoCode()}`,
     });
   }, [bank, amount]);
+
+  useEffect(() => {
+    if (qrUrl) prefetchVietQrImage(qrUrl);
+  }, [qrUrl]);
 
   const copyAccount = async () => {
     if (!bank?.accountNumber) return;
@@ -64,7 +75,7 @@ export function SharedQrSheet({ open, onClose, initialAmount = "" }) {
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h2 id="shared-qr-title" className="text-xl font-extrabold text-slate-900">
-              QR tài khoản chung
+              QR chuyển khoản
             </h2>
             <p className="mt-1 text-sm text-slate-500">
               Đưa màn hình cho khách quét — nhận tiền nhanh
@@ -88,6 +99,8 @@ export function SharedQrSheet({ open, onClose, initialAmount = "" }) {
               alt="Mã VietQR tài khoản chung quán trà đá"
               width={360}
               height={360}
+              decoding="async"
+              fetchPriority="high"
               className="mx-auto h-auto w-full max-w-[340px]"
             />
           ) : (
@@ -168,12 +181,35 @@ export function SharedQrSheet({ open, onClose, initialAmount = "" }) {
 export function SharedQrFab() {
   const [open, setOpen] = useState(false);
 
+  // Warm bank + prefetch QR tài khoản ngay khi vào app (trước khi bấm).
+  useEffect(() => {
+    const unsub = subscribeGlobalSettings(
+      (settings) => {
+        prefetchVietQrImage(
+          buildVietQrUrl({
+            ...settings.bank,
+            addInfo: `Trada_${dateInfoCode()}`,
+          })
+        );
+      },
+      () => {
+        prefetchVietQrImage(
+          buildVietQrUrl({
+            ...getCachedBank(),
+            addInfo: `Trada_${dateInfoCode()}`,
+          })
+        );
+      }
+    );
+    return () => unsub();
+  }, []);
+
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="Mở QR tài khoản chung"
+        aria-label="Mở QR chuyển khoản"
         className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] right-4 z-[55] flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-brand-700 text-white shadow-lg shadow-brand-900/30 transition duration-200 active:scale-95"
       >
         <QrCode className="h-7 w-7" aria-hidden />

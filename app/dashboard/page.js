@@ -229,7 +229,7 @@ function DashboardContent() {
       const qty = items.reduce((sum, p) => sum + (Number(p.inStock) || 0), 0);
       const value = items.reduce(
         (sum, p) =>
-          sum + (Number(p.inStock) || 0) * (Number(p.price) || 0),
+          sum + (Number(p.inStock) || 0) * (Number(p.cost) || 0),
         0
       );
       return {
@@ -250,7 +250,7 @@ function DashboardContent() {
         count: otherItems.length,
         qty: otherItems.reduce((s, p) => s + (Number(p.inStock) || 0), 0),
         value: otherItems.reduce(
-          (s, p) => s + (Number(p.inStock) || 0) * (Number(p.price) || 0),
+          (s, p) => s + (Number(p.inStock) || 0) * (Number(p.cost) || 0),
           0
         ),
       });
@@ -533,7 +533,7 @@ function DashboardContent() {
                 {stockTotals.qty}
               </p>
               <p className="mt-2 text-sm text-white/80">
-                {stockTotals.count} món · Giá trị ước tính{" "}
+                {stockTotals.count} món · Giá trị tồn (giá nhập){" "}
                 <span className="money font-bold text-white">
                   {formatCurrency(stockTotals.value)}
                 </span>
@@ -636,7 +636,7 @@ function DashboardContent() {
                           isCk ? "text-brand-700" : "text-emerald-700"
                         }
                       >
-                        {isCk ? "CK" : "TM"}
+                        {isCk ? "Chuyển khoản" : "Tiền mặt"}
                       </span>
                     </p>
                   </div>

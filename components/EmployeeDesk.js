@@ -19,10 +19,10 @@ import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
-import { buildVietQrUrl, DEFAULT_BANK } from "@/lib/bank";
+import { buildVietQrUrl, prefetchVietQrImage } from "@/lib/bank";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { isGoodsIncome } from "@/lib/receipts";
-import { subscribeGlobalSettings } from "@/lib/settings";
+import { getCachedBank, subscribeGlobalSettings } from "@/lib/settings";
 import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
@@ -41,7 +41,7 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
  * Bàn thu siêu nhanh (POS):
  * - Danh mục nhóm nằm trong header (nút nhỏ) — ưu tiên diện tích món
  * - Mỗi món: chạm / + / − chỉnh SL
- * - Thanh dưới: TM · CK · QR một hàng
+ * - Thanh dưới: Tiền mặt · Chuyển khoản · QR chuyển
  */
 export default function EmployeeDesk() {
   const { user, profile, role, canDeleteSales, canManageProducts } = useAuth();
@@ -53,7 +53,7 @@ export default function EmployeeDesk() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showQr, setShowQr] = useState(false);
-  const [bank, setBank] = useState(DEFAULT_BANK);
+  const [bank, setBank] = useState(getCachedBank);
   const [myRecent, setMyRecent] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [flashId, setFlashId] = useState(null);
@@ -94,16 +94,15 @@ export default function EmployeeDesk() {
   useEffect(() => {
     const unsub = subscribeGlobalSettings(
       (settings) => setBank(settings.bank),
-      () => setBank(DEFAULT_BANK)
+      () => setBank(getCachedBank())
     );
     return () => unsub();
   }, []);
 
+  // Chỉ tải lịch sử khi mở — POS lần đầu nhẹ hơn trên điện thoại.
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!showHistory || !user?.uid) return;
     const today = todayKey();
-    // POS chỉ hiển thị lịch sử hôm nay: để Firestore lọc trước thay vì tải
-    // toàn bộ transactions rồi mới lọc trên điện thoại.
     const unsub = subscribeCollection(
       "transactions",
       (list) => {
@@ -116,8 +115,6 @@ export default function EmployeeDesk() {
               (a.timestamp?.toMillis?.() || 0)
           );
 
-        // Quản lý / chủ ĐT / SA: xem mọi lần thu hôm nay để kiểm soát & xóa
-        // Nhân viên: chỉ khoản mình ghi (gần đây)
         if (canDeleteSales) {
           rows = rows.slice(0, 20);
         } else {
@@ -130,7 +127,7 @@ export default function EmployeeDesk() {
       () => setMyRecent([])
     );
     return () => unsub();
-  }, [user?.uid, canDeleteSales]);
+  }, [showHistory, user?.uid, canDeleteSales]);
 
   useEffect(
     () => () => {
@@ -225,7 +222,7 @@ export default function EmployeeDesk() {
     setShowQr(false);
     try {
       await writeSale({ ...snapshot, paymentMethod });
-      const via = paymentMethod === "banking" ? "CK" : "TM";
+      const via = paymentMethod === "banking" ? "Chuyển khoản" : "Tiền mặt";
       showToast(
         `Đã thu ${via} · ${formatCurrency(snapshot.amount)}`,
         "success"
@@ -282,11 +279,20 @@ export default function EmployeeDesk() {
     }
   };
 
-  const qrUrl = buildVietQrUrl({
-    ...bank,
-    amount: total,
-    addInfo: `Trada_${dateInfoCode()}`,
-  });
+  const qrUrl = useMemo(
+    () =>
+      buildVietQrUrl({
+        ...bank,
+        amount: total > 0 ? total : undefined,
+        addInfo: `Trada_${dateInfoCode()}`,
+      }),
+    [bank, total]
+  );
+
+  // Prefetch QR theo tổng tiền hiện tại — bấm "QR chuyển" hiện ngay từ cache.
+  useEffect(() => {
+    prefetchVietQrImage(qrUrl);
+  }, [qrUrl]);
 
   const displayName = profile?.name || profile?.username || "Nhân viên";
 
@@ -536,7 +542,7 @@ export default function EmployeeDesk() {
                             : "font-bold text-emerald-700"
                         }
                       >
-                        {isCk ? "CK" : "TM"}
+                        {isCk ? "Chuyển khoản" : "Tiền mặt"}
                       </span>
                       {canDeleteSales ? (
                         <>
@@ -624,14 +630,14 @@ export default function EmployeeDesk() {
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => recordSale("banking")}
-              className="touch-btn h-11 flex-col gap-0 bg-brand-700 text-[11px] font-extrabold text-white disabled:opacity-35"
+              className="touch-btn h-11 flex-col gap-0 bg-brand-700 px-0.5 text-[10px] font-extrabold leading-tight text-white disabled:opacity-35"
             >
               {submitting ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <>
                   <Smartphone className="h-4 w-4" aria-hidden />
-                  CK
+                  Chuyển khoản
                 </>
               )}
             </button>
@@ -639,10 +645,10 @@ export default function EmployeeDesk() {
               type="button"
               disabled={submitting || totalQty === 0}
               onClick={() => setShowQr(true)}
-              className="touch-btn h-11 flex-col gap-0 border border-brand-200 bg-brand-50 text-[11px] font-extrabold text-brand-900 disabled:opacity-35"
+              className="touch-btn h-11 flex-col gap-0 border border-brand-200 bg-brand-50 text-[10px] font-extrabold leading-tight text-brand-900 disabled:opacity-35"
             >
               <QrCode className="h-4 w-4" aria-hidden />
-              Hiện QR
+              QR chuyển
             </button>
           </div>
         </div>
@@ -679,9 +685,11 @@ export default function EmployeeDesk() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={qrUrl}
-                alt="VietQR thanh toán"
+                alt="VietQR chuyển khoản"
                 width={360}
                 height={360}
+                decoding="async"
+                fetchPriority="high"
                 className="mx-auto h-auto w-full max-w-[340px]"
               />
             </div>

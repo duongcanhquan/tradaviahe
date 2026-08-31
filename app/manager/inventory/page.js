@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { Money } from "@/components/StatusBadges";
+import { Money, StatCard } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import {
@@ -26,9 +26,22 @@ import {
   PRODUCT_UNITS,
   createProduct,
   isSellable,
+  recomputeRecipeCosts,
   subscribeProducts,
 } from "@/lib/products";
+import { lineStockCostValue, summarizeInventory } from "@/lib/stock";
 import { cn, formatCurrency } from "@/lib/utils";
+
+/** Parse số tiền/giá nhập — giữ thập phân (0.5), bỏ khoảng trắng. */
+function parseUnitCostInput(raw) {
+  const cleaned = String(raw ?? "")
+    .trim()
+    .replace(/\s/g, "")
+    .replace(/,/g, ".");
+  if (!cleaned) return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
 
 const emptyForm = () => ({
   kind: PRODUCT_KIND.INGREDIENT,
@@ -96,6 +109,16 @@ function InventoryContent() {
     return products.filter((p) => p.groupId === filter);
   }, [products, filter]);
 
+  const inventorySummary = useMemo(
+    () => summarizeInventory(visible),
+    [visible]
+  );
+
+  const allInventorySummary = useMemo(
+    () => summarizeInventory(products),
+    [products]
+  );
+
   const setDraft = (id, patch) => {
     setDrafts((prev) => ({
       ...prev,
@@ -110,10 +133,10 @@ function InventoryContent() {
       return;
     }
     const qty = Number(form.inStock) || 0;
-    const cost = Number(String(form.cost).replace(/\D/g, "")) || 0;
+    const cost = parseUnitCostInput(form.cost);
     const price =
       form.kind === PRODUCT_KIND.FINISHED
-        ? Number(String(form.price).replace(/\D/g, "")) || 0
+        ? parseUnitCostInput(form.price)
         : 0;
 
     setSavingAdd(true);
@@ -152,7 +175,7 @@ function InventoryContent() {
     const addQty = Number(d.addQty) || 0;
     const hasCost = d.cost !== undefined && String(d.cost).trim() !== "";
     const nextCost = hasCost
-      ? Number(String(d.cost).replace(/\D/g, "")) || 0
+      ? parseUnitCostInput(d.cost)
       : Number(product.cost) || 0;
 
     if (addQty <= 0 && !hasCost) {
@@ -178,6 +201,9 @@ function InventoryContent() {
         }
       }
       await updateDoc(doc(db, "products", product.id), payload);
+      if (hasCost) {
+        await recomputeRecipeCosts();
+      }
       showToast(
         addQty > 0
           ? `Đã nhập +${addQty} · ${product.name}`
@@ -200,20 +226,118 @@ function InventoryContent() {
   return (
     <AppShell
       title="Nhập hàng"
-      subtitle="Thêm món · số lượng · giá nhập"
+      subtitle="Tồn kho · giá nhập · giá trị"
       dense
     >
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Thêm nguyên liệu / thành phẩm mới, hoặc nhập thêm số lượng và cập nhật
-        giá nhập. Setup công thức &amp; giá bán chi tiết:{" "}
+        Thêm nguyên liệu / thành phẩm, nhập số lượng và giá nhập. Tổng giá trị
+        tồn = số lượng × giá nhập. Setup công thức &amp; giá bán:{" "}
         <Link
           href="/manager/products"
           className="font-bold text-brand-800 underline"
         >
           Món · giá
         </Link>
+        {" · "}
+        <Link
+          href="/manager/production"
+          className="font-bold text-brand-800 underline"
+        >
+          Sổ pha / mẻ
+        </Link>
         .
       </p>
+
+      <section className="mb-4 grid grid-cols-1 gap-2">
+        <StatCard
+          label={
+            filter === "all"
+              ? "Tổng giá trị tồn (giá nhập)"
+              : "Giá trị tồn (theo bộ lọc)"
+          }
+          value={loading ? 0 : inventorySummary.costValue}
+          tone="brand"
+        />
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded-2xl bg-slate-800 px-3 py-3 text-white shadow-md">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
+              Số món
+            </p>
+            <p className="mt-1 text-2xl font-extrabold leading-none">
+              {loading ? "—" : inventorySummary.skuCount}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-emerald-700 px-3 py-3 text-white shadow-md">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
+              Tổng SL tồn
+            </p>
+            <p className="mt-1 text-2xl font-extrabold leading-none">
+              {loading ? "—" : inventorySummary.totalQty}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-rose-700 px-3 py-3 text-white shadow-md">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
+              Sắp hết ≤5
+            </p>
+            <p className="mt-1 text-2xl font-extrabold leading-none">
+              {loading ? "—" : inventorySummary.lowStockCount}
+            </p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Nguyên liệu
+            </p>
+            <p className="mt-1 text-sm font-extrabold text-slate-900">
+              SL {loading ? "—" : inventorySummary.ingredientQty}
+            </p>
+            <p className="money mt-0.5 text-xs font-bold text-amber-800">
+              {loading ? (
+                "—"
+              ) : (
+                <Money amount={inventorySummary.ingredientValue} />
+              )}
+            </p>
+          </div>
+          <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+              Thành phẩm
+            </p>
+            <p className="mt-1 text-sm font-extrabold text-slate-900">
+              SL {loading ? "—" : inventorySummary.finishedQty}
+            </p>
+            <p className="money mt-0.5 text-xs font-bold text-amber-800">
+              Nhập{" "}
+              {loading ? (
+                "—"
+              ) : (
+                <Money amount={inventorySummary.finishedCostValue} />
+              )}
+            </p>
+            {inventorySummary.finishedSellValue > 0 ? (
+              <p className="money mt-0.5 text-[11px] text-slate-500">
+                Bán ước tính{" "}
+                <Money amount={inventorySummary.finishedSellValue} />
+              </p>
+            ) : null}
+          </div>
+        </div>
+        {filter !== "all" && !loading ? (
+          <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
+            Toàn kho (không lọc):{" "}
+            <span className="font-semibold">
+              {allInventorySummary.skuCount} món
+            </span>
+            {" · "}
+            SL {allInventorySummary.totalQty}
+            {" · "}
+            <span className="money font-semibold text-brand-800">
+              <Money amount={allInventorySummary.costValue} />
+            </span>
+          </p>
+        ) : null}
+      </section>
 
       <button
         type="button"
@@ -325,8 +449,9 @@ function InventoryContent() {
                 </span>
                 <input
                   type="number"
-                  inputMode="numeric"
+                  inputMode="decimal"
                   min="0"
+                  step="any"
                   className="field-input money"
                   value={form.cost}
                   onChange={(e) =>
@@ -454,6 +579,10 @@ function InventoryContent() {
                         </>
                       ) : null}
                     </p>
+                    <p className="mt-1 text-sm font-extrabold text-brand-800">
+                      Giá trị tồn:{" "}
+                      <Money amount={lineStockCostValue(product)} />
+                    </p>
                   </div>
                   <Package
                     className="h-4 w-4 shrink-0 text-slate-400"
@@ -484,10 +613,11 @@ function InventoryContent() {
                     </span>
                     <input
                       type="number"
-                      inputMode="numeric"
+                      inputMode="decimal"
                       min="0"
+                      step="any"
                       className="field-input money"
-                      placeholder={String(Math.round(Number(product.cost) || 0))}
+                      placeholder={String(Number(product.cost) || 0)}
                       value={d.cost ?? ""}
                       onChange={(e) =>
                         setDraft(product.id, { cost: e.target.value })

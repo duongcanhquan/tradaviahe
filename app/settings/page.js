@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { doc, setDoc } from "firebase/firestore";
 import Link from "next/link";
 import {
+  Beaker,
   KeyRound,
   LogOut,
   Package,
@@ -339,6 +340,14 @@ function SettingsContent() {
           >
             <Package className="h-5 w-5" />
             Món · giá bán
+          </Link>
+
+          <Link
+            href="/manager/production"
+            className="touch-btn mb-4 h-14 w-full gap-2 bg-teal-700 text-white"
+          >
+            <Beaker className="h-5 w-5" />
+            Sổ pha · ghi mẻ
           </Link>
 
           <Link

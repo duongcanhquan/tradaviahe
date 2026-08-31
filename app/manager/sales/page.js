@@ -216,7 +216,7 @@ function SalesLogContent() {
           {[
             { id: "all", label: "Tất cả" },
             { id: "cash", label: "Tiền mặt" },
-            { id: "banking", label: "CK" },
+            { id: "banking", label: "Chuyển khoản" },
           ].map((f) => (
             <button
               key={f.id}
