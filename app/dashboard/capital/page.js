@@ -21,6 +21,7 @@ import {
   Pencil,
   Plus,
   Save,
+  Building2,
   Wallet,
   X,
 } from "lucide-react";
@@ -1104,23 +1105,42 @@ function CapitalContent() {
             </p>
           </section>
 
-          <Link
-            href="/manager/expenses"
-            className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-emerald-700 px-4 text-white"
-          >
-            <span className="flex items-center gap-2 text-left">
-              <Wallet className="h-5 w-5 shrink-0" aria-hidden />
-              <span>
-                <span className="block text-sm font-extrabold">
-                  Quỹ cửa hàng
-                </span>
-                <span className="block text-xs font-medium text-white/80">
-                  Két tiền mặt · nạp · chi tiêu quán
+          <div className="mb-4 grid grid-cols-1 gap-2">
+            <Link
+              href="/manager/expenses"
+              className="touch-btn h-14 w-full justify-between gap-2 bg-emerald-700 px-4 text-white"
+            >
+              <span className="flex items-center gap-2 text-left">
+                <Wallet className="h-5 w-5 shrink-0" aria-hidden />
+                <span>
+                  <span className="block text-sm font-extrabold">
+                    Quỹ cửa hàng
+                  </span>
+                  <span className="block text-xs font-medium text-white/80">
+                    Két tiền mặt · nạp · chi tiêu quán
+                  </span>
                 </span>
               </span>
-            </span>
-            <span className="text-sm text-white/80">Mở →</span>
-          </Link>
+              <span className="text-sm text-white/80">Mở →</span>
+            </Link>
+            <Link
+              href="/manager/construction"
+              className="touch-btn h-14 w-full justify-between gap-2 bg-orange-700 px-4 text-white"
+            >
+              <span className="flex items-center gap-2 text-left">
+                <Building2 className="h-5 w-5 shrink-0" aria-hidden />
+                <span>
+                  <span className="block text-sm font-extrabold">
+                    Mảng xây dựng
+                  </span>
+                  <span className="block text-xs font-medium text-white/80">
+                    Quỹ XD · hạng mục · thu CK vào vốn
+                  </span>
+                </span>
+              </span>
+              <span className="text-sm text-white/80">Mở →</span>
+            </Link>
+          </div>
 
           {canManageShareholderCapital ? (
             <div className="mb-4 grid grid-cols-1 gap-2">

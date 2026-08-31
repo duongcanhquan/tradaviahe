@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
+  Building2,
   ChevronLeft,
   ChevronRight,
   Loader2,
   Trash2,
   Wallet,
 } from "lucide-react";
+import Link from "next/link";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import AppShell from "@/components/AppShell";
@@ -268,6 +270,21 @@ function ExpensesContent() {
 
   return (
     <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
+      <Link
+        href="/manager/construction"
+        className="touch-btn mb-4 h-12 w-full justify-between gap-2 bg-orange-700 px-4 text-white"
+      >
+        <span className="flex items-center gap-2 text-left">
+          <Building2 className="h-5 w-5 shrink-0" aria-hidden />
+          <span>
+            <span className="block text-sm font-extrabold">Mảng xây dựng</span>
+            <span className="block text-[11px] font-medium text-white/80">
+              Quỹ XD · hạng mục — tách biệt quán
+            </span>
+          </span>
+        </span>
+        <span className="text-sm text-white/80">Mở →</span>
+      </Link>
       <section className="mb-3 rounded-2xl bg-brand-700 px-3.5 py-2.5 text-white shadow-md">
         <p className="text-sm leading-snug text-white/95">
           Thu TM bán hàng vào quỹ. CK khách vào số dư vốn. Nạp từ sổ vốn: tick
