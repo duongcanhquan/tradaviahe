@@ -26,6 +26,7 @@ import {
   isShopFundEntry,
   normalizeExpenseCategory,
   recordFundIn,
+  recordFundInFromCapital,
   recordShopExpense,
   summarizeShopFund,
 } from "@/lib/expenses";
@@ -55,7 +56,8 @@ const FILTERS = [
 
 function ExpensesContent() {
   const { showToast } = useToast();
-  const { user, profile, role, canManageShop } = useAuth();
+  const { user, profile, role, canManageShop, canManageShareholderCapital } =
+    useAuth();
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
@@ -66,6 +68,8 @@ function ExpensesContent() {
   const [dateInput, setDateInput] = useState(todayInputValue());
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0].value);
   const [payMethod, setPayMethod] = useState("cash");
+  /** Nạp quỹ từ vốn cổ đông (TM hoặc CK) — trừ sổ vốn */
+  const [fromCapital, setFromCapital] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
@@ -106,6 +110,7 @@ function ExpensesContent() {
     setDateInput(todayInputValue());
     setCategory(EXPENSE_CATEGORIES[0].value);
     setPayMethod("cash");
+    setFromCapital(true);
   };
 
   const closeForm = () => {
@@ -122,15 +127,32 @@ function ExpensesContent() {
     setSaving(true);
     try {
       if (mode === "fund_in") {
-        await recordFundIn({
-          amount,
-          note,
-          dateInput,
-          paymentMethod: payMethod,
-          user,
-          profile,
-        });
-        showToast("Đã nạp quỹ cửa hàng", "success");
+        if (canManageShareholderCapital && fromCapital) {
+          await recordFundInFromCapital({
+            amount,
+            note,
+            dateInput,
+            paymentMethod: payMethod,
+            user,
+            profile,
+          });
+          showToast(
+            payMethod === "banking"
+              ? "Đã nạp quỹ (CK) và trừ sổ vốn"
+              : "Đã nạp quỹ (TM) và trừ sổ vốn",
+            "success"
+          );
+        } else {
+          await recordFundIn({
+            amount,
+            note,
+            dateInput,
+            paymentMethod: payMethod,
+            user,
+            profile,
+          });
+          showToast("Đã nạp quỹ cửa hàng", "success");
+        }
       } else {
         await recordShopExpense({
           amount,
@@ -307,19 +329,40 @@ function ExpensesContent() {
                 </select>
               </label>
             ) : (
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Hình thức
-                </span>
-                <select
-                  className="field-input"
-                  value={payMethod}
-                  onChange={(e) => setPayMethod(e.target.value)}
-                >
-                  <option value="cash">Tiền mặt</option>
-                  <option value="banking">Chuyển khoản</option>
-                </select>
-              </label>
+              <>
+                <label className="block">
+                  <span className="mb-2 block text-sm font-semibold text-slate-700">
+                    Hình thức
+                  </span>
+                  <select
+                    className="field-input"
+                    value={payMethod}
+                    onChange={(e) => setPayMethod(e.target.value)}
+                  >
+                    <option value="cash">Tiền mặt</option>
+                    <option value="banking">Chuyển khoản</option>
+                  </select>
+                </label>
+                {canManageShareholderCapital ? (
+                  <label className="flex min-h-12 cursor-pointer items-start gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/80 px-4 py-3">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-5 w-5 accent-emerald-700"
+                      checked={fromCapital}
+                      onChange={(e) => setFromCapital(e.target.checked)}
+                    />
+                    <span>
+                      <span className="block text-sm font-bold text-emerald-900">
+                        Tiền từ sổ vốn cổ đông
+                      </span>
+                      <span className="mt-0.5 block text-xs text-emerald-800/80">
+                        Nạp quỹ (tiền mặt hoặc chuyển khoản) đồng thời trừ sổ
+                        vốn — tránh lệch số như trước.
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
+              </>
             )}
 
             <label className="block">

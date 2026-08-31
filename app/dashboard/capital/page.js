@@ -328,6 +328,8 @@ function CapitalContent() {
   const [expDate, setExpDate] = useState(todayInputValue());
   /** Mặc định bật: chi vốn đồng thời nạp vào quỹ cửa hàng */
   const [expToShopFund, setExpToShopFund] = useState(true);
+  /** Tiền mặt | chuyển khoản khi nạp quỹ từ vốn */
+  const [expPayMethod, setExpPayMethod] = useState("cash");
   const [savingExp, setSavingExp] = useState(false);
 
   /** Sửa dòng chi tiêu vốn đã có (SA) */
@@ -335,6 +337,7 @@ function CapitalContent() {
   const [editExpAmount, setEditExpAmount] = useState("");
   const [editExpNote, setEditExpNote] = useState("");
   const [editExpDate, setEditExpDate] = useState(todayInputValue());
+  const [editExpPayMethod, setEditExpPayMethod] = useState("cash");
   const [savingEditExp, setSavingEditExp] = useState(false);
   const [convertingExp, setConvertingExp] = useState(false);
 
@@ -525,10 +528,16 @@ function CapitalContent() {
           amount: expAmount,
           note: expNote,
           dateInput: expDate,
+          paymentMethod: expPayMethod,
           user,
           profile,
         });
-        showToast("Đã chi vốn và nạp vào quỹ cửa hàng", "success");
+        showToast(
+          expPayMethod === "banking"
+            ? "Đã chi vốn và nạp quỹ (chuyển khoản)"
+            : "Đã chi vốn và nạp vào quỹ cửa hàng",
+          "success"
+        );
       } else {
         await addCapitalExpense({
           amount: expAmount,
@@ -544,6 +553,7 @@ function CapitalContent() {
       setExpNote("");
       setExpDate(todayInputValue());
       setExpToShopFund(true);
+      setExpPayMethod("cash");
       setCapitalWrite(null);
     } catch (error) {
       console.error(error);
@@ -631,11 +641,18 @@ function CapitalContent() {
       });
       await convertExistingCapitalExpenseToShopFund({
         entry: { ...editingExpense, ...draft },
+        paymentMethod: editExpPayMethod,
         user,
         profile,
       });
-      showToast("Đã chuyển vào quỹ cửa hàng", "success");
+      showToast(
+        editExpPayMethod === "banking"
+          ? "Đã chuyển vào quỹ (chuyển khoản)"
+          : "Đã chuyển vào quỹ cửa hàng",
+        "success"
+      );
       setEditingExpense(null);
+      setEditExpPayMethod("cash");
     } catch (error) {
       console.error(error);
       showToast(error.message || "Chuyển quỹ thất bại", "error");
@@ -1081,10 +1098,39 @@ function CapitalContent() {
                         Chuyển vào quỹ cửa hàng
                       </span>
                       <span className="mt-0.5 block text-xs text-emerald-800/80">
-                        Trừ sổ vốn + tăng số dư tab Quỹ (cùng số tiền).
+                        Trừ sổ vốn + tăng số dư tab Quỹ (cùng số tiền). Hỗ trợ
+                        tiền mặt và chuyển khoản.
                       </span>
                     </span>
                   </label>
+
+                  {expToShopFund ? (
+                    <div>
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">
+                        Hình thức chuyển vào quỹ
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: "cash", label: "Tiền mặt" },
+                          { id: "banking", label: "Chuyển khoản" },
+                        ].map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setExpPayMethod(item.id)}
+                            className={cn(
+                              "touch-btn h-12 rounded-xl text-sm",
+                              expPayMethod === item.id
+                                ? "bg-emerald-700 text-white"
+                                : "bg-slate-100 text-slate-600"
+                            )}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
 
                   <p className="rounded-2xl bg-white/80 px-3 py-2 text-xs text-slate-600">
                     Người gửi:{" "}
@@ -1333,21 +1379,48 @@ function CapitalContent() {
                     Dòng này đã gắn quỹ cửa hàng — không chuyển lần nữa.
                   </p>
                 ) : (
-                  <button
-                    type="button"
-                    disabled={savingEditExp || convertingExp}
-                    onClick={convertEditExpenseToFund}
-                    className="touch-btn h-14 w-full gap-2 bg-emerald-700 text-white"
-                  >
-                    {convertingExp ? (
-                      <Loader2 className="h-5 w-5 animate-spin" />
-                    ) : (
-                      <Wallet className="h-5 w-5" aria-hidden />
-                    )}
-                    {convertingExp
-                      ? "Đang chuyển..."
-                      : "Chuyển giao dịch này → quỹ cửa hàng"}
-                  </button>
+                  <div className="space-y-3">
+                    <div>
+                      <span className="mb-2 block text-sm font-semibold text-slate-700">
+                        Hình thức nạp quỹ
+                      </span>
+                      <div className="grid grid-cols-2 gap-2">
+                        {[
+                          { id: "cash", label: "Tiền mặt" },
+                          { id: "banking", label: "Chuyển khoản" },
+                        ].map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => setEditExpPayMethod(item.id)}
+                            className={cn(
+                              "touch-btn h-12 rounded-xl text-sm",
+                              editExpPayMethod === item.id
+                                ? "bg-emerald-700 text-white"
+                                : "bg-slate-100 text-slate-600"
+                            )}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={savingEditExp || convertingExp}
+                      onClick={convertEditExpenseToFund}
+                      className="touch-btn h-14 w-full gap-2 bg-emerald-700 text-white"
+                    >
+                      {convertingExp ? (
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                      ) : (
+                        <Wallet className="h-5 w-5" aria-hidden />
+                      )}
+                      {convertingExp
+                        ? "Đang chuyển..."
+                        : "Chuyển giao dịch này → quỹ cửa hàng"}
+                    </button>
+                  </div>
                 )}
               </section>
             ) : null}
