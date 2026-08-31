@@ -89,6 +89,7 @@ function ConstructionContent() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [page, setPage] = useState(1);
+  const [jobPage, setJobPage] = useState(1);
   const [fundFilter, setFundFilter] = useState("all");
 
   const [mode, setMode] = useState(null);
@@ -215,6 +216,25 @@ function ConstructionContent() {
   useEffect(() => {
     setPage(1);
   }, [dateFrom, dateTo, fundFilter]);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const jobTotalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
+  const jobSafePage = Math.min(jobPage, jobTotalPages);
+  const jobPageRows = useMemo(() => {
+    const start = (jobSafePage - 1) * PAGE_SIZE;
+    return jobs.slice(start, start + PAGE_SIZE);
+  }, [jobs, jobSafePage]);
+
+  useEffect(() => {
+    setJobPage(1);
+  }, [jobs.length]);
+
+  useEffect(() => {
+    if (jobPage > jobTotalPages) setJobPage(jobTotalPages);
+  }, [jobPage, jobTotalPages]);
 
   const jobsSummary = useMemo(
     () => summarizeConstructionJobs(jobs),
@@ -1057,8 +1077,11 @@ function ConstructionContent() {
           ) : null}
 
           <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-            {jobsSummary.count} việc · HĐ{" "}
-            <Money amount={jobsSummary.contractTotal} /> · Lãi ước{" "}
+            {jobsSummary.count} việc
+            {jobs.length > PAGE_SIZE
+              ? ` · trang ${jobSafePage}/${jobTotalPages}`
+              : ""}{" "}
+            · HĐ <Money amount={jobsSummary.contractTotal} /> · Lãi ước{" "}
             <Money amount={jobsSummary.expectedProfitTotal} />
           </div>
 
@@ -1069,7 +1092,8 @@ function ConstructionContent() {
               Chưa có hạng mục. Thêm việc để theo dõi CĐT, tiền, lãi, số ngày.
             </div>
           ) : (
-            jobs.map((job) => (
+            <>
+              {jobPageRows.map((job) => (
               <article
                 key={job.id}
                 className="card-panel space-y-2 !py-3"
@@ -1134,7 +1158,34 @@ function ConstructionContent() {
                   <p className="text-xs text-slate-600">{job.note}</p>
                 ) : null}
               </article>
-            ))
+              ))}
+
+              {jobTotalPages > 1 ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={jobSafePage <= 1}
+                    onClick={() => setJobPage((p) => Math.max(1, p - 1))}
+                    className="touch-btn h-10 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Trước
+                  </button>
+                  <span className="self-center text-xs text-slate-500">
+                    {jobSafePage}/{jobTotalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={jobSafePage >= jobTotalPages}
+                    onClick={() =>
+                      setJobPage((p) => Math.min(jobTotalPages, p + 1))
+                    }
+                    className="touch-btn h-10 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
+                  >
+                    Sau <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : null}
+            </>
           )}
         </section>
       ) : null}
