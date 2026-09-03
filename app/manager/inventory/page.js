@@ -15,7 +15,8 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
-import { receiveInventoryFromShopFund } from "@/lib/expenses";
+import { receiveInventoryFromShopFund, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
+import { subscribeCollection } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
 import {
   DEFAULT_PRODUCT_GROUPS,
@@ -70,6 +71,9 @@ function InventoryContent() {
   /** per product: { addQty, cost, payMethod, chargeFund } */
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
+  const [allTx, setAllTx] = useState([]);
+  const [backfillPay, setBackfillPay] = useState("cash");
+  const [backfilling, setBackfilling] = useState(false);
 
   useEffect(() => {
     ensureDefaultProductGroups().catch(() => {});
@@ -100,6 +104,20 @@ function InventoryContent() {
     );
     return () => unsub();
   }, [showToast]);
+
+  useEffect(() => {
+    const unsub = subscribeCollection(
+      "transactions",
+      (rows) => setAllTx(rows),
+      () => setAllTx([])
+    );
+    return () => unsub();
+  }, []);
+
+  const backfillPreview = useMemo(
+    () => previewInventoryFundBackfill(products, allTx),
+    [products, allTx]
+  );
 
   const visible = useMemo(() => {
     if (filter === "all") return products;
@@ -254,6 +272,38 @@ function InventoryContent() {
     }
   };
 
+  const handleBackfill = async () => {
+    if (backfillPreview.suggested <= 0 || backfillPreview.backfillDone) return;
+    const via = backfillPay === "banking" ? "CK" : "TM";
+    const ok = window.confirm(
+      `Bù trừ quỹ ${via} ${formatCurrency(backfillPreview.suggested)}?\n\n` +
+        `Giá trị tồn hiện tại: ${formatCurrency(backfillPreview.stockValue)}\n` +
+        `Chi nhập hàng đã ghi: ${formatCurrency(backfillPreview.alreadyCharged)}\n\n` +
+        `Đơn nhập cũ không có sổ — hệ thống trừ phần còn thiếu theo tồn × giá nhập.`
+    );
+    if (!ok) return;
+
+    setBackfilling(true);
+    try {
+      const result = await backfillInventoryFundFromStock({
+        products,
+        transactions: allTx,
+        paymentMethod: backfillPay,
+        user,
+        profile,
+      });
+      showToast(
+        `Đã bù trừ quỹ ${via} ${formatCurrency(result.amount)}`,
+        "success"
+      );
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Bù trừ thất bại", "error");
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
   return (
     <AppShell
       title="Nhập hàng"
@@ -279,6 +329,94 @@ function InventoryContent() {
         </Link>
         .
       </p>
+
+      {!loading && !backfillPreview.backfillDone && backfillPreview.stockValue > 0 ? (
+        <section className="mb-4 space-y-3 rounded-[1.25rem] bg-amber-50 px-4 py-4 ring-1 ring-amber-200">
+          <div>
+            <p className="text-sm font-extrabold text-amber-950">
+              Bù trừ quỹ cho tồn / nhập cũ
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
+              Trước đây nhập hàng chỉ cộng tồn, không trừ quỹ. Không còn sổ từng
+              đơn — hệ thống ước lượng:{" "}
+              <strong>giá trị tồn hiện tại − chi “Nhập hàng” đã ghi</strong>.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="rounded-xl bg-white/80 px-2.5 py-2">
+              <p className="font-semibold text-slate-500">Giá trị tồn</p>
+              <p className="money font-extrabold text-slate-900">
+                <Money amount={backfillPreview.stockValue} />
+              </p>
+            </div>
+            <div className="rounded-xl bg-white/80 px-2.5 py-2">
+              <p className="font-semibold text-slate-500">Đã chi nhập</p>
+              <p className="money font-extrabold text-slate-900">
+                <Money amount={backfillPreview.alreadyCharged} />
+              </p>
+            </div>
+            <div className="rounded-xl bg-rose-100 px-2.5 py-2">
+              <p className="font-semibold text-rose-700">Cần bù trừ</p>
+              <p className="money font-extrabold text-rose-800">
+                <Money amount={backfillPreview.suggested} />
+              </p>
+            </div>
+          </div>
+          {backfillPreview.suggested > 0 ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setBackfillPay("cash")}
+                  className={cn(
+                    "touch-btn h-10 text-xs font-extrabold",
+                    backfillPay === "cash"
+                      ? "bg-emerald-600 text-white"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
+                  )}
+                >
+                  Tiền mặt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBackfillPay("banking")}
+                  className={cn(
+                    "touch-btn h-10 text-xs font-extrabold",
+                    backfillPay === "banking"
+                      ? "bg-brand-700 text-white"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
+                  )}
+                >
+                  Chuyển khoản
+                </button>
+              </div>
+              <button
+                type="button"
+                disabled={backfilling}
+                onClick={handleBackfill}
+                className="touch-btn h-12 w-full gap-2 bg-rose-700 text-sm text-white disabled:opacity-50"
+              >
+                {backfilling ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {backfilling
+                  ? "Đang bù trừ..."
+                  : `Bù trừ quỹ ${formatCurrency(backfillPreview.suggested)}`}
+              </button>
+            </>
+          ) : (
+            <p className="text-xs font-semibold text-emerald-800">
+              Đã ghi đủ chi nhập hàng so với giá trị tồn — không cần bù.
+            </p>
+          )}
+        </section>
+      ) : null}
+
+      {backfillPreview.backfillDone ? (
+        <p className="mb-4 rounded-2xl bg-emerald-50 px-3 py-2.5 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">
+          Đã bù trừ tồn/nhập cũ vào quỹ. Lần nhập mới sẽ tự trừ khi chọn TM/CK.
+        </p>
+      ) : null}
 
       <section className="mb-4 grid grid-cols-1 gap-2">
         <StatCard
