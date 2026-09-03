@@ -233,6 +233,7 @@ function ExpensesContent() {
           category,
           note,
           dateInput,
+          paymentMethod: payMethod,
           user,
           profile,
         });
