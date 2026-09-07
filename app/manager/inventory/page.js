@@ -15,7 +15,7 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
-import { receiveInventoryFromShopFund, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
+import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
 import {
@@ -58,7 +58,7 @@ const emptyForm = () => ({
 
 function InventoryContent() {
   const { showToast } = useToast();
-  const { user, profile } = useAuth();
+  const { user, profile, canChooseInventoryFundSource } = useAuth();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
   const [filter, setFilter] = useState("all"); // all | ingredient | finished | groupId
@@ -68,7 +68,7 @@ function InventoryContent() {
   const [form, setForm] = useState(emptyForm);
   const [savingAdd, setSavingAdd] = useState(false);
 
-  /** per product: { addQty, cost, payMethod, chargeFund } */
+  /** per product: { addQty, cost, payMethod, fundSource } */
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
   const [allTx, setAllTx] = useState([]);
@@ -147,7 +147,7 @@ function InventoryContent() {
         addQty: "",
         cost: "",
         payMethod: "cash",
-        chargeFund: true,
+        fundSource: "shop",
         ...prev[id],
         ...patch,
       },
@@ -205,18 +205,27 @@ function InventoryContent() {
     const nextCost = hasCost
       ? parseUnitCostInput(d.cost)
       : Number(product.cost) || 0;
-    const chargeFund = d.chargeFund !== false;
     const payMethod = d.payMethod === "banking" ? "banking" : "cash";
+    const fundSource =
+      canChooseInventoryFundSource && d.fundSource === "capital"
+        ? "capital"
+        : "shop";
 
     if (addQty <= 0 && !hasCost) {
       showToast("Nhập số lượng nhập thêm hoặc giá nhập mới", "error");
       return;
     }
 
+    if (addQty > 0 && nextCost <= 0) {
+      showToast("Nhập giá nhập > 0 để trừ quỹ (TM/CK)", "error");
+      return;
+    }
+
     setSavingId(product.id);
     try {
-      if (addQty > 0 && chargeFund) {
-        const result = await receiveInventoryFromShopFund({
+      if (addQty > 0) {
+        const result = await receiveInventoryPaid({
+          fundSource,
           product,
           addQty,
           unitCost: nextCost,
@@ -229,17 +238,16 @@ function InventoryContent() {
           await recomputeRecipeCosts();
         }
         const via = result.paymentMethod === "banking" ? "CK" : "TM";
+        const fundLabel =
+          result.fundSource === "capital" ? "quỹ đầu tư" : "quỹ cửa hàng";
         showToast(
-          `Đã nhập +${result.qty} · trừ quỹ ${via} ${formatCurrency(result.amount)}`,
+          `Đã nhập +${result.qty} · trừ ${fundLabel} ${via} ${formatCurrency(result.amount)}`,
           "success"
         );
       } else {
         const payload = {
           updatedAt: serverTimestamp(),
         };
-        if (addQty > 0) {
-          payload.inStock = (Number(product.inStock) || 0) + addQty;
-        }
         if (hasCost) {
           payload.cost = nextCost;
           if (product.kind === PRODUCT_KIND.INGREDIENT) {
@@ -252,12 +260,7 @@ function InventoryContent() {
         if (hasCost) {
           await recomputeRecipeCosts();
         }
-        showToast(
-          addQty > 0
-            ? `Đã nhập +${addQty} · ${product.name} (không trừ quỹ)`
-            : `Đã cập nhật giá nhập · ${product.name}`,
-          "success"
-        );
+        showToast(`Đã cập nhật giá nhập · ${product.name}`, "success");
       }
       setDrafts((prev) => {
         const next = { ...prev };
@@ -311,9 +314,9 @@ function InventoryContent() {
       dense
     >
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Nhập số lượng + chọn TM/CK để trừ quỹ cửa hàng (số tiền = SL × giá
-        nhập). Có thể tắt trừ quỹ nếu hàng biếu / đã chi trước. Setup công
-        thức &amp; giá bán:{" "}
+        Quản lý nhập hàng luôn trừ <strong>quỹ cửa hàng</strong> (TM/CK). Admin /
+        Super Admin chọn trừ quỹ cửa hàng hoặc <strong>quỹ đầu tư</strong>. Số
+        tiền = SL × giá nhập. Setup công thức &amp; giá bán:{" "}
         <Link
           href="/manager/products"
           className="font-bold text-brand-800 underline"
@@ -798,71 +801,88 @@ function InventoryContent() {
 
                 {Number(d.addQty) > 0 ? (
                   <div className="space-y-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100">
-                    <label className="flex items-start gap-2">
-                      <input
-                        type="checkbox"
-                        className="mt-1 h-4 w-4 accent-rose-700"
-                        checked={d.chargeFund !== false}
-                        onChange={(e) =>
-                          setDraft(product.id, {
-                            chargeFund: e.target.checked,
-                          })
-                        }
-                      />
-                      <span className="text-xs font-semibold leading-snug text-rose-900">
-                        Trả từ quỹ cửa hàng (trừ TM hoặc CK trong quỹ)
-                      </span>
-                    </label>
-                    {d.chargeFund !== false ? (
-                      <>
-                        <div className="grid grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraft(product.id, { payMethod: "cash" })
-                            }
-                            className={cn(
-                              "touch-btn h-10 text-xs font-extrabold",
-                              (d.payMethod || "cash") === "cash"
-                                ? "bg-emerald-600 text-white"
-                                : "bg-white text-slate-700 ring-1 ring-slate-200"
-                            )}
-                          >
-                            Tiền mặt
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setDraft(product.id, { payMethod: "banking" })
-                            }
-                            className={cn(
-                              "touch-btn h-10 text-xs font-extrabold",
-                              d.payMethod === "banking"
-                                ? "bg-brand-700 text-white"
-                                : "bg-white text-slate-700 ring-1 ring-slate-200"
-                            )}
-                          >
-                            Chuyển khoản
-                          </button>
-                        </div>
-                        <p className="text-xs font-bold text-rose-800">
-                          Sẽ trừ quỹ ≈{" "}
-                          <Money
-                            amount={Math.round(
-                              (Number(d.addQty) || 0) *
-                                (d.cost !== undefined &&
-                                String(d.cost).trim() !== ""
-                                  ? parseUnitCostInput(d.cost)
-                                  : Number(product.cost) || 0)
-                            )}
-                          />
-                        </p>
-                      </>
+                    {canChooseInventoryFundSource ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraft(product.id, { fundSource: "shop" })
+                          }
+                          className={cn(
+                            "touch-btn h-10 text-xs font-extrabold",
+                            (d.fundSource || "shop") === "shop"
+                              ? "bg-rose-700 text-white"
+                              : "bg-white text-slate-700 ring-1 ring-slate-200"
+                          )}
+                        >
+                          Quỹ cửa hàng
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDraft(product.id, { fundSource: "capital" })
+                          }
+                          className={cn(
+                            "touch-btn h-10 text-xs font-extrabold",
+                            d.fundSource === "capital"
+                              ? "bg-amber-700 text-white"
+                              : "bg-white text-slate-700 ring-1 ring-slate-200"
+                          )}
+                        >
+                          Quỹ đầu tư
+                        </button>
+                      </div>
                     ) : (
-                      <p className="text-[11px] text-slate-600">
-                        Chỉ cộng tồn — không trừ quỹ (hàng biếu / đã chi trước).
+                      <p className="text-xs font-semibold text-rose-900">
+                        Trừ quỹ cửa hàng (bắt buộc với Quản lý)
                       </p>
                     )}
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft(product.id, { payMethod: "cash" })
+                        }
+                        className={cn(
+                          "touch-btn h-10 text-xs font-extrabold",
+                          (d.payMethod || "cash") === "cash"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-white text-slate-700 ring-1 ring-slate-200"
+                        )}
+                      >
+                        Tiền mặt
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setDraft(product.id, { payMethod: "banking" })
+                        }
+                        className={cn(
+                          "touch-btn h-10 text-xs font-extrabold",
+                          d.payMethod === "banking"
+                            ? "bg-brand-700 text-white"
+                            : "bg-white text-slate-700 ring-1 ring-slate-200"
+                        )}
+                      >
+                        Chuyển khoản
+                      </button>
+                    </div>
+                    <p className="text-xs font-bold text-rose-800">
+                      Sẽ trừ{" "}
+                      {canChooseInventoryFundSource && d.fundSource === "capital"
+                        ? "quỹ đầu tư"
+                        : "quỹ cửa hàng"}{" "}
+                      ≈{" "}
+                      <Money
+                        amount={Math.round(
+                          (Number(d.addQty) || 0) *
+                            (d.cost !== undefined &&
+                            String(d.cost).trim() !== ""
+                              ? parseUnitCostInput(d.cost)
+                              : Number(product.cost) || 0)
+                        )}
+                      />
+                    </p>
                   </div>
                 ) : null}
 
@@ -879,7 +899,7 @@ function InventoryContent() {
                   )}
                   {busy
                     ? "Đang lưu..."
-                    : Number(d.addQty) > 0 && d.chargeFund !== false
+                    : Number(d.addQty) > 0
                       ? "Lưu nhập + trừ quỹ"
                       : "Lưu nhập hàng"}
                 </button>
