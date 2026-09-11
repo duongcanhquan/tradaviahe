@@ -18,6 +18,7 @@ import { useToast } from "@/components/Toast";
 import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
+import { defaultReceiveUnit, findUnit, normalizeProductUnits } from "@/lib/packaging";
 import {
   DEFAULT_PRODUCT_GROUPS,
   ensureDefaultProductGroups,
@@ -44,6 +45,13 @@ function parseUnitCostInput(raw) {
   if (!cleaned) return 0;
   const n = Number(cleaned);
   return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
+function formatUnitCount(value) {
+  const rounded = Math.round((Number(value) || 0) * 100) / 100;
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
 const emptyForm = () => ({
@@ -201,10 +209,11 @@ function InventoryContent() {
   const handleReceive = async (product) => {
     const d = drafts[product.id] || {};
     const addQty = Number(d.addQty) || 0;
+    const selectedUnit = findUnit(product, d.unitId) || defaultReceiveUnit(product);
     const hasCost = d.cost !== undefined && String(d.cost).trim() !== "";
     const nextCost = hasCost
       ? parseUnitCostInput(d.cost)
-      : Number(product.cost) || 0;
+      : Math.round(Number(selectedUnit?.sellCost) || Number(product.cost) || 0);
     const payMethod = d.payMethod === "banking" ? "banking" : "cash";
     const fundSource =
       canChooseInventoryFundSource && d.fundSource === "capital"
@@ -221,6 +230,11 @@ function InventoryContent() {
       return;
     }
 
+    if (addQty > 0 && !selectedUnit) {
+      showToast("Đơn vị nhập không hợp lệ", "error");
+      return;
+    }
+
     setSavingId(product.id);
     try {
       if (addQty > 0) {
@@ -228,6 +242,7 @@ function InventoryContent() {
           fundSource,
           product,
           addQty,
+          unitId: selectedUnit?.id,
           unitCost: nextCost,
           paymentMethod: payMethod,
           updateCost: hasCost,
@@ -727,6 +742,20 @@ function InventoryContent() {
             const d = drafts[product.id] || {};
             const isIng = product.kind === PRODUCT_KIND.INGREDIENT;
             const busy = savingId === product.id;
+            const packaging = normalizeProductUnits(product);
+            const receiveUnits = packaging.units.filter(
+              (unit) => unit.canReceive
+            );
+            const selectedUnit =
+              findUnit(product, d.unitId) || defaultReceiveUnit(product);
+            const baseQtyPreview = Math.round(
+              (Number(d.addQty) || 0) * (Number(selectedUnit?.factor) || 1)
+            );
+            const previewCost = d.cost !== undefined && String(d.cost).trim() !== ""
+              ? parseUnitCostInput(d.cost)
+              : Math.round(
+                  Number(selectedUnit?.sellCost) || Number(product.cost) || 0
+                );
             return (
               <article key={product.id} className="card-panel space-y-3">
                 <div className="flex items-start justify-between gap-2">
@@ -782,6 +811,24 @@ function InventoryContent() {
                   </label>
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      Đơn vị nhập
+                    </span>
+                    <select
+                      className="field-input"
+                      value={d.unitId || selectedUnit?.id || ""}
+                      onChange={(e) =>
+                        setDraft(product.id, { unitId: e.target.value })
+                      }
+                    >
+                      {receiveUnits.map((unit) => (
+                        <option key={unit.id} value={unit.id}>
+                          {unit.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block col-span-2">
+                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
                       Giá nhập mới
                     </span>
                     <input
@@ -790,7 +837,7 @@ function InventoryContent() {
                       min="0"
                       step="any"
                       className="field-input money"
-                      placeholder={String(Number(product.cost) || 0)}
+                      placeholder={String(previewCost)}
                       value={d.cost ?? ""}
                       onChange={(e) =>
                         setDraft(product.id, { cost: e.target.value })
@@ -801,6 +848,11 @@ function InventoryContent() {
 
                 {Number(d.addQty) > 0 ? (
                   <div className="space-y-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100">
+                    <p className="text-xs font-bold text-rose-800">
+                      Nhập {Number(d.addQty) || 0}{" "}
+                      {selectedUnit?.label || product.unit || "đv"} ={" "}
+                      {formatUnitCount(baseQtyPreview)} {packaging.baseUnit}
+                    </p>
                     {canChooseInventoryFundSource ? (
                       <div className="grid grid-cols-2 gap-2">
                         <button
@@ -874,13 +926,7 @@ function InventoryContent() {
                         : "quỹ cửa hàng"}{" "}
                       ≈{" "}
                       <Money
-                        amount={Math.round(
-                          (Number(d.addQty) || 0) *
-                            (d.cost !== undefined &&
-                            String(d.cost).trim() !== ""
-                              ? parseUnitCostInput(d.cost)
-                              : Number(product.cost) || 0)
-                        )}
+                        amount={Math.round((Number(d.addQty) || 0) * previewCost)}
                       />
                     </p>
                   </div>
