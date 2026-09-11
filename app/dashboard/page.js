@@ -41,6 +41,7 @@ import {
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
+import { summarizeShopPnl } from "@/lib/pnl";
 import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
@@ -227,6 +228,8 @@ function DashboardContent() {
     () => filterTxInRange(allTx, selectedRange.from, selectedRange.to),
     [allTx, selectedRange]
   );
+
+  const periodPnl = useMemo(() => summarizeShopPnl(periodTx), [periodTx]);
 
   const periodTotals = useMemo(() => {
     const goods = sumGoodsIncomeByMethod(periodTx);
@@ -524,10 +527,28 @@ function DashboardContent() {
           />
           <StatCard
             label="Thu − chi"
-            value={loadingTx ? 0 : periodTotals.profit}
+            value={loadingTx ? 0 : periodPnl.cashProfit}
+            tone="brand"
+          />
+          <StatCard
+            label="COGS"
+            value={loadingTx ? 0 : periodPnl.cogs}
+            tone="danger"
+          />
+          <StatCard
+            label="Lãi gộp"
+            value={loadingTx ? 0 : periodPnl.grossMargin}
+            tone="success"
+          />
+          <StatCard
+            label="Lãi kinh doanh"
+            value={loadingTx ? 0 : periodPnl.operatingProfit}
             tone="brand"
           />
         </div>
+        <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
+          Lãi kinh doanh không trừ tiền nhập hàng (đã nằm trong tồn).
+        </p>
         {periodTotals.fundIn > 0 ? (
           <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
             Nạp quỹ trong kỳ:{" "}
