@@ -19,6 +19,7 @@ import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
+import { buildSaleLineFromProduct } from "@/lib/cogs";
 import { buildVietQrUrl, prefetchVietQrImage } from "@/lib/bank";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { isGoodsIncome } from "@/lib/receipts";
@@ -35,6 +36,11 @@ import {
   subscribeProducts,
 } from "@/lib/products";
 import { deleteSaleTransaction, recordPosSale } from "@/lib/sales";
+import {
+  assertCanSellStock,
+  defaultSellUnit,
+  getSellableUnits,
+} from "@/lib/packaging";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
 /**
@@ -43,6 +49,10 @@ import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
  * - Mỗi món: chạm / + / − chỉnh SL
  * - Thanh dưới: Tiền mặt · Chuyển khoản · QR chuyển
  */
+function getDefaultCartUnitId(product) {
+  return defaultSellUnit(product)?.id || "base";
+}
+
 export default function EmployeeDesk() {
   const { user, profile, role, canDeleteSales, canManageProducts } = useAuth();
   const { showToast } = useToast();
@@ -159,17 +169,40 @@ export default function EmployeeDesk() {
     return [...rows].sort(comparePosOrder);
   }, [products, activeGroupId, groups, knownGroupIds]);
 
-  const cartItems = useMemo(() => {
-    return products
-      .filter((p) => cart[p.id] > 0)
-      .map((p) => ({
-        ...p,
-        qty: cart[p.id],
-        lineTotal: cart[p.id] * (Number(p.price) || 0),
-      }));
-  }, [cart, products]);
+  const productsById = useMemo(
+    () => Object.fromEntries(products.map((p) => [p.id, p])),
+    [products]
+  );
 
-  const total = cartItems.reduce((sum, item) => sum + item.lineTotal, 0);
+  const cartItems = useMemo(() => {
+    return Object.entries(cart)
+      .map(([productId, line]) => {
+        const product = productsById[productId];
+        const qty = Number(line?.qty) || 0;
+        if (!product || qty <= 0) return null;
+
+        const unitId = line?.unitId || getDefaultCartUnitId(product);
+        let saleLine;
+        try {
+          saleLine = buildSaleLineFromProduct(product, { qty, unitId });
+        } catch {
+          try {
+            saleLine = buildSaleLineFromProduct(product, { qty });
+          } catch (fallbackError) {
+            console.error(fallbackError);
+            return null;
+          }
+        }
+
+        return {
+          product,
+          ...saleLine,
+        };
+      })
+      .filter(Boolean);
+  }, [cart, productsById]);
+
+  const total = cartItems.reduce((sum, item) => sum + item.lineRevenue, 0);
   const totalQty = cartItems.reduce((sum, item) => sum + item.qty, 0);
 
   const countInGroup = (groupId) => {
@@ -189,12 +222,39 @@ export default function EmployeeDesk() {
   const changeQty = (id, delta) => {
     setCart((prev) => {
       const next = { ...prev };
-      const value = (next[id] || 0) + delta;
-      if (value <= 0) delete next[id];
-      else next[id] = value;
+      const product = productsById[id];
+      const current = next[id];
+      const value = (Number(current?.qty) || 0) + delta;
+      if (value <= 0) {
+        delete next[id];
+      } else {
+        next[id] = {
+          qty: value,
+          unitId: current?.unitId || getDefaultCartUnitId(product),
+        };
+      }
       return next;
     });
     if (delta > 0) bumpFlash(id);
+  };
+
+  const setCartUnit = (productId, unitId) => {
+    setCart((prev) => {
+      const product = productsById[productId];
+      if (!product || !prev[productId]) return prev;
+      const sellableUnits = getSellableUnits(product);
+      const selectedUnit =
+        sellableUnits.find((unit) => unit.id === unitId) ||
+        defaultSellUnit(product);
+      if (!selectedUnit) return prev;
+      return {
+        ...prev,
+        [productId]: {
+          ...prev[productId],
+          unitId: selectedUnit.id,
+        },
+      };
+    });
   };
 
   const writeSale = async ({ items, amount, paymentMethod }) => {
@@ -213,10 +273,31 @@ export default function EmployeeDesk() {
       return;
     }
 
-    const snapshot = {
-      items: cartItems,
-      amount: total,
-    };
+    let saleItems;
+    let amount;
+    try {
+      saleItems = cartItems.map((item) => {
+        assertCanSellStock(item.product, item.unitId, item.qty);
+        return buildSaleLineFromProduct(item.product, {
+          qty: item.qty,
+          unitId: item.unitId,
+        });
+      });
+      amount = saleItems.reduce(
+        (sum, line) => sum + (Number(line.lineRevenue) || 0),
+        0
+      );
+      if (amount <= 0) {
+        throw new Error("Số tiền phải > 0");
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Ghi thu thất bại — thử lại", "error");
+      return;
+    }
+
+    const cartSnapshot = cart;
+    const snapshot = { items: saleItems, amount };
     setSubmitting(true);
     setCart({});
     setShowQr(false);
@@ -229,12 +310,7 @@ export default function EmployeeDesk() {
       );
     } catch (error) {
       console.error(error);
-      setCart(
-        snapshot.items.reduce((acc, item) => {
-          acc[item.id] = item.qty;
-          return acc;
-        }, {})
-      );
+      setCart(cartSnapshot);
       showToast("Ghi thu thất bại — thử lại", "error");
     } finally {
       setSubmitting(false);
@@ -367,7 +443,7 @@ export default function EmployeeDesk() {
               />
             ))
           : visibleProducts.map((product, index) => {
-              const qty = cart[product.id] || 0;
+              const qty = Number(cart[product.id]?.qty) || 0;
               const price = Number(product.price) || 0;
               const active = qty > 0;
               const flashing = flashId === product.id;
@@ -485,12 +561,48 @@ export default function EmployeeDesk() {
       ) : null}
 
       {totalQty > 0 ? (
-        <div className="mt-1.5 truncate rounded-lg bg-brand-50 px-2 py-1 text-[11px] font-semibold text-brand-900 ring-1 ring-brand-100">
-          {cartItems.map((item) => (
-            <span key={item.id} className="mr-2 inline-block">
-              {item.name} ×{item.qty}
-            </span>
-          ))}
+        <div className="mt-1.5 space-y-1.5 rounded-lg bg-brand-50 px-2 py-2 text-[11px] font-semibold text-brand-900 ring-1 ring-brand-100">
+          {cartItems.map((item) => {
+            const sellableUnits = getSellableUnits(item.product);
+            const showUnitPicker =
+              Boolean(item.product?.packaging?.enabled) &&
+              sellableUnits.length > 1;
+
+            return (
+              <div
+                key={item.productId}
+                className="flex items-center gap-2 rounded-md bg-white/70 px-2 py-1"
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-brand-950">
+                    {item.name} ×{item.qty}
+                  </p>
+                  <p className="money text-[11px] font-extrabold text-brand-700">
+                    <Money amount={item.lineRevenue} />
+                  </p>
+                </div>
+
+                {showUnitPicker ? (
+                  <select
+                    value={item.unitId}
+                    onChange={(e) => setCartUnit(item.productId, e.target.value)}
+                    className="h-8 shrink-0 rounded-lg border border-brand-200 bg-white px-2 text-[11px] font-bold text-slate-700 outline-none"
+                    aria-label={`Chọn đơn vị bán ${item.name}`}
+                  >
+                    {sellableUnits.map((unit) => (
+                      <option key={unit.id} value={unit.id}>
+                        {unit.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span className="shrink-0 rounded-md bg-brand-100 px-2 py-1 text-[10px] font-bold text-brand-800">
+                    {item.unitLabel}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       ) : null}
 
