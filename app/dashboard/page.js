@@ -46,7 +46,7 @@ import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
 } from "@/lib/productGroups";
-import { isSellable, subscribeProducts } from "@/lib/products";
+import { isSellable, productsByIdMap, subscribeProducts } from "@/lib/products";
 import {
   isGoodsIncome,
   sumGoodsIncomeByMethod,
@@ -229,7 +229,12 @@ function DashboardContent() {
     [allTx, selectedRange]
   );
 
-  const periodPnl = useMemo(() => summarizeShopPnl(periodTx), [periodTx]);
+  const productsById = useMemo(() => productsByIdMap(products), [products]);
+
+  const periodPnl = useMemo(
+    () => summarizeShopPnl(periodTx, productsById),
+    [periodTx, productsById]
+  );
 
   const periodTotals = useMemo(() => {
     const goods = sumGoodsIncomeByMethod(periodTx);
@@ -526,17 +531,23 @@ function DashboardContent() {
             tone="danger"
           />
           <StatCard
-            label="Thu − chi"
+            label="Tiền két (thu − chi)"
             value={loadingTx ? 0 : periodPnl.cashProfit}
             tone="brand"
           />
+        </div>
+
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Lãi theo giá vốn món bán
+        </p>
+        <div className="grid grid-cols-2 gap-2">
           <StatCard
-            label="COGS"
+            label="Giá vốn (COGS)"
             value={loadingTx ? 0 : periodPnl.cogs}
             tone="danger"
           />
           <StatCard
-            label="Lãi gộp"
+            label="Lãi gộp (thu − vốn)"
             value={loadingTx ? 0 : periodPnl.grossMargin}
             tone="success"
           />
@@ -546,9 +557,26 @@ function DashboardContent() {
             tone="brand"
           />
         </div>
-        <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
-          Lãi kinh doanh không trừ tiền nhập hàng (đã nằm trong tồn).
+        <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-100">
+          <span className="font-semibold text-slate-800">Lãi gộp</span> = doanh
+          thu − giá vốn từng món đã bán (cost / công thức).{" "}
+          <span className="font-semibold text-slate-800">Tiền két</span> chỉ là
+          thu − chi quỹ (không trừ giá vốn). Lãi kinh doanh = lãi gộp − chi vận
+          hành (không trừ tiền nhập hàng — đã nằm trong tồn).
         </p>
+        {!loadingTx && periodPnl.revenue > 0 && periodPnl.cogs === 0 ? (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
+            Giá vốn đang = 0 → lãi gộp trùng doanh thu. Kiểm tra món đã bán đã
+            khai <strong>cost / giá vốn</strong> chưa (Món · công thức). Bill
+            cũ sẽ ước theo cost hiện tại nếu còn dòng món.
+          </p>
+        ) : null}
+        {!loadingTx && periodPnl.cogsEstimated ? (
+          <p className="rounded-xl bg-teal-50 px-3 py-2 text-xs text-teal-950 ring-1 ring-teal-100">
+            Một phần giá vốn đang <strong>ước tính</strong> từ catalog (bill
+            chưa snapshot lúc bán).
+          </p>
+        ) : null}
         {periodTotals.fundIn > 0 ? (
           <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
             Nạp quỹ trong kỳ:{" "}

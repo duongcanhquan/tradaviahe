@@ -34,6 +34,7 @@ import {
   calculateMonthlyReport,
 } from "@/lib/monthly";
 import { summarizeShopPnl } from "@/lib/pnl";
+import { productsByIdMap, subscribeProducts } from "@/lib/products";
 import {
   RECEIPT_METHODS,
   addShareholderReceipt,
@@ -80,6 +81,7 @@ function MonthlyContent() {
   const [dateFrom, setDateFrom] = useState(initialBounds.from);
   const [dateTo, setDateTo] = useState(initialBounds.to);
   const [allTx, setAllTx] = useState([]);
+  const [products, setProducts] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
   const [users, setUsers] = useState([]);
   const [receipts, setReceipts] = useState([]);
@@ -126,9 +128,24 @@ function MonthlyContent() {
     return () => unsub();
   }, [showToast]);
 
+  useEffect(() => {
+    const unsub = subscribeProducts(
+      (list) => setProducts(list),
+      () => setProducts([])
+    );
+    return () => unsub();
+  }, []);
+
   const monthTx = useMemo(
     () => filterRowsByDateRange(allTx, dateFrom, dateTo),
     [allTx, dateFrom, dateTo]
+  );
+
+  const productsById = useMemo(() => productsByIdMap(products), [products]);
+
+  const shopPnl = useMemo(
+    () => summarizeShopPnl(monthTx, productsById),
+    [monthTx, productsById]
   );
 
   useEffect(() => {
@@ -220,11 +237,6 @@ function MonthlyContent() {
           })
         : null,
     [canViewDividends, monthTx, shareholderCapitalEntries, relationFundPercent]
-  );
-
-  const shopPnl = useMemo(
-    () => summarizeShopPnl(monthTx),
-    [monthTx]
   );
 
   const investorNames = useMemo(() => {
@@ -460,13 +472,13 @@ function MonthlyContent() {
               </h3>
               <div className="grid grid-cols-3 gap-2 text-sm">
                 <div className="rounded-2xl bg-rose-50 px-3 py-3">
-                  <p className="text-xs text-rose-700/80">COGS</p>
+                  <p className="text-xs text-rose-700/80">Giá vốn</p>
                   <p className="money mt-1 text-lg font-extrabold text-rose-700">
                     <Money amount={shopPnl.cogs} />
                   </p>
                 </div>
                 <div className="rounded-2xl bg-emerald-50 px-3 py-3">
-                  <p className="text-xs text-emerald-800">Lãi gộp</p>
+                  <p className="text-xs text-emerald-800">Lãi gộp (thu − vốn)</p>
                   <p className="money mt-1 text-lg font-extrabold text-emerald-700">
                     <Money amount={shopPnl.grossMargin} />
                   </p>
@@ -479,8 +491,8 @@ function MonthlyContent() {
                 </div>
               </div>
               <p className="text-xs text-slate-500">
-                Đây là lãi kinh doanh theo Lens 2, chỉ để tham khảo. Khối cổ tức
-                phía dưới vẫn giữ nguyên theo Lens 1.
+                Lãi gộp = doanh thu − giá vốn món bán. Cổ tức phía dưới vẫn theo
+                Thu − chi (Lens 1), chưa đổi.
               </p>
             </div>
           </section>
