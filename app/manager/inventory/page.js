@@ -245,7 +245,7 @@ function InventoryContent() {
           unitId: selectedUnit?.id,
           unitCost: nextCost,
           paymentMethod: payMethod,
-          updateCost: hasCost,
+          updateCost: hasCost && Number(selectedUnit?.factor) === 1,
           user,
           profile,
         });
