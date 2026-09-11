@@ -44,7 +44,60 @@ import {
   summarizeRecipeCosts,
   updateProduct,
 } from "@/lib/products";
+import { normalizeProductUnits } from "@/lib/packaging";
 import { cn, formatCurrency } from "@/lib/utils";
+
+function makeUnitId(label) {
+  return (
+    String(label || "unit")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "-") || "unit"
+  );
+}
+
+function createUnitRow(overrides = {}) {
+  const label = String(overrides.label || overrides.id || "đv").trim() || "đv";
+  return {
+    id: String(overrides.id || makeUnitId(label)),
+    label,
+    factor: Math.max(1, Math.round(Number(overrides.factor) || 1)),
+    sellPrice: Number(overrides.sellPrice) || 0,
+    sellCost: Number(overrides.sellCost) || 0,
+    canSell: overrides.canSell !== false,
+    canReceive: overrides.canReceive !== false,
+  };
+}
+
+function ensureBaseUnitRow(units, baseUnit, sellPrice, sellCost) {
+  const rows = (Array.isArray(units) ? units : []).map((row) =>
+    createUnitRow(row)
+  );
+  const baseIndex = rows.findIndex((row) => Number(row.factor) === 1);
+  const baseRow = createUnitRow({
+    id: baseIndex >= 0 ? rows[baseIndex].id : makeUnitId(baseUnit),
+    label: baseUnit,
+    factor: 1,
+    sellPrice,
+    sellCost,
+    canSell: true,
+    canReceive: true,
+  });
+
+  if (baseIndex >= 0) {
+    rows[baseIndex] = { ...rows[baseIndex], ...baseRow, factor: 1 };
+    return rows;
+  }
+
+  return [baseRow, ...rows];
+}
+
+function formatUnitCount(value) {
+  const rounded = Math.round((Number(value) || 0) * 100) / 100;
+  return Number.isInteger(rounded)
+    ? String(rounded)
+    : rounded.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+}
 
 const emptyForm = {
   name: "",
@@ -57,6 +110,11 @@ const emptyForm = {
   inStock: "0",
   active: true,
   estimatedServings: "100",
+  packaging: {
+    enabled: false,
+    baseUnit: "ly",
+  },
+  units: [],
   recipe: [],
 };
 
@@ -155,6 +213,11 @@ function ProductsContent() {
       costMode: isFinished ? COST_MODE.RECIPE : COST_MODE.MANUAL,
       groupId: groups[0]?.id || "drinks",
       estimatedServings: "100",
+      packaging: {
+        enabled: false,
+        baseUnit: kind === PRODUCT_KIND.INGREDIENT ? "g" : "ly",
+      },
+      units: [],
       recipe: [],
     });
     setOpen(true);
@@ -168,11 +231,16 @@ function ProductsContent() {
         (l) => l.productId && Number(l.qty) > 0
       );
       if (hasLines || !first) {
-        return { ...f, costMode: COST_MODE.RECIPE };
+        return {
+          ...f,
+          costMode: COST_MODE.RECIPE,
+          packaging: { ...f.packaging, enabled: false },
+        };
       }
       return {
         ...f,
         costMode: COST_MODE.RECIPE,
+        packaging: { ...f.packaging, enabled: false },
         recipe: [
           {
             productId: first.id,
@@ -222,6 +290,13 @@ function ProductsContent() {
         },
       ];
     }
+    const packagingEnabled = Boolean(row.packaging?.enabled) && !useRecipe;
+    const normalizedPackaging = normalizeProductUnits(row);
+    const baseUnit =
+      row.packaging?.baseUnit ||
+      row.unit ||
+      normalizedPackaging.baseUnit ||
+      "cái";
     setForm({
       name: row.name || "",
       kind: row.kind === PRODUCT_KIND.INGREDIENT
@@ -237,6 +312,13 @@ function ProductsContent() {
       estimatedServings: String(
         Math.max(1, Number(row.estimatedServings) || 100)
       ),
+      packaging: {
+        enabled: packagingEnabled,
+        baseUnit,
+      },
+      units: packagingEnabled
+        ? normalizedPackaging.units.map((unit) => ({ ...unit }))
+        : [],
       recipe,
     });
     setOpen(true);
@@ -286,6 +368,114 @@ function ProductsContent() {
     }));
   };
 
+  const setPackagingEnabled = (enabled) => {
+    setForm((f) => {
+      if (f.costMode === COST_MODE.RECIPE) {
+        return {
+          ...f,
+          packaging: { ...f.packaging, enabled: false },
+        };
+      }
+      if (!enabled) {
+        return {
+          ...f,
+          packaging: { ...f.packaging, enabled: false },
+        };
+      }
+      const baseUnit =
+        String(f.packaging?.baseUnit || f.unit || "cái").trim() || "cái";
+      return {
+        ...f,
+        packaging: { enabled: true, baseUnit },
+        units: ensureBaseUnitRow(
+          f.units,
+          baseUnit,
+          Number(f.price) || 0,
+          Number(f.cost) || 0
+        ),
+      };
+    });
+  };
+
+  const updateBaseUnitField = (field, value) => {
+    setForm((f) => {
+      const next = { ...f, [field]: value };
+      if (!f.packaging?.enabled) {
+        return next;
+      }
+      const baseUnit =
+        String(field === "unit" ? value : f.packaging?.baseUnit || f.unit || "cái")
+          .trim() || "cái";
+      const price = field === "price" ? Number(value) || 0 : Number(f.price) || 0;
+      const cost = field === "cost" ? Number(value) || 0 : Number(f.cost) || 0;
+      return {
+        ...next,
+        unit: baseUnit,
+        price: field === "price" ? value : f.price,
+        cost: field === "cost" ? value : f.cost,
+        packaging: { ...f.packaging, baseUnit },
+        units: ensureBaseUnitRow(f.units, baseUnit, price, cost),
+      };
+    });
+  };
+
+  const updatePackagingUnit = (index, patch) => {
+    setForm((f) => {
+      const nextPatch = { ...patch };
+      const current = f.units[index];
+      if (
+        Object.prototype.hasOwnProperty.call(nextPatch, "factor") &&
+        Number(current?.factor) !== 1
+      ) {
+        nextPatch.factor = Math.max(2, Math.round(Number(nextPatch.factor) || 2));
+      }
+      const units = f.units.map((unit, i) =>
+        i === index ? { ...unit, ...nextPatch } : unit
+      );
+      const nextCurrent = units[index];
+      if (Number(nextCurrent?.factor) === 1) {
+        const baseUnit =
+          String(nextCurrent?.label || f.packaging?.baseUnit || f.unit || "cái")
+            .trim() || "cái";
+        const price = Number(nextCurrent?.sellPrice) || 0;
+        const cost = Number(nextCurrent?.sellCost) || 0;
+        return {
+          ...f,
+          unit: baseUnit,
+          price: String(price),
+          cost: String(cost),
+          packaging: { ...f.packaging, baseUnit },
+          units: ensureBaseUnitRow(units, baseUnit, price, cost),
+        };
+      }
+      return { ...f, units };
+    });
+  };
+
+  const addPackagingUnit = () => {
+    setForm((f) => {
+      const nextRow = createUnitRow({
+        id: makeUnitId(`unit-${f.units.length + 1}-${Date.now()}`),
+        label: "cây",
+        factor: 10,
+        sellPrice: Number(f.price) || 0,
+        sellCost: Number(f.cost) || 0,
+      });
+      return { ...f, units: [...f.units, nextRow] };
+    });
+  };
+
+  const removePackagingUnit = (index) => {
+    setForm((f) => {
+      const target = f.units[index];
+      if (!target || Number(target.factor) === 1) return f;
+      return {
+        ...f,
+        units: f.units.filter((_, i) => i !== index),
+      };
+    });
+  };
+
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
@@ -324,6 +514,16 @@ function ProductsContent() {
             ? form.groupId || null
             : null,
         active: form.active,
+        packaging:
+          form.costMode !== COST_MODE.RECIPE && form.packaging?.enabled
+            ? {
+                enabled: true,
+                baseUnit:
+                  String(form.packaging?.baseUnit || form.unit || "cái").trim() ||
+                  "cái",
+              }
+            : { enabled: false },
+        units: Array.isArray(form.units) ? form.units : [],
         recipe:
           form.costMode === COST_MODE.RECIPE
             ? form.recipe.map((l) => ({
@@ -716,6 +916,23 @@ function ProductsContent() {
               const groupLabel = row.groupId
                 ? groupMap[row.groupId]?.name || row.groupId
                 : "Chưa nhóm";
+              const packaging = row.packaging?.enabled
+                ? normalizeProductUnits(row)
+                : null;
+              const stockBase = Number(row.inStock) || 0;
+              const stockSummary =
+                packaging?.enabled && packaging.units.length > 1
+                  ? (() => {
+                      const extraUnits = packaging.units
+                        .filter((unit) => Number(unit.factor) > 1)
+                        .sort((a, b) => b.factor - a.factor);
+                      const best = extraUnits[0];
+                      if (!best) return `${stockBase} ${packaging.baseUnit}`;
+                      return `${stockBase} ${packaging.baseUnit} ≈ ${formatUnitCount(
+                        stockBase / best.factor
+                      )} ${best.label}`;
+                    })()
+                  : null;
               return (
                 <div
                   key={row.id}
@@ -730,7 +947,9 @@ function ProductsContent() {
                         {row.kind !== PRODUCT_KIND.INGREDIENT
                           ? `${groupLabel} · `
                           : ""}
-                        Đơn vị: {row.unit || "—"} · Tồn: {row.inStock ?? 0}
+                        {packaging
+                          ? `Tồn: ${stockSummary || `${stockBase} ${packaging.baseUnit}`}`
+                          : `Đơn vị: ${row.unit || "—"} · Tồn: ${row.inStock ?? 0}`}
                         {row.kind !== PRODUCT_KIND.INGREDIENT &&
                         row.costMode === COST_MODE.RECIPE
                           ? " · Cost theo CT"
@@ -919,20 +1138,31 @@ function ProductsContent() {
 
             <div className="mb-3 grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="mb-1 block text-sm font-semibold">Đơn vị</span>
-                <select
-                  className="field-input"
-                  value={form.unit}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, unit: e.target.value }))
-                  }
-                >
-                  {PRODUCT_UNITS.map((u) => (
-                    <option key={u} value={u}>
-                      {u}
-                    </option>
-                  ))}
-                </select>
+                <span className="mb-1 block text-sm font-semibold">
+                  {form.packaging?.enabled ? "Đơn vị gốc" : "Đơn vị"}
+                </span>
+                {form.packaging?.enabled ? (
+                  <input
+                    className="field-input"
+                    value={form.unit}
+                    onChange={(e) => updateBaseUnitField("unit", e.target.value)}
+                    placeholder="vd: bao"
+                  />
+                ) : (
+                  <select
+                    className="field-input"
+                    value={form.unit}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, unit: e.target.value }))
+                    }
+                  >
+                    {PRODUCT_UNITS.map((u) => (
+                      <option key={u} value={u}>
+                        {u}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm font-semibold">
@@ -1007,9 +1237,7 @@ function ProductsContent() {
                   required
                   className="field-input"
                   value={form.cost}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, cost: e.target.value }))
-                  }
+                  onChange={(e) => updateBaseUnitField("cost", e.target.value)}
                   placeholder="vd: 2 hoặc 0.5"
                 />
               </label>
@@ -1025,9 +1253,7 @@ function ProductsContent() {
                     required
                     className="field-input"
                     value={form.price}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, price: e.target.value }))
-                    }
+                    onChange={(e) => updateBaseUnitField("price", e.target.value)}
                     placeholder="vd: 5000"
                   />
                 </label>
@@ -1086,9 +1312,7 @@ function ProductsContent() {
                       min="0"
                       className="field-input"
                       value={form.cost}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, cost: e.target.value }))
-                      }
+                      onChange={(e) => updateBaseUnitField("cost", e.target.value)}
                       placeholder="vd: 8000 (nước ngọt nhập)"
                     />
                   </label>
@@ -1274,6 +1498,145 @@ function ProductsContent() {
                 )}
               </>
             )}
+
+            {form.costMode !== COST_MODE.RECIPE ? (
+              <div className="mb-3 space-y-3">
+                <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.packaging?.enabled)}
+                    onChange={(e) => setPackagingEnabled(e.target.checked)}
+                    className="h-5 w-5 accent-brand-700"
+                  />
+                  <span className="text-sm font-semibold text-slate-800">
+                    Nhiều đơn vị (cây/bao…)
+                  </span>
+                </label>
+
+                {form.packaging?.enabled ? (
+                  <div className="space-y-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold text-slate-900">
+                        Đơn vị bán / nhập
+                      </p>
+                      <button
+                        type="button"
+                        onClick={addPackagingUnit}
+                        className="touch-btn h-10 shrink-0 bg-white px-3 text-xs font-bold text-slate-700 ring-1 ring-slate-200"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                        Thêm dòng
+                      </button>
+                    </div>
+                    <p className="text-[11px] leading-relaxed text-slate-500">
+                      Dòng có hệ số 1 là đơn vị gốc, đồng bộ với ô Đơn vị phía trên.
+                    </p>
+                    <div className="space-y-2">
+                      {form.units.map((unit, index) => {
+                        const isBase = Number(unit.factor) === 1;
+                        return (
+                          <div
+                            key={unit.id || `${index}`}
+                            className="grid grid-cols-2 gap-2 sm:grid-cols-[1.4fr_5.5rem_6rem_6rem_4rem_4rem_2.75rem]"
+                          >
+                            <input
+                              className="field-input py-2 text-sm"
+                              value={unit.label}
+                              onChange={(e) =>
+                                updatePackagingUnit(index, {
+                                  label: e.target.value,
+                                })
+                              }
+                              placeholder="Tên đơn vị"
+                            />
+                            <input
+                              type="number"
+                              min={isBase ? 1 : 2}
+                              step="1"
+                              className="field-input py-2 text-sm"
+                              value={unit.factor}
+                              disabled={isBase}
+                              onChange={(e) =>
+                                updatePackagingUnit(index, {
+                                  factor: e.target.value,
+                                })
+                              }
+                              placeholder="Hệ số"
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="field-input py-2 text-sm"
+                              value={unit.sellPrice}
+                              onChange={(e) =>
+                                updatePackagingUnit(index, {
+                                  sellPrice: e.target.value,
+                                })
+                              }
+                              placeholder="Giá bán"
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              className="field-input py-2 text-sm"
+                              value={unit.sellCost}
+                              onChange={(e) =>
+                                updatePackagingUnit(index, {
+                                  sellCost: e.target.value,
+                                })
+                              }
+                              placeholder="Giá vốn"
+                            />
+                            <label className="flex items-center justify-center rounded-xl bg-white px-2 ring-1 ring-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={unit.canSell !== false}
+                                onChange={(e) =>
+                                  updatePackagingUnit(index, {
+                                    canSell: e.target.checked,
+                                  })
+                                }
+                                className="h-4 w-4 accent-brand-700"
+                              />
+                              <span className="sr-only">Bán</span>
+                            </label>
+                            <label className="flex items-center justify-center rounded-xl bg-white px-2 ring-1 ring-slate-200">
+                              <input
+                                type="checkbox"
+                                checked={unit.canReceive !== false}
+                                onChange={(e) =>
+                                  updatePackagingUnit(index, {
+                                    canReceive: e.target.checked,
+                                  })
+                                }
+                                className="h-4 w-4 accent-brand-700"
+                              />
+                              <span className="sr-only">Nhập</span>
+                            </label>
+                            <button
+                              type="button"
+                              aria-label="Xóa đơn vị"
+                              disabled={isBase}
+                              onClick={() => removePackagingUnit(index)}
+                              className={cn(
+                                "flex h-11 items-center justify-center rounded-xl ring-1",
+                                isBase
+                                  ? "bg-slate-100 text-slate-300 ring-slate-200"
+                                  : "bg-white text-rose-600 ring-rose-100"
+                              )}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <button
               type="submit"
