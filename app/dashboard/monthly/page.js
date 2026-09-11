@@ -33,6 +33,7 @@ import {
 import {
   calculateMonthlyReport,
 } from "@/lib/monthly";
+import { summarizeShopPnl } from "@/lib/pnl";
 import {
   RECEIPT_METHODS,
   addShareholderReceipt,
@@ -219,6 +220,11 @@ function MonthlyContent() {
           })
         : null,
     [canViewDividends, monthTx, shareholderCapitalEntries, relationFundPercent]
+  );
+
+  const shopPnl = useMemo(
+    () => summarizeShopPnl(monthTx),
+    [monthTx]
   );
 
   const investorNames = useMemo(() => {
@@ -446,6 +452,36 @@ function MonthlyContent() {
                   Tháng này lỗ, không chia
                 </p>
               ) : null}
+            </div>
+
+            <div className="card-panel space-y-3">
+              <h3 className="section-title mb-0">
+                Tham khảo · Lãi kinh doanh (chưa chia cổ tức)
+              </h3>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <div className="rounded-2xl bg-rose-50 px-3 py-3">
+                  <p className="text-xs text-rose-700/80">COGS</p>
+                  <p className="money mt-1 text-lg font-extrabold text-rose-700">
+                    <Money amount={shopPnl.cogs} />
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-emerald-50 px-3 py-3">
+                  <p className="text-xs text-emerald-800">Lãi gộp</p>
+                  <p className="money mt-1 text-lg font-extrabold text-emerald-700">
+                    <Money amount={shopPnl.grossMargin} />
+                  </p>
+                </div>
+                <div className="rounded-2xl bg-brand-50 px-3 py-3">
+                  <p className="text-xs text-brand-800">Lãi kinh doanh</p>
+                  <p className="money mt-1 text-lg font-extrabold text-brand-800">
+                    <Money amount={shopPnl.operatingProfit} />
+                  </p>
+                </div>
+              </div>
+              <p className="text-xs text-slate-500">
+                Đây là lãi kinh doanh theo Lens 2, chỉ để tham khảo. Khối cổ tức
+                phía dưới vẫn giữ nguyên theo Lens 1.
+              </p>
             </div>
           </section>
 
