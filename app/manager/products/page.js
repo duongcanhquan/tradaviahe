@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import {
   ArrowDown,
   ArrowUp,
@@ -29,11 +28,9 @@ import {
   COST_MODE,
   PRODUCT_KIND,
   PRODUCT_UNITS,
-  RECIPE_PHASE,
   comparePosOrder,
   createProduct,
   deleteProduct,
-  filterRecipeByPhase,
   marginOf,
   moveProductInOrder,
   productsByIdMap,
@@ -44,7 +41,9 @@ import {
   summarizeRecipeCosts,
   updateProduct,
 } from "@/lib/products";
+import { migrateRecipeQty, recipeLineCost } from "@/lib/recipe";
 import { normalizeProductUnits } from "@/lib/packaging";
+import { formatBaseQty, toIngredientBaseQty, usageUnitsForIngredient } from "@/lib/units";
 import { cn, formatCurrency } from "@/lib/utils";
 
 function makeUnitId(label) {
@@ -109,7 +108,6 @@ const emptyForm = {
   groupId: "drinks",
   inStock: "0",
   active: true,
-  estimatedServings: "100",
   packaging: {
     enabled: false,
     baseUnit: "ly",
@@ -209,10 +207,9 @@ function ProductsContent() {
       ...emptyForm,
       kind,
       unit: kind === PRODUCT_KIND.INGREDIENT ? "g" : "ly",
-      // Thành phẩm pha (trà đá…) mặc định công thức để tính cost mẻ
+      // Thành phẩm mặc định công thức để cost = tổng NL mỗi suất
       costMode: isFinished ? COST_MODE.RECIPE : COST_MODE.MANUAL,
       groupId: groups[0]?.id || "drinks",
-      estimatedServings: "100",
       packaging: {
         enabled: false,
         baseUnit: kind === PRODUCT_KIND.INGREDIENT ? "g" : "ly",
@@ -228,7 +225,9 @@ function ProductsContent() {
       if (f.costMode === COST_MODE.RECIPE) return f;
       const first = ingredients[0];
       const hasLines = (f.recipe || []).some(
-        (l) => l.productId && Number(l.qty) > 0
+        (l) =>
+          (l.virtual && String(l.name || "").trim() && Number(l.qty) > 0) ||
+          (l.productId && Number(l.qty) > 0)
       );
       if (hasLines || !first) {
         return {
@@ -244,13 +243,9 @@ function ProductsContent() {
         recipe: [
           {
             productId: first.id,
-            qty: "300",
-            phase: RECIPE_PHASE.BATCH,
-          },
-          {
-            productId: first.id,
             qty: "1",
-            phase: RECIPE_PHASE.SERVE,
+            unitId: first.unit || "g",
+            virtual: false,
           },
         ],
       };
@@ -261,27 +256,21 @@ function ProductsContent() {
     setEditingId(row.id);
     const useRecipe =
       forceRecipe || row.costMode === COST_MODE.RECIPE;
+    const servings = Math.max(1, Number(row.estimatedServings) || 100);
     let recipe = Array.isArray(row.recipe)
       ? row.recipe.map((l) =>
           l.virtual
             ? {
                 virtual: true,
                 name: l.name || "",
-                qty: String(l.qty ?? "1"),
+                qty: String(migrateRecipeQty(l, servings) || l.qty || "1"),
                 unitCost: String(l.unitCost ?? "0"),
-                phase:
-                  l.phase === RECIPE_PHASE.BATCH
-                    ? RECIPE_PHASE.BATCH
-                    : RECIPE_PHASE.SERVE,
                 productId: "",
               }
             : {
                 productId: l.productId,
-                qty: String(l.qty ?? ""),
-                phase:
-                  l.phase === RECIPE_PHASE.BATCH
-                    ? RECIPE_PHASE.BATCH
-                    : RECIPE_PHASE.SERVE,
+                qty: String(migrateRecipeQty(l, servings) || ""),
+                unitId: l.unitId || byId[l.productId]?.unit || "",
                 virtual: false,
               }
         )
@@ -299,14 +288,8 @@ function ProductsContent() {
       recipe = [
         {
           productId: ingredients[0].id,
-          qty: "300",
-          phase: RECIPE_PHASE.BATCH,
-          virtual: false,
-        },
-        {
-          productId: ingredients[0].id,
           qty: "1",
-          phase: RECIPE_PHASE.SERVE,
+          unitId: ingredients[0].unit || "g",
           virtual: false,
         },
       ];
@@ -330,9 +313,6 @@ function ProductsContent() {
       groupId: row.groupId || "",
       inStock: row.inStock != null ? String(row.inStock) : "0",
       active: row.active !== false,
-      estimatedServings: String(
-        Math.max(1, Number(row.estimatedServings) || 100)
-      ),
       packaging: {
         enabled: packagingEnabled,
         baseUnit,
@@ -347,19 +327,11 @@ function ProductsContent() {
 
   const recipePreview = useMemo(() => {
     if (form.costMode !== COST_MODE.RECIPE) {
-      return {
-        unitCost: 0,
-        batchCost: 0,
-        serveCost: 0,
-        batchPerServing: 0,
-        margin: 0,
-        servings: 100,
-      };
+      return { unitCost: 0, margin: 0 };
     }
     return summarizeRecipeCosts(
       {
         price: Number(form.price) || 0,
-        estimatedServings: Number(form.estimatedServings) || 100,
         recipe: form.recipe.map((l) =>
           l.virtual
             ? {
@@ -367,20 +339,19 @@ function ProductsContent() {
                 name: l.name || "",
                 qty: Number(l.qty) || 0,
                 unitCost: Number(l.unitCost) || 0,
-                phase: l.phase,
               }
             : {
                 productId: l.productId,
                 qty: Number(l.qty) || 0,
-                phase: l.phase,
+                unitId: l.unitId || "",
               }
         ),
       },
       byId
     );
-  }, [form.costMode, form.recipe, form.estimatedServings, form.price, byId]);
+  }, [form.costMode, form.recipe, form.price, byId]);
 
-  const addRecipeLine = (phase = RECIPE_PHASE.SERVE, { virtual = false } = {}) => {
+  const addRecipeLine = ({ virtual = false } = {}) => {
     if (virtual) {
       setForm((f) => ({
         ...f,
@@ -391,7 +362,6 @@ function ProductsContent() {
             name: "",
             qty: "1",
             unitCost: "0",
-            phase,
             productId: "",
           },
         ],
@@ -400,7 +370,7 @@ function ProductsContent() {
     }
     const first = ingredients[0];
     if (!first) {
-      showToast("Thêm nguyên liệu trước", "info");
+      showToast("Thêm nguyên liệu kho trước (tab Nguyên liệu)", "info");
       return;
     }
     setForm((f) => ({
@@ -409,8 +379,8 @@ function ProductsContent() {
         ...f.recipe,
         {
           productId: first.id,
-          qty: phase === RECIPE_PHASE.BATCH ? "12" : "1",
-          phase,
+          qty: "1",
+          unitId: first.unit || "g",
           virtual: false,
         },
       ],
@@ -561,10 +531,6 @@ function ProductsContent() {
             ? recipePreview.unitCost
             : Number(form.cost) || 0,
         costMode: form.costMode,
-        estimatedServings: Math.max(
-          1,
-          Number(form.estimatedServings) || 100
-        ),
         groupId:
           form.kind === PRODUCT_KIND.FINISHED
             ? form.groupId || null
@@ -589,19 +555,12 @@ function ProductsContent() {
                       name: String(l.name || "").trim(),
                       qty: Number(l.qty) || 0,
                       unitCost: Math.max(0, Math.round(Number(l.unitCost) || 0)),
-                      phase:
-                        l.phase === RECIPE_PHASE.BATCH
-                          ? RECIPE_PHASE.BATCH
-                          : RECIPE_PHASE.SERVE,
                       productId: "",
                     }
                   : {
                       productId: l.productId,
                       qty: Number(l.qty) || 0,
-                      phase:
-                        l.phase === RECIPE_PHASE.BATCH
-                          ? RECIPE_PHASE.BATCH
-                          : RECIPE_PHASE.SERVE,
+                      unitId: l.unitId || "",
                       virtual: false,
                     }
               )
@@ -609,7 +568,7 @@ function ProductsContent() {
         _productsById: byId,
       };
 
-      // Sửa món: không ghi đè tồn (POS / nhập hàng / sổ pha đang trừ)
+      // Sửa món: không ghi đè tồn (POS / nhập hàng đang trừ)
       if (editingId) {
         await updateProduct(editingId, payload);
       } else {
@@ -732,15 +691,19 @@ function ProductsContent() {
       }
     >
       <div className="mb-3 grid grid-cols-2 gap-2">
-        <Link
-          href="/manager/production"
-          className="touch-btn h-14 flex-col gap-0.5 bg-teal-700 px-2 text-white"
+        <button
+          type="button"
+          onClick={() => {
+            setTab("ingredient");
+            openCreate(PRODUCT_KIND.INGREDIENT);
+          }}
+          className="touch-btn h-14 flex-col gap-0.5 bg-slate-800 px-2 text-white"
         >
-          <span className="text-sm font-extrabold">Pha mẻ · ủ trà</span>
+          <span className="text-sm font-extrabold">Thêm nguyên liệu</span>
           <span className="text-[10px] font-medium text-white/80">
-            Ghi mẻ · trừ NL pha
+            Đường, mì, trứng… vào kho
           </span>
-        </Link>
+        </button>
         <button
           type="button"
           onClick={() => {
@@ -749,24 +712,17 @@ function ProductsContent() {
           }}
           className="touch-btn h-14 flex-col gap-0.5 bg-amber-600 px-2 text-white"
         >
-          <span className="text-sm font-extrabold">Thêm món + CT</span>
+          <span className="text-sm font-extrabold">Thêm món bán</span>
           <span className="text-[10px] font-medium text-white/80">
-            Cost mẻ ÷ suất + kèm
+            Công thức trừ NL lúc bán
           </span>
         </button>
       </div>
       <p className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
-        <span className="font-extrabold">Cách làm trà đá:</span> (1) Tab Nguyên
-        liệu — nhập trà, nước, đá, đường + giá nhập. (2) Thành phẩm → chọn{" "}
-        <span className="font-bold">Công thức</span> — NL pha mẻ + NL kèm mỗi
-        cốc + số suất/mẻ → xem cost. (3){" "}
-        <Link
-          href="/manager/production"
-          className="font-bold text-teal-800 underline"
-        >
-          Pha mẻ
-        </Link>{" "}
-        mỗi lần ủ → trừ kho NL pha. Bán POS chỉ trừ NL kèm.
+        <span className="font-extrabold">Cách làm:</span> tạo NL (gốc g / gói /
+        quả) → nhập hàng theo kg/túi/thùng → gắn công thức món bán (vd 2 lạng
+        đường = 200g). Bán POS trừ đúng lượng gốc. Đá/nước không kho: dòng ước
+        tay.
       </p>
       <div className="mb-4 grid grid-cols-3 gap-2">
         <button
@@ -1116,7 +1072,7 @@ function ProductsContent() {
                       onClick={() => openEdit(row, { forceRecipe: true })}
                       className="mt-2 w-full rounded-xl bg-amber-50 px-3 py-2 text-left text-xs font-bold text-amber-950 ring-1 ring-amber-200"
                     >
-                      Chưa có công thức mẻ → bấm để setup cost (pha ÷ suất + kèm)
+                      Chưa có công thức → bấm để gắn NL + tính cost
                     </button>
                   ) : null}
 
@@ -1125,27 +1081,11 @@ function ProductsContent() {
                   Array.isArray(row.recipe) &&
                   row.recipe.length ? (
                     <ul className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-xs text-slate-500">
-                      <li className="font-semibold text-slate-600">
-                        1 mẻ ≈ {Math.max(1, Number(row.estimatedServings) || 100)}{" "}
-                        suất
-                      </li>
-                      {!filterRecipeByPhase(row.recipe, RECIPE_PHASE.BATCH)
-                        .length ? (
-                        <li className="font-semibold text-amber-700">
-                          Chưa có NL pha mẻ — mọi dòng đang trừ lúc bán. Sửa
-                          công thức nếu muốn ghi sổ pha.
-                        </li>
-                      ) : null}
                       {row.recipe.map((line, lineIdx) => {
-                        const phaseLabel =
-                          line.phase === RECIPE_PHASE.BATCH ? "Mẻ" : "Kèm";
                         if (line.virtual) {
                           return (
-                            <li
-                              key={`${row.id}-${line.phase}-v-${lineIdx}-${line.name}`}
-                            >
-                              [{phaseLabel}] {line.name || "Ước tay"} ×{" "}
-                              {line.qty} ·{" "}
+                            <li key={`${row.id}-v-${lineIdx}-${line.name}`}>
+                              {line.name || "Ước tay"} × {line.qty} ·{" "}
                               {formatCurrency(line.unitCost || 0)}
                               <span className="ml-1 font-semibold text-amber-700">
                                 (không trừ kho)
@@ -1154,12 +1094,21 @@ function ProductsContent() {
                           );
                         }
                         const ing = byId[line.productId];
+                        const useUnit = line.unitId || ing?.unit || "";
+                        const baseQty = ing
+                          ? toIngredientBaseQty(ing, line.qty, useUnit)
+                          : Number(line.baseQty) || Number(line.qty) || 0;
                         return (
                           <li
-                            key={`${row.id}-${line.phase}-${line.productId}-${line.qty}-${lineIdx}`}
+                            key={`${row.id}-${line.productId}-${line.qty}-${lineIdx}`}
                           >
-                            [{phaseLabel}] {ing?.name || "?"} × {line.qty}{" "}
-                            {ing?.unit || ""}
+                            {ing?.name || "?"} × {line.qty} {useUnit}
+                            {ing?.unit && useUnit !== ing.unit ? (
+                              <span className="text-slate-400">
+                                {" "}
+                                = {formatBaseQty(baseQty)} {ing.unit}
+                              </span>
+                            ) : null}
                           </li>
                         );
                       })}
@@ -1266,8 +1215,7 @@ function ProductsContent() {
                 />
                 {editingId ? (
                   <span className="mt-1 block text-[11px] text-slate-500">
-                    Đổi tồn tại Nhập hàng / Sổ pha / POS — không ghi đè khi lưu
-                    món.
+                    Đổi tồn tại Nhập hàng / POS — không ghi đè khi lưu món.
                   </span>
                 ) : null}
               </label>
@@ -1325,6 +1273,10 @@ function ProductsContent() {
                   onChange={(e) => updateBaseUnitField("cost", e.target.value)}
                   placeholder="vd: 2 hoặc 0.5"
                 />
+                <span className="mt-1 block text-[11px] text-slate-500">
+                  Giá / 1 đơn vị gốc (g, gói, quả…). Nhập kg/túi/thùng: bật Nhiều
+                  đơn vị bên dưới.
+                </span>
               </label>
             ) : (
               <>
@@ -1369,21 +1321,22 @@ function ProductsContent() {
                     )}
                   >
                     <Calculator className="h-4 w-4" />
-                    Công thức mẻ
+                    Công thức
                   </button>
                 </div>
 
                 {form.costMode === COST_MODE.MANUAL ? (
                   <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-100">
-                    Món pha sẵn (trà đá, trà chanh…) hãy chọn{" "}
+                    Món nấu/pha từ kho hãy chọn{" "}
                     <button
                       type="button"
                       onClick={switchToRecipe}
                       className="font-extrabold underline"
                     >
-                      Công thức mẻ
+                      Công thức
                     </button>{" "}
-                    để tính cost = (NL pha ÷ số suất) + NL kèm mỗi cốc.
+                    — cost = tổng NL mỗi suất. Cost nhập tay chỉ cho hàng mua sẵn
+                    (chai nước…).
                   </p>
                 ) : null}
 
@@ -1404,257 +1357,234 @@ function ProductsContent() {
                 ) : (
                   <div className="mb-3 space-y-3 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                     <p className="text-sm font-bold text-amber-900">
-                      Công thức 2 lớp (bạn tự quy ước tỷ lệ)
+                      Công thức mỗi suất
                     </p>
                     <p className="text-xs leading-relaxed text-amber-900/80">
-                      <span className="font-semibold">Pha mẻ</span>: trừ khi ghi
-                      sổ pha (trà, nước hãm…).{" "}
-                      <span className="font-semibold">Kèm suất</span>: trừ khi
-                      bán (đá, đường, chanh…). Số thập phân OK — vd 0.02 = 1/50
-                      túi.
+                      Chọn NL kho + số lượng + đơn vị dùng (lạng/g/kg…). Hệ
+                      thống quy về đơn vị gốc để trừ kho và tính cost. Đá/nước
+                      không kho: Ước tay.
                     </p>
 
-                    <label className="block">
-                      <span className="mb-1 block text-xs font-semibold text-amber-950">
-                        1 mẻ ước được bao nhiêu suất (cốc)?
-                      </span>
-                      <input
-                        type="number"
-                        min="1"
-                        className="field-input"
-                        value={form.estimatedServings}
-                        onChange={(e) =>
-                          setForm((f) => ({
-                            ...f,
-                            estimatedServings: e.target.value,
-                          }))
-                        }
-                        placeholder="100"
-                      />
-                    </label>
-
-                    {[
-                      {
-                        phase: RECIPE_PHASE.BATCH,
-                        title: "1) NL pha mẻ (trừ lúc ghi sổ pha)",
-                        hint: "Số lượng cho 1 bình / 1 mẻ",
-                      },
-                      {
-                        phase: RECIPE_PHASE.SERVE,
-                        title: "2) NL kèm mỗi suất (trừ lúc bán)",
-                        hint: "Số lượng cho 1 cốc / 1 phần",
-                      },
-                    ].map((section) => {
-                      const lines = form.recipe
-                        .map((line, idx) => ({ line, idx }))
-                        .filter(
-                          ({ line }) =>
-                            (line.phase || RECIPE_PHASE.SERVE) === section.phase
-                        );
-                      return (
-                        <div
-                          key={section.phase}
-                          className="space-y-2 rounded-xl bg-white/80 p-2.5 ring-1 ring-amber-100"
+                    <div className="space-y-2 rounded-xl bg-white/80 p-2.5 ring-1 ring-amber-100">
+                      {form.recipe.map((line, idx) =>
+                        line.virtual ? (
+                          <div
+                            key={`r-v-${idx}`}
+                            className="space-y-1.5 rounded-xl bg-amber-50/80 p-2 ring-1 ring-amber-100"
+                          >
+                            <div className="grid grid-cols-[1fr_4.5rem_2.5rem] gap-2">
+                              <input
+                                className="field-input py-2 text-sm"
+                                placeholder="Tên (Đá, Nước sôi…)"
+                                value={line.name || ""}
+                                onChange={(e) =>
+                                  setForm((f) => {
+                                    const recipe = [...f.recipe];
+                                    recipe[idx] = {
+                                      ...recipe[idx],
+                                      name: e.target.value,
+                                      virtual: true,
+                                    };
+                                    return { ...f, recipe };
+                                  })
+                                }
+                              />
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                className="field-input py-2 text-sm"
+                                value={line.qty}
+                                onChange={(e) =>
+                                  setForm((f) => {
+                                    const recipe = [...f.recipe];
+                                    recipe[idx] = {
+                                      ...recipe[idx],
+                                      qty: e.target.value,
+                                    };
+                                    return { ...f, recipe };
+                                  })
+                                }
+                                placeholder="SL"
+                              />
+                              <button
+                                type="button"
+                                aria-label="Xóa dòng"
+                                onClick={() =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    recipe: f.recipe.filter((_, i) => i !== idx),
+                                  }))
+                                }
+                                className="flex h-11 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                className="field-input money flex-1 py-2 text-sm"
+                                placeholder="Cost ước (đ)"
+                                value={line.unitCost ?? ""}
+                                onChange={(e) =>
+                                  setForm((f) => {
+                                    const recipe = [...f.recipe];
+                                    recipe[idx] = {
+                                      ...recipe[idx],
+                                      unitCost: e.target.value,
+                                    };
+                                    return { ...f, recipe };
+                                  })
+                                }
+                              />
+                              <span className="shrink-0 text-[10px] font-bold text-amber-800">
+                                Không trừ kho
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <div
+                            key={`r-${idx}`}
+                            className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-amber-100"
+                          >
+                            <div className="grid grid-cols-[1fr_4.25rem_4.5rem_2.5rem] gap-2">
+                              <select
+                                className="field-input py-2 text-sm"
+                                value={line.productId}
+                                onChange={(e) =>
+                                  setForm((f) => {
+                                    const nextId = e.target.value;
+                                    const ing = byId[nextId];
+                                    const recipe = [...f.recipe];
+                                    recipe[idx] = {
+                                      ...recipe[idx],
+                                      productId: nextId,
+                                      unitId: ing?.unit || "",
+                                    };
+                                    return { ...f, recipe };
+                                  })
+                                }
+                              >
+                                {ingredients.map((ing) => (
+                                  <option key={ing.id} value={ing.id}>
+                                    {ing.name} ({formatCurrency(ing.cost)}/
+                                    {ing.unit})
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="number"
+                                min="0"
+                                step="any"
+                                className="field-input py-2 text-sm"
+                                value={line.qty}
+                                onChange={(e) =>
+                                  setForm((f) => {
+                                    const recipe = [...f.recipe];
+                                    recipe[idx] = {
+                                      ...recipe[idx],
+                                      qty: e.target.value,
+                                    };
+                                    return { ...f, recipe };
+                                  })
+                                }
+                                placeholder="SL"
+                              />
+                              <select
+                                className="field-input py-2 text-sm"
+                                value={
+                                  line.unitId ||
+                                  byId[line.productId]?.unit ||
+                                  ""
+                                }
+                                onChange={(e) =>
+                                  setForm((f) => {
+                                    const recipe = [...f.recipe];
+                                    recipe[idx] = {
+                                      ...recipe[idx],
+                                      unitId: e.target.value,
+                                    };
+                                    return { ...f, recipe };
+                                  })
+                                }
+                              >
+                                {usageUnitsForIngredient(
+                                  byId[line.productId] || { unit: "g" }
+                                ).map((u) => (
+                                  <option key={`${u.id}-${u.label}`} value={u.id}>
+                                    {u.label}
+                                  </option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                aria-label="Xóa dòng"
+                                onClick={() =>
+                                  setForm((f) => ({
+                                    ...f,
+                                    recipe: f.recipe.filter((_, i) => i !== idx),
+                                  }))
+                                }
+                                className="flex h-11 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
+                              >
+                                <X className="h-4 w-4" />
+                              </button>
+                            </div>
+                            {(() => {
+                              const ing = byId[line.productId];
+                              if (!ing) return null;
+                              const useUnit = line.unitId || ing.unit;
+                              const baseQty = toIngredientBaseQty(
+                                ing,
+                                line.qty,
+                                useUnit
+                              );
+                              const lineCost = recipeLineCost(
+                                {
+                                  ...line,
+                                  qty: Number(line.qty) || 0,
+                                  unitId: useUnit,
+                                },
+                                ing
+                              );
+                              return (
+                                <p className="text-[11px] font-semibold text-amber-900/80">
+                                  {line.qty || 0} {useUnit} ={" "}
+                                  {formatBaseQty(baseQty)} {ing.unit} ·{" "}
+                                  {formatCurrency(lineCost)}
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        )
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => addRecipeLine()}
+                          className="touch-btn h-10 w-full gap-1 bg-amber-100 text-xs font-bold text-amber-950"
                         >
-                          <div>
-                            <p className="text-xs font-extrabold text-amber-950">
-                              {section.title}
-                            </p>
-                            <p className="text-[11px] text-amber-800/80">
-                              {section.hint}
-                            </p>
-                          </div>
-                          {lines.map(({ line, idx }) =>
-                            line.virtual ? (
-                              <div
-                                key={`r-v-${section.phase}-${idx}`}
-                                className="space-y-1.5 rounded-xl bg-amber-50/80 p-2 ring-1 ring-amber-100"
-                              >
-                                <div className="grid grid-cols-[1fr_4.5rem_2.5rem] gap-2">
-                                  <input
-                                    className="field-input py-2 text-sm"
-                                    placeholder="Tên (Đá, Nước sôi…)"
-                                    value={line.name || ""}
-                                    onChange={(e) =>
-                                      setForm((f) => {
-                                        const recipe = [...f.recipe];
-                                        recipe[idx] = {
-                                          ...recipe[idx],
-                                          name: e.target.value,
-                                          virtual: true,
-                                        };
-                                        return { ...f, recipe };
-                                      })
-                                    }
-                                  />
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="any"
-                                    className="field-input py-2 text-sm"
-                                    value={line.qty}
-                                    onChange={(e) =>
-                                      setForm((f) => {
-                                        const recipe = [...f.recipe];
-                                        recipe[idx] = {
-                                          ...recipe[idx],
-                                          qty: e.target.value,
-                                        };
-                                        return { ...f, recipe };
-                                      })
-                                    }
-                                    placeholder="SL"
-                                  />
-                                  <button
-                                    type="button"
-                                    aria-label="Xóa dòng"
-                                    onClick={() =>
-                                      setForm((f) => ({
-                                        ...f,
-                                        recipe: f.recipe.filter(
-                                          (_, i) => i !== idx
-                                        ),
-                                      }))
-                                    }
-                                    className="flex h-11 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
-                                  >
-                                    <X className="h-4 w-4" />
-                                  </button>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="any"
-                                    className="field-input money flex-1 py-2 text-sm"
-                                    placeholder="Cost ước (đ)"
-                                    value={line.unitCost ?? ""}
-                                    onChange={(e) =>
-                                      setForm((f) => {
-                                        const recipe = [...f.recipe];
-                                        recipe[idx] = {
-                                          ...recipe[idx],
-                                          unitCost: e.target.value,
-                                        };
-                                        return { ...f, recipe };
-                                      })
-                                    }
-                                  />
-                                  <span className="shrink-0 text-[10px] font-bold text-amber-800">
-                                    Không trừ kho
-                                  </span>
-                                </div>
-                              </div>
-                            ) : (
-                              <div
-                                key={`r-${section.phase}-${idx}`}
-                                className="grid grid-cols-[1fr_5rem_2.5rem] gap-2"
-                              >
-                                <select
-                                  className="field-input py-2 text-sm"
-                                  value={line.productId}
-                                  onChange={(e) =>
-                                    setForm((f) => {
-                                      const recipe = [...f.recipe];
-                                      recipe[idx] = {
-                                        ...recipe[idx],
-                                        productId: e.target.value,
-                                      };
-                                      return { ...f, recipe };
-                                    })
-                                  }
-                                >
-                                  {ingredients.map((ing) => (
-                                    <option key={ing.id} value={ing.id}>
-                                      {ing.name} ({formatCurrency(ing.cost)}/
-                                      {ing.unit})
-                                    </option>
-                                  ))}
-                                </select>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="any"
-                                  className="field-input py-2 text-sm"
-                                  value={line.qty}
-                                  onChange={(e) =>
-                                    setForm((f) => {
-                                      const recipe = [...f.recipe];
-                                      recipe[idx] = {
-                                        ...recipe[idx],
-                                        qty: e.target.value,
-                                      };
-                                      return { ...f, recipe };
-                                    })
-                                  }
-                                  placeholder="SL"
-                                />
-                                <button
-                                  type="button"
-                                  aria-label="Xóa dòng"
-                                  onClick={() =>
-                                    setForm((f) => ({
-                                      ...f,
-                                      recipe: f.recipe.filter(
-                                        (_, i) => i !== idx
-                                      ),
-                                    }))
-                                  }
-                                  className="flex h-11 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
-                                >
-                                  <X className="h-4 w-4" />
-                                </button>
-                              </div>
-                            )
-                          )}
-                          <div className="grid grid-cols-2 gap-2">
-                            <button
-                              type="button"
-                              onClick={() => addRecipeLine(section.phase)}
-                              className="touch-btn h-10 w-full gap-1 bg-amber-100 text-xs font-bold text-amber-950"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              Từ kho
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                addRecipeLine(section.phase, {
-                                  virtual: true,
-                                })
-                              }
-                              className="touch-btn h-10 w-full gap-1 bg-white text-xs font-bold text-amber-950 ring-1 ring-amber-200"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                              Ước tay
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
+                          <Plus className="h-3.5 w-3.5" />
+                          Từ kho
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => addRecipeLine({ virtual: true })}
+                          className="touch-btn h-10 w-full gap-1 bg-white text-xs font-bold text-amber-950 ring-1 ring-amber-200"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          Ước tay
+                        </button>
+                      </div>
+                    </div>
 
                     <div className="space-y-1.5 rounded-xl bg-amber-100/80 px-3 py-2.5 text-sm text-amber-950">
-                      <p className="font-extrabold">Tính toán công thức</p>
-                      <p className="text-xs leading-relaxed">
-                        Cost cả mẻ:{" "}
-                        <span className="money font-bold">
-                          {formatCurrency(recipePreview.batchCost)}
-                        </span>
-                        {" ÷ "}
-                        {recipePreview.servings} suất ={" "}
-                        <span className="money font-bold">
-                          {formatCurrency(recipePreview.batchPerServing)}
-                        </span>
-                        /suất
-                      </p>
-                      <p className="text-xs leading-relaxed">
-                        + Cost kèm mỗi suất:{" "}
-                        <span className="money font-bold">
-                          {formatCurrency(recipePreview.serveCost)}
-                        </span>
-                      </p>
+                      <p className="font-extrabold">Cost / suất</p>
                       <p className="money text-base font-extrabold">
-                        = Cost / suất: {formatCurrency(recipePreview.unitCost)}
+                        {formatCurrency(recipePreview.unitCost)}
                         {form.price ? (
                           <span className="ml-2 font-semibold text-emerald-800">
                             · Giá bán {formatCurrency(Number(form.price) || 0)}
@@ -1664,8 +1594,7 @@ function ProductsContent() {
                                 {" "}
                                 (
                                 {Math.round(
-                                  (recipePreview.margin /
-                                    Number(form.price)) *
+                                  (recipePreview.margin / Number(form.price)) *
                                     100
                                 )}
                                 %)

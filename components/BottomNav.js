@@ -8,17 +8,17 @@ import {
   Settings,
   Landmark,
   Wallet,
-  Beaker,
+  Package,
   Building2,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-/** Quản lý: thu · đối soát · pha mẻ · xây dựng · cài đặt */
+/** Quản lý: thu · đối soát · món · xây dựng · cài đặt */
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/manager/production", label: "Pha mẻ", icon: Beaker },
+  { href: "/manager/products", label: "Món", icon: Package },
   { href: "/manager/construction", label: "Xây dựng", icon: Building2 },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
@@ -72,7 +72,7 @@ export default function BottomNav() {
                 ? pathname === href || pathname?.startsWith(`${href}/`)
                 : href === "/manager/expenses"
                   ? pathname === href || pathname?.startsWith(`${href}/`)
-                  : href === "/manager/production"
+                  : href === "/manager/products"
                     ? pathname === href || pathname?.startsWith(`${href}/`)
                     : href === "/manager/construction"
                       ? pathname === href || pathname?.startsWith(`${href}/`)

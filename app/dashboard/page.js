@@ -16,7 +16,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Beaker,
   Building2,
   Landmark,
   Package,
@@ -437,19 +436,11 @@ function DashboardContent() {
           </Link>
 
           <Link
-            href="/manager/production"
-            className="touch-btn h-12 justify-start gap-2 bg-teal-700 px-3 text-sm text-white"
-          >
-            <Beaker className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Pha mẻ · ủ trà</span>
-          </Link>
-
-          <Link
             href="/manager/products"
             className="touch-btn h-12 justify-start gap-2 bg-amber-600 px-3 text-sm text-white"
           >
             <Package className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Công thức · cost</span>
+            <span className="truncate">Món · công thức</span>
           </Link>
 
           <Link

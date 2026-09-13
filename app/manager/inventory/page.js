@@ -57,7 +57,7 @@ function formatUnitCount(value) {
 const emptyForm = () => ({
   kind: PRODUCT_KIND.INGREDIENT,
   name: "",
-  unit: "cái",
+  unit: "g",
   inStock: "",
   cost: "",
   price: "",
@@ -69,7 +69,7 @@ function InventoryContent() {
   const { user, profile, canChooseInventoryFundSource } = useAuth();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
-  const [filter, setFilter] = useState("all"); // all | ingredient | finished | groupId
+  const [filter, setFilter] = useState("ingredient"); // all | ingredient | finished | groupId
   const [loading, setLoading] = useState(true);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -343,13 +343,6 @@ function InventoryContent() {
         >
           Món · giá
         </Link>
-        {" · "}
-        <Link
-          href="/manager/production"
-          className="font-bold text-brand-800 underline"
-        >
-          Sổ pha / mẻ
-        </Link>
         .
       </p>
 
@@ -568,7 +561,20 @@ function InventoryContent() {
                 <button
                   key={k.id}
                   type="button"
-                  onClick={() => setForm((f) => ({ ...f, kind: k.id }))}
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      kind: k.id,
+                      unit:
+                        k.id === PRODUCT_KIND.INGREDIENT
+                          ? f.kind === PRODUCT_KIND.INGREDIENT
+                            ? f.unit
+                            : "g"
+                          : f.kind === PRODUCT_KIND.FINISHED
+                            ? f.unit
+                            : "ly",
+                    }))
+                  }
                   className={cn(
                     "touch-btn h-12 text-sm font-bold",
                     form.kind === k.id
