@@ -198,6 +198,8 @@ Nhập hàng **không** trừ lần nữa trong lãi gộp (đã nằm trong t�
 
 ---
 
+**Kiểm kho:** Nhập hàng → Kiểm kho. Đếm theo ĐV gốc, xem lệch SL + tiền, ghi tồn thực tế (không trừ quỹ). Dùng khi sổ lệch vì khai sai trước đây.
+
 ## 8. Việc user làm tay trước/khi lên production
 
 1. Tạo đủ NL (Đường, Sữa, Mì, Trứng…) — **không** để chúng là thành phẩm.  

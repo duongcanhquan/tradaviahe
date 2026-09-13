@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import {
+  ClipboardList,
   Loader2,
   Pencil,
   Plus,
@@ -42,6 +43,12 @@ import {
   updateProduct,
 } from "@/lib/products";
 import { lineStockCostValue, summarizeInventory } from "@/lib/stock";
+import {
+  buildStocktakeLine,
+  isStocktakeTarget,
+  summarizeStocktake,
+} from "@/lib/stocktake";
+import { commitStocktake } from "@/lib/stocktakeWrite";
 import { cn, formatCurrency } from "@/lib/utils";
 
 /** Parse số tiền/giá nhập — giữ thập phân (0.5), bỏ khoảng trắng. */
@@ -131,6 +138,7 @@ function InventoryContent() {
     profile,
     canChooseInventoryFundSource,
     canManageProducts,
+    canStocktake,
     isSuperAdmin,
   } = useAuth();
   const [products, setProducts] = useState([]);
@@ -154,6 +162,11 @@ function InventoryContent() {
   });
   const [savingEdit, setSavingEdit] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [stocktakeOn, setStocktakeOn] = useState(false);
+  const [stockCounts, setStockCounts] = useState({});
+  const [stocktakeNote, setStocktakeNote] = useState("");
+  const [onlyMismatch, setOnlyMismatch] = useState(false);
+  const [savingTake, setSavingTake] = useState(false);
 
   /** per product: { addQty, cost, payMethod, fundSource } */
   const [drafts, setDrafts] = useState({});
@@ -202,6 +215,27 @@ function InventoryContent() {
     if (!q) return list;
     return list.filter((p) => String(p.name || "").toLowerCase().includes(q));
   }, [products, filter, nameQuery]);
+
+  const stocktakeAllLines = useMemo(
+    () =>
+      visible
+        .filter(isStocktakeTarget)
+        .map((p) => buildStocktakeLine(p, stockCounts[p.id])),
+    [visible, stockCounts]
+  );
+
+  const stocktakeRows = useMemo(
+    () =>
+      stocktakeAllLines.filter(
+        (line) => !onlyMismatch || (!line.skipped && line.delta !== 0)
+      ),
+    [stocktakeAllLines, onlyMismatch]
+  );
+
+  const stocktakeSummary = useMemo(
+    () => summarizeStocktake(stocktakeAllLines),
+    [stocktakeAllLines]
+  );
 
   const inventorySummary = useMemo(
     () => summarizeInventory(visible),
@@ -521,6 +555,43 @@ function InventoryContent() {
       showToast(error?.message || "Nhập hàng thất bại", "error");
     } finally {
       setSavingId(null);
+    }
+  };
+
+  const handleStocktake = async () => {
+    if (!canStocktake) {
+      showToast("Quản lý mới được kiểm kho", "error");
+      return;
+    }
+    const targets = visible.filter(isStocktakeTarget);
+    const ok = window.confirm(
+      `Ghi tồn thực tế ${stocktakeSummary.mismatch} món lệch?\n\n` +
+        `Thừa ${stocktakeSummary.surplusQty} · Thiếu ${stocktakeSummary.shortageQty}\n` +
+        `Giá trị lệch: ${formatCurrency(stocktakeSummary.netValue)}\n\n` +
+        `Không trừ quỹ — chỉ sửa sổ kho.`
+    );
+    if (!ok) return;
+    setSavingTake(true);
+    try {
+      const result = await commitStocktake({
+        products: targets,
+        counts: stockCounts,
+        note: stocktakeNote,
+        user,
+        profile,
+      });
+      showToast(
+        `Đã kiểm kho · ${result.summary.mismatch} món lệch · giá trị lệch ${formatCurrency(result.summary.netValue)}`,
+        "success"
+      );
+      setStockCounts({});
+      setStocktakeNote("");
+      setOnlyMismatch(false);
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Kiểm kho thất bại", "error");
+    } finally {
+      setSavingTake(false);
     }
   };
 
@@ -1265,6 +1336,177 @@ function InventoryContent() {
         />
       </label>
 
+      {canStocktake ? (
+        <button
+          type="button"
+          onClick={() => {
+            setStocktakeOn((v) => !v);
+            setShowAdd(false);
+            setEditing(null);
+          }}
+          className={cn(
+            "touch-btn mb-4 h-12 w-full gap-2 text-sm font-bold",
+            stocktakeOn
+              ? "bg-amber-800 text-white"
+              : "bg-white text-slate-800 ring-1 ring-amber-200"
+          )}
+        >
+          <ClipboardList className="h-4 w-4" aria-hidden />
+          {stocktakeOn ? "Đóng kiểm kho" : "Kiểm kho · đối chiếu thực tế"}
+        </button>
+      ) : null}
+
+      {stocktakeOn ? (
+        <section className="mb-8 space-y-3">
+          <div className="rounded-2xl bg-amber-50 px-3 py-3 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
+            Đếm thực tế theo <strong>đơn vị gốc</strong> (gói, g, bao, chai).
+            Để trống = bỏ qua. Nhập 0 = hết hàng. Lưu chỉ ghi món lệch —{" "}
+            <strong>không trừ quỹ</strong>.
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200">
+              <p className="font-semibold text-slate-500">Đã đếm</p>
+              <p className="text-lg font-extrabold">{stocktakeSummary.counted}</p>
+            </div>
+            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200">
+              <p className="font-semibold text-slate-500">Món lệch</p>
+              <p className="text-lg font-extrabold text-amber-800">
+                {stocktakeSummary.mismatch}
+              </p>
+            </div>
+            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200">
+              <p className="font-semibold text-slate-500">Giá trị lệch</p>
+              <p
+                className={cn(
+                  "money text-lg font-extrabold",
+                  stocktakeSummary.netValue < 0
+                    ? "text-rose-700"
+                    : stocktakeSummary.netValue > 0
+                      ? "text-emerald-700"
+                      : "text-slate-900"
+                )}
+              >
+                <Money amount={stocktakeSummary.netValue} />
+              </p>
+            </div>
+          </div>
+          <p className="text-[11px] font-semibold text-slate-600">
+            Thừa {formatUnitCount(stocktakeSummary.surplusQty)} ·{" "}
+            <Money amount={stocktakeSummary.surplusValue} />
+            {" · Thiếu "}
+            {formatUnitCount(stocktakeSummary.shortageQty)} ·{" "}
+            <Money amount={stocktakeSummary.shortageValue} />
+          </p>
+          <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
+            <input
+              type="checkbox"
+              className="h-5 w-5 accent-amber-700"
+              checked={onlyMismatch}
+              onChange={(e) => setOnlyMismatch(e.target.checked)}
+            />
+            <span className="text-sm font-semibold text-slate-800">
+              Chỉ hiện món đã lệch
+            </span>
+          </label>
+          {loading ? (
+            <div className="card-panel h-24 animate-pulse bg-white/80" />
+          ) : stocktakeRows.length === 0 ? (
+            <div className="card-panel text-sm text-slate-500">
+              Chưa có hàng để kiểm (món công thức không đếm tồn).
+            </div>
+          ) : (
+            stocktakeRows.map((line) => {
+              const product = products.find((p) => p.id === line.productId);
+              if (!product) return null;
+              const delta = line.skipped ? null : line.delta;
+              return (
+                <article key={line.productId} className="card-panel space-y-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-extrabold text-slate-900">
+                        {product.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        Sổ:{" "}
+                        <span className="font-bold text-slate-800">
+                          {stockLine(product)}
+                        </span>
+                        {" · Đếm theo "}
+                        {line.unit}
+                      </p>
+                    </div>
+                    {delta != null && delta !== 0 ? (
+                      <p
+                        className={cn(
+                          "shrink-0 text-sm font-extrabold",
+                          delta > 0 ? "text-emerald-700" : "text-rose-700"
+                        )}
+                      >
+                        {delta > 0 ? "+" : ""}
+                        {formatUnitCount(delta)} {line.unit}
+                      </p>
+                    ) : null}
+                  </div>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      Thực tế ({line.unit})
+                    </span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="any"
+                      className="field-input money"
+                      placeholder={`Sổ ${line.book}`}
+                      value={stockCounts[product.id] ?? ""}
+                      onChange={(e) =>
+                        setStockCounts((prev) => ({
+                          ...prev,
+                          [product.id]: e.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  {delta != null && delta !== 0 ? (
+                    <p className="text-[11px] font-semibold text-slate-600">
+                      Lệch {delta > 0 ? "thừa" : "thiếu"} · giá trị{" "}
+                      <Money amount={line.value} />
+                    </p>
+                  ) : null}
+                </article>
+              );
+            })
+          )}
+          <label className="block">
+            <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+              Ghi chú (tuỳ chọn)
+            </span>
+            <input
+              className="field-input"
+              value={stocktakeNote}
+              onChange={(e) => setStocktakeNote(e.target.value)}
+              placeholder="VD: Kiểm sau setup lại CT mì"
+            />
+          </label>
+          <button
+            type="button"
+            disabled={savingTake || stocktakeSummary.mismatch === 0}
+            onClick={handleStocktake}
+            className="touch-btn h-14 w-full gap-2 bg-amber-700 text-sm text-white disabled:opacity-50"
+          >
+            {savingTake ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <ClipboardList className="h-5 w-5" aria-hidden />
+            )}
+            {savingTake
+              ? "Đang ghi..."
+              : stocktakeSummary.mismatch === 0
+                ? "Nhập số thực tế để thấy lệch"
+                : `Ghi tồn thực tế · ${stocktakeSummary.mismatch} món lệch`}
+          </button>
+        </section>
+      ) : (
       <section className="mb-8 space-y-2">
         <h2 className="section-title">Nhập thêm vào món có sẵn</h2>
         {loading ? (
@@ -1613,6 +1855,7 @@ function InventoryContent() {
           })
         )}
       </section>
+      )}
     </AppShell>
   );
 }
