@@ -249,7 +249,9 @@ function ProductsContent() {
   const openEdit = (row) => {
     setEditingId(row.id);
     setRecipeSearch("");
-    const useRecipe = row.kind !== PRODUCT_KIND.INGREDIENT;
+    const useRecipe =
+      row.kind !== PRODUCT_KIND.INGREDIENT &&
+      row.costMode === COST_MODE.RECIPE;
     const servings = Math.max(1, Number(row.estimatedServings) || 100);
     let recipe = Array.isArray(row.recipe)
       ? row.recipe.map((l) =>
@@ -270,7 +272,7 @@ function ProductsContent() {
         )
       : [];
     const packagingEnabled =
-      row.kind === PRODUCT_KIND.INGREDIENT &&
+      (row.kind === PRODUCT_KIND.INGREDIENT || !useRecipe) &&
       Boolean(row.packaging?.enabled);
     const normalizedPackaging = normalizeProductUnits(row);
     const baseUnit =
@@ -498,7 +500,11 @@ function ProductsContent() {
         }
       }
 
-      if (form.kind === PRODUCT_KIND.FINISHED) {
+      const boughtFinished =
+        form.kind === PRODUCT_KIND.FINISHED &&
+        form.costMode !== COST_MODE.RECIPE;
+
+      if (form.kind === PRODUCT_KIND.FINISHED && !boughtFinished) {
         const lines = form.recipe.filter(
           (l) =>
             (l.virtual &&
@@ -516,17 +522,22 @@ function ProductsContent() {
         }
       }
 
+      const allowPack =
+        form.kind === PRODUCT_KIND.INGREDIENT || boughtFinished;
+
       const payload = {
         name: form.name,
         kind: form.kind,
         unit: form.unit,
         price: Number(form.price) || 0,
-        cost:
-          form.kind === PRODUCT_KIND.FINISHED
+        cost: boughtFinished
+          ? Number(form.cost) || 0
+          : form.kind === PRODUCT_KIND.FINISHED
             ? recipePreview.unitCost
             : Number(form.cost) || 0,
-        costMode:
-          form.kind === PRODUCT_KIND.FINISHED
+        costMode: boughtFinished
+          ? COST_MODE.MANUAL
+          : form.kind === PRODUCT_KIND.FINISHED
             ? COST_MODE.RECIPE
             : COST_MODE.MANUAL,
         groupId:
@@ -535,7 +546,7 @@ function ProductsContent() {
             : null,
         active: form.active,
         packaging:
-          form.kind === PRODUCT_KIND.INGREDIENT && form.packaging?.enabled
+          allowPack && form.packaging?.enabled
             ? {
                 enabled: true,
                 baseUnit:
@@ -545,7 +556,7 @@ function ProductsContent() {
             : { enabled: false },
         units: Array.isArray(form.units) ? form.units : [],
         recipe:
-          form.kind === PRODUCT_KIND.FINISHED
+          form.kind === PRODUCT_KIND.FINISHED && !boughtFinished
             ? form.recipe.map((l) =>
                 l.virtual
                   ? {
@@ -568,7 +579,11 @@ function ProductsContent() {
 
       // Sửa món: không ghi đè tồn — Super Admin được sửa tồn nguyên liệu
       if (editingId) {
-        if (isSuperAdmin && form.kind === PRODUCT_KIND.INGREDIENT) {
+        if (
+          isSuperAdmin &&
+          (form.kind === PRODUCT_KIND.INGREDIENT ||
+            form.costMode !== COST_MODE.RECIPE)
+        ) {
           payload.inStock = Number(form.inStock) || 0;
         }
         await updateProduct(editingId, payload);
@@ -727,10 +742,9 @@ function ProductsContent() {
         </button>
       </div>
       <p className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
-        <span className="font-extrabold">Cách làm:</span> kho nhập NL hoặc kiện
-        (1 thùng mì = 30 gói, túi đường = 1000g). Thành phẩm = giá bán + CT
-        tách gói bán lẻ (vd mì 1 gói, mì 1 trứng = 1 gói mì + 1 trứng). POS trừ
-        đúng gói/g. Đá/nước: ước tay.
+        <span className="font-extrabold">Cách làm:</span> kho chọn hàng → thùng
+        / gói. Thùng: nhập số lẻ + giá thùng, hệ thống chia ra từng gói/chai
+        (ĐV nhỏ nhất — bán lẻ hoặc gắn CT món khác). Đá/nước: ước tay.
       </p>
       <div className="mb-4 grid grid-cols-3 gap-2">
         <button
@@ -1276,7 +1290,11 @@ function ProductsContent() {
                   value={form.inStock}
                   disabled={
                     Boolean(editingId) &&
-                    !(isSuperAdmin && form.kind === PRODUCT_KIND.INGREDIENT)
+                    !(
+                      isSuperAdmin &&
+                      (form.kind === PRODUCT_KIND.INGREDIENT ||
+                        form.costMode !== COST_MODE.RECIPE)
+                    )
                   }
                   onChange={(e) =>
                     setForm((f) => ({ ...f, inStock: e.target.value }))
@@ -1284,8 +1302,10 @@ function ProductsContent() {
                 />
                 {editingId ? (
                   <span className="mt-1 block text-[11px] text-slate-500">
-                    {isSuperAdmin && form.kind === PRODUCT_KIND.INGREDIENT
-                      ? "Super Admin được sửa tồn nguyên liệu."
+                    {isSuperAdmin &&
+                    (form.kind === PRODUCT_KIND.INGREDIENT ||
+                      form.costMode !== COST_MODE.RECIPE)
+                      ? "Super Admin được sửa tồn hàng nhập."
                       : "Đổi tồn tại Nhập hàng / POS — không ghi đè khi lưu món."}
                   </span>
                 ) : null}
@@ -1329,7 +1349,36 @@ function ProductsContent() {
               </>
             ) : null}
 
-            {form.kind === PRODUCT_KIND.INGREDIENT ? (
+            {form.kind === PRODUCT_KIND.FINISHED ? (
+              <label className="mb-3 flex items-center gap-3 rounded-2xl bg-emerald-50 px-3 py-3 ring-1 ring-emerald-100">
+                <input
+                  type="checkbox"
+                  checked={form.costMode !== COST_MODE.RECIPE}
+                  onChange={(e) => {
+                    const bought = e.target.checked;
+                    setForm((f) => ({
+                      ...f,
+                      costMode: bought ? COST_MODE.MANUAL : COST_MODE.RECIPE,
+                      packaging: bought
+                        ? {
+                            enabled: Boolean(f.packaging?.enabled),
+                            baseUnit: f.unit || "chai",
+                          }
+                        : { enabled: false, baseUnit: f.unit || "ly" },
+                      units: bought ? f.units : [],
+                    }));
+                  }}
+                  className="h-5 w-5 accent-emerald-700"
+                />
+                <span className="text-sm font-semibold text-slate-800">
+                  Hàng nhập bán nguyên (AVIA, thùng × chai — không công thức)
+                </span>
+              </label>
+            ) : null}
+
+            {form.kind === PRODUCT_KIND.INGREDIENT ||
+            (form.kind === PRODUCT_KIND.FINISHED &&
+              form.costMode !== COST_MODE.RECIPE) ? (
               <label className="mb-3 block">
                 <span className="mb-1 block text-sm font-semibold">
                   Giá nhập / đơn vị
@@ -1345,12 +1394,14 @@ function ProductsContent() {
                   placeholder="vd: 2 hoặc 0.5"
                 />
                 <span className="mt-1 block text-[11px] text-slate-500">
-                  Giá / 1 đơn vị gốc (g, gói, quả). Thùng mì / túi đường: bật
-                  nhập kiện bên dưới.
+                  {form.kind === PRODUCT_KIND.FINISHED
+                    ? "Giá nhập / 1 chai (hoặc ĐV gốc). Thùng × 24: bật kiện bên dưới."
+                    : "Giá / 1 đơn vị gốc (g, gói, quả). Thùng mì / túi đường: bật nhập kiện bên dưới."}
                 </span>
               </label>
-            ) : (
-              <>
+            ) : null}
+
+            {form.kind === PRODUCT_KIND.FINISHED ? (
                 <label className="mb-3 block">
                   <span className="mb-1 block text-sm font-semibold">
                     Giá bán
@@ -1365,7 +1416,10 @@ function ProductsContent() {
                     placeholder="vd: 5000"
                   />
                 </label>
+            ) : null}
 
+            {form.kind === PRODUCT_KIND.FINISHED &&
+            form.costMode === COST_MODE.RECIPE ? (
                 <div className="mb-3 space-y-3 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                     <p className="text-sm font-bold text-amber-900">
                       Công thức mỗi suất
@@ -1650,10 +1704,11 @@ function ProductsContent() {
                       </p>
                     </div>
                   </div>
-              </>
-            )}
+            ) : null}
 
-            {form.kind === PRODUCT_KIND.INGREDIENT ? (
+            {form.kind === PRODUCT_KIND.INGREDIENT ||
+            (form.kind === PRODUCT_KIND.FINISHED &&
+              form.costMode !== COST_MODE.RECIPE) ? (
               <div className="mb-3 space-y-3">
                 <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
                   <input
@@ -1663,7 +1718,9 @@ function ProductsContent() {
                     className="h-5 w-5 accent-brand-700"
                   />
                   <span className="text-sm font-semibold text-slate-800">
-                    Nhập thùng / túi (vd 1 thùng = 30 gói)
+                    {form.kind === PRODUCT_KIND.FINISHED
+                      ? "Nhập thùng (vd AVIA 1 thùng = 24 chai)"
+                      : "Nhập thùng / túi (vd 1 thùng = 30 gói)"}
                   </span>
                 </label>
 

@@ -27,6 +27,8 @@ import {
   findUnit,
   largestPackUnit,
   normalizeProductUnits,
+  receiveUnitChoices,
+  withReceivePack,
 } from "@/lib/packaging";
 import {
   COST_MODE,
@@ -60,23 +62,40 @@ function formatUnitCount(value) {
     : rounded.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
-function resolvePackPayload({ packEnabled, packLabel, packFactor, unit, cost }) {
+function resolvePackPayload({
+  packEnabled,
+  packLabel,
+  packFactor,
+  unit,
+  cost,
+  canSell = false,
+  sellPrice = 0,
+}) {
   if (!packEnabled) return {};
   const factor = Math.max(0, Math.round(Number(packFactor) || 0));
   if (factor < 2) {
-    throw new Error("Nhập hệ số kiện (vd 30 gói / thùng, 1000g / kg)");
+    throw new Error("Nhập hệ số kiện (vd 24 chai / thùng, 30 gói / thùng)");
   }
   const base = String(unit || "gói").trim() || "gói";
   const pack = String(packLabel || "thùng").trim() || "thùng";
   if (base.toLowerCase() === pack.toLowerCase()) {
-    throw new Error("Đơn vị gốc phải khác kiện nhập (vd gốc gói, kiện thùng)");
+    throw new Error("Đơn vị gốc phải khác kiện nhập (vd gốc chai, kiện thùng)");
   }
   return buildIngredientPackUnits({
     baseUnit: base,
     packLabel: pack,
     packFactor: factor,
     baseCost: cost,
+    canSell,
+    sellPrice,
   });
+}
+
+function isRecipeFinished(product) {
+  return (
+    product?.kind === PRODUCT_KIND.FINISHED &&
+    product?.costMode === COST_MODE.RECIPE
+  );
 }
 
 function stockLine(product) {
@@ -87,18 +106,23 @@ function stockLine(product) {
   return `${qty} ${base} ≈ ${formatUnitCount(qty / pack.factor)} ${pack.label}`;
 }
 
-const emptyForm = () => ({
-  kind: PRODUCT_KIND.INGREDIENT,
-  name: "",
-  unit: "g",
-  inStock: "",
-  cost: "",
-  price: "",
-  groupId: "",
-  packEnabled: false,
-  packLabel: "kg",
-  packFactor: "1000",
-});
+const emptyForm = (kind = PRODUCT_KIND.INGREDIENT) => {
+  const isFin = kind === PRODUCT_KIND.FINISHED;
+  const unit = isFin ? "chai" : "g";
+  const hint = defaultIngredientPackHint(unit);
+  return {
+    kind: isFin ? PRODUCT_KIND.FINISHED : PRODUCT_KIND.INGREDIENT,
+    name: "",
+    unit,
+    inStock: "",
+    cost: "",
+    price: "",
+    groupId: isFin ? "drinks" : "",
+    packEnabled: false,
+    packLabel: hint.packLabel,
+    packFactor: hint.packFactor,
+  };
+};
 
 function InventoryContent() {
   const { showToast } = useToast();
@@ -111,6 +135,7 @@ function InventoryContent() {
   } = useAuth();
   const [products, setProducts] = useState([]);
   const [filter, setFilter] = useState("ingredient"); // all | ingredient | finished
+  const [nameQuery, setNameQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -121,6 +146,7 @@ function InventoryContent() {
     name: "",
     unit: "g",
     cost: "",
+    price: "",
     inStock: "",
     packEnabled: false,
     packLabel: "thùng",
@@ -166,15 +192,16 @@ function InventoryContent() {
   );
 
   const visible = useMemo(() => {
-    if (filter === "all") return products;
+    const q = nameQuery.trim().toLowerCase();
+    let list = products;
     if (filter === "ingredient") {
-      return products.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT);
+      list = products.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT);
+    } else if (filter === "finished") {
+      list = products.filter((p) => isSellable(p));
     }
-    if (filter === "finished") {
-      return products.filter((p) => isSellable(p));
-    }
-    return products;
-  }, [products, filter]);
+    if (!q) return list;
+    return list.filter((p) => String(p.name || "").toLowerCase().includes(q));
+  }, [products, filter, nameQuery]);
 
   const inventorySummary = useMemo(
     () => summarizeInventory(visible),
@@ -203,7 +230,13 @@ function InventoryContent() {
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) {
-      showToast("Nhập tên nguyên liệu", "error");
+      showToast("Nhập tên hàng", "error");
+      return;
+    }
+    const isFin = form.kind === PRODUCT_KIND.FINISHED;
+    const sellPrice = isFin ? parseUnitCostInput(form.price) : 0;
+    if (isFin && sellPrice <= 0) {
+      showToast("Thành phẩm cần giá bán (POS)", "error");
       return;
     }
     const packOn = Boolean(form.packEnabled);
@@ -224,16 +257,18 @@ function InventoryContent() {
         packFactor: form.packFactor,
         unit: form.unit,
         cost: baseCost,
+        canSell: isFin,
+        sellPrice,
       });
       await createProduct({
         name: form.name.trim(),
-        kind: PRODUCT_KIND.INGREDIENT,
-        unit: form.unit || "g",
+        kind: isFin ? PRODUCT_KIND.FINISHED : PRODUCT_KIND.INGREDIENT,
+        unit: form.unit || (isFin ? "chai" : "g"),
         inStock: baseQty,
         cost: baseCost,
         costMode: COST_MODE.MANUAL,
-        price: 0,
-        groupId: null,
+        price: sellPrice,
+        groupId: isFin ? form.groupId || "drinks" : null,
         recipe: [],
         active: true,
         ...pack,
@@ -267,6 +302,10 @@ function InventoryContent() {
           : "",
       inStock:
         product.inStock != null ? String(product.inStock) : "0",
+      price:
+        product.price != null && product.price !== ""
+          ? String(product.price)
+          : "",
       packEnabled: Boolean(pack),
       packLabel: pack?.label || defaultIngredientPackHint(product.unit).packLabel,
       packFactor: pack
@@ -279,8 +318,20 @@ function InventoryContent() {
     e.preventDefault();
     if (!editing?.id) return;
     if (!editForm.name.trim()) {
-      showToast("Nhập tên nguyên liệu", "error");
+      showToast("Nhập tên hàng", "error");
       return;
+    }
+    const isFin = editing.kind === PRODUCT_KIND.FINISHED;
+    const sellPrice = isFin ? parseUnitCostInput(editForm.price) : 0;
+    if (isFin && sellPrice <= 0) {
+      showToast("Thành phẩm cần giá bán (POS)", "error");
+      return;
+    }
+    if (isRecipeFinished(editing)) {
+      const ok = window.confirm(
+        `“${editing.name}” đang có công thức (trừ NL lúc bán). Lưu trên kho sẽ đổi thành hàng nhập — tồn trừ khi bán, bỏ CT. Tiếp tục?`
+      );
+      if (!ok) return;
     }
     setSavingEdit(true);
     try {
@@ -291,15 +342,17 @@ function InventoryContent() {
         packFactor: editForm.packFactor,
         unit: editForm.unit,
         cost: baseCost,
+        canSell: isFin,
+        sellPrice,
       });
       const payload = {
         name: editForm.name.trim(),
-        kind: PRODUCT_KIND.INGREDIENT,
-        unit: editForm.unit || "g",
+        kind: isFin ? PRODUCT_KIND.FINISHED : PRODUCT_KIND.INGREDIENT,
+        unit: editForm.unit || (isFin ? "chai" : "g"),
         cost: baseCost,
         costMode: COST_MODE.MANUAL,
-        price: 0,
-        groupId: null,
+        price: sellPrice,
+        groupId: isFin ? editing.groupId || "drinks" : null,
         recipe: [],
         active: editing.active !== false,
         packaging: editForm.packEnabled
@@ -312,7 +365,7 @@ function InventoryContent() {
       }
       await updateProduct(editing.id, payload);
       await recomputeRecipeCosts();
-      showToast("Đã sửa nguyên liệu", "success");
+      showToast(isFin ? "Đã sửa thành phẩm" : "Đã sửa nguyên liệu", "success");
       setEditing(null);
     } catch (error) {
       console.error(error);
@@ -334,7 +387,7 @@ function InventoryContent() {
     const ok = window.confirm(
       used
         ? `“${product.name}” đang dùng trong công thức. Xóa sẽ làm cost lệch — vẫn xóa?`
-        : `Xóa nguyên liệu “${product.name}” khỏi kho?`
+        : `Xóa “${product.name}” khỏi kho?`
     );
     if (!ok) return;
     setDeletingId(product.id);
@@ -352,13 +405,28 @@ function InventoryContent() {
   };
 
   const handleReceive = async (product) => {
-    if (product.kind !== PRODUCT_KIND.INGREDIENT) {
-      showToast("Thành phẩm không nhập tại kho — nhập nguyên liệu / thùng mì", "error");
-      return;
+    if (isRecipeFinished(product)) {
+      const ok = window.confirm(
+        `“${product.name}” đang có công thức. Nhập kho sẽ đổi thành hàng nhập (trừ tồn khi bán), bỏ CT. Tiếp tục?`
+      );
+      if (!ok) return;
     }
     const d = drafts[product.id] || {};
     const addQty = Number(d.addQty) || 0;
-    const selectedUnit = findUnit(product, d.unitId) || defaultReceiveUnit(product);
+    const choices = receiveUnitChoices(product);
+    const picked =
+      choices.find((u) => u.id === d.unitId) ||
+      [...choices].sort((a, b) => b.factor - a.factor)[0] ||
+      defaultReceiveUnit(product);
+    const isPack = Number(picked?.factor) > 1;
+    const factor = isPack
+      ? Math.max(0, Math.round(Number(d.packFactor) || picked?.factor || 0))
+      : 1;
+    const { product: ready, unitId } = withReceivePack(product, {
+      unitLabel: picked?.label,
+      packFactor: factor,
+    });
+    const selectedUnit = findUnit(ready, unitId) || picked;
     const hasCost = d.cost !== undefined && String(d.cost).trim() !== "";
     const nextCost = hasCost
       ? parseUnitCostInput(d.cost)
@@ -379,6 +447,11 @@ function InventoryContent() {
       return;
     }
 
+    if (addQty > 0 && isPack && factor < 2) {
+      showToast("Nhập số lẻ trong 1 thùng (vd 24 chai, 30 gói)", "error");
+      return;
+    }
+
     if (addQty > 0 && !selectedUnit) {
       showToast("Đơn vị nhập không hợp lệ", "error");
       return;
@@ -389,7 +462,7 @@ function InventoryContent() {
       if (addQty > 0) {
         const result = await receiveInventoryPaid({
           fundSource,
-          product,
+          product: ready,
           addQty,
           unitId: selectedUnit?.id,
           unitCost: nextCost,
@@ -398,6 +471,13 @@ function InventoryContent() {
           user,
           profile,
         });
+        if (isRecipeFinished(product)) {
+          await updateDoc(doc(db, "products", product.id), {
+            costMode: COST_MODE.MANUAL,
+            recipe: [],
+            updatedAt: serverTimestamp(),
+          });
+        }
         await recomputeRecipeCosts();
         const via = result.paymentMethod === "banking" ? "CK" : "TM";
         const fundLabel =
@@ -419,11 +499,11 @@ function InventoryContent() {
         };
         if (hasCost) {
           payload.cost = nextCost;
-          if (product.kind === PRODUCT_KIND.INGREDIENT) {
-            payload.costMode = COST_MODE.MANUAL;
-          } else if (product.costMode !== COST_MODE.RECIPE) {
-            payload.costMode = COST_MODE.MANUAL;
-          }
+          payload.costMode = COST_MODE.MANUAL;
+        }
+        if (isRecipeFinished(product)) {
+          payload.costMode = COST_MODE.MANUAL;
+          payload.recipe = [];
         }
         await updateDoc(doc(db, "products", product.id), payload);
         if (hasCost) {
@@ -483,9 +563,9 @@ function InventoryContent() {
       dense
     >
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        <strong>Kho</strong> = nguyên liệu hoặc hàng nhập kiện (thùng mì × 30
-        gói, túi đường × 1000g). <strong>Thành phẩm</strong> = món POS có giá
-        bán, CT tách gói/NL để bán lẻ — không nhập tại đây.{" "}
+        <strong>Nguyên liệu</strong> = đường, mì, trứng.{" "}
+        <strong>Thành phẩm nhập</strong> = AVIA / chai nước… nhập thùng × số
+        chai, bán lẻ POS. Món nấu/pha:{" "}
         <Link
           href="/manager/products"
           className="font-bold text-brand-800 underline"
@@ -678,7 +758,15 @@ function InventoryContent() {
         type="button"
         onClick={() => {
           setShowAdd((v) => !v);
-          if (!showAdd) setForm(emptyForm());
+          if (!showAdd) {
+            setForm(
+              emptyForm(
+                filter === "finished"
+                  ? PRODUCT_KIND.FINISHED
+                  : PRODUCT_KIND.INGREDIENT
+              )
+            );
+          }
         }}
         className={cn(
           "touch-btn mb-4 h-14 w-full gap-2 text-sm font-bold",
@@ -693,17 +781,21 @@ function InventoryContent() {
         ) : (
           <>
             <Plus className="h-5 w-5" aria-hidden />
-            Thêm nguyên liệu mới
+            Thêm hàng kho
           </>
         )}
       </button>
 
       {showAdd ? (
         <section className="card-panel mb-4 space-y-3 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
-          <h2 className="section-title text-emerald-950">Thêm nguyên liệu kho</h2>
+          <h2 className="section-title text-emerald-950">
+            {form.kind === PRODUCT_KIND.FINISHED
+              ? "Thêm thành phẩm nhập"
+              : "Thêm nguyên liệu kho"}
+          </h2>
           <p className="text-xs leading-relaxed text-slate-500">
-            Đường / trứng / thùng mì… Tồn lưu theo đơn vị gốc (g, gói, quả).
-            Món bán lẻ (mì 1 gói, mì 1 trứng):{" "}
+            Thành phẩm = hàng mua sẵn (AVIA, thùng × 24 chai). Nguyên liệu =
+            đường/mì trừ qua công thức. Món nấu:{" "}
             <Link
               href="/manager/products"
               className="font-bold text-brand-800 underline"
@@ -713,6 +805,35 @@ function InventoryContent() {
             .
           </p>
           <form onSubmit={handleAdd} className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: PRODUCT_KIND.INGREDIENT, label: "Nguyên liệu" },
+                { id: PRODUCT_KIND.FINISHED, label: "Thành phẩm nhập" },
+              ].map((k) => (
+                <button
+                  key={k.id}
+                  type="button"
+                  onClick={() => {
+                    const next = emptyForm(k.id);
+                    setForm((f) => ({
+                      ...next,
+                      name: f.name,
+                      inStock: f.inStock,
+                      cost: f.cost,
+                      price: f.price,
+                    }));
+                  }}
+                  className={cn(
+                    "touch-btn h-11 text-xs font-extrabold",
+                    form.kind === k.id
+                      ? "bg-emerald-800 text-white"
+                      : "bg-white text-slate-700 ring-1 ring-slate-200"
+                  )}
+                >
+                  {k.label}
+                </button>
+              ))}
+            </div>
             <label className="block">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Tên
@@ -723,14 +844,18 @@ function InventoryContent() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, name: e.target.value }))
                 }
-                placeholder="VD: Đường, Mì tôm, Trứng"
+                placeholder={
+                  form.kind === PRODUCT_KIND.FINISHED
+                    ? "VD: AVIA, Sting"
+                    : "VD: Đường, Mì tôm, Trứng"
+                }
                 required
               />
             </label>
 
             <label className="block">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Đơn vị gốc (tồn / công thức)
+                Đơn vị gốc (tồn / bán lẻ)
               </span>
               <select
                 className="field-input"
@@ -778,7 +903,9 @@ function InventoryContent() {
                 }}
               />
               <span className="text-sm font-semibold text-slate-800">
-                Nhập theo thùng / túi (vd 1 thùng mì = 30 gói)
+                {form.kind === PRODUCT_KIND.FINISHED
+                  ? "Nhập theo thùng (vd AVIA 1 thùng = 24 chai)"
+                  : "Nhập theo thùng / túi (vd 1 thùng mì = 30 gói)"}
               </span>
             </label>
 
@@ -799,7 +926,7 @@ function InventoryContent() {
                 </label>
                 <label className="block">
                   <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                    1 {form.packLabel || "kiện"} = ? {form.unit}
+                    1 {form.packLabel || "kiện"} = ? số lẻ ({form.unit})
                   </span>
                   <input
                     type="number"
@@ -870,6 +997,27 @@ function InventoryContent() {
               </p>
             ) : null}
 
+            {form.kind === PRODUCT_KIND.FINISHED ? (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Giá bán / {form.unit || "chai"} (POS)
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  required
+                  className="field-input money"
+                  value={form.price}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, price: e.target.value }))
+                  }
+                  placeholder="8000"
+                />
+              </label>
+            ) : null}
+
             <button
               type="submit"
               disabled={savingAdd}
@@ -880,7 +1028,11 @@ function InventoryContent() {
               ) : (
                 <Save className="h-5 w-5" aria-hidden />
               )}
-              {savingAdd ? "Đang lưu..." : "Lưu nguyên liệu"}
+              {savingAdd
+                ? "Đang lưu..."
+                : form.kind === PRODUCT_KIND.FINISHED
+                  ? "Lưu thành phẩm"
+                  : "Lưu nguyên liệu"}
             </button>
           </form>
         </section>
@@ -889,7 +1041,11 @@ function InventoryContent() {
       {editing ? (
         <section className="card-panel mb-4 space-y-3 border-amber-100 bg-gradient-to-b from-amber-50/80 to-white">
           <div className="flex items-center justify-between gap-2">
-            <h2 className="section-title text-amber-950">Sửa nguyên liệu</h2>
+            <h2 className="section-title text-amber-950">
+              {editing.kind === PRODUCT_KIND.FINISHED
+                ? "Sửa thành phẩm nhập"
+                : "Sửa nguyên liệu"}
+            </h2>
             <button
               type="button"
               aria-label="Đóng"
@@ -962,7 +1118,9 @@ function InventoryContent() {
                 }}
               />
               <span className="text-sm font-semibold text-slate-800">
-                Nhập theo thùng / túi (vd 1 thùng = 30 gói)
+                {editing.kind === PRODUCT_KIND.FINISHED
+                  ? "Nhập theo thùng (vd 1 thùng = 24 chai)"
+                  : "Nhập theo thùng / túi (vd 1 thùng = 30 gói)"}
               </span>
             </label>
             {editForm.packEnabled ? (
@@ -1017,6 +1175,24 @@ function InventoryContent() {
                 }
               />
             </label>
+            {editing.kind === PRODUCT_KIND.FINISHED ? (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Giá bán / {editForm.unit || "chai"} (POS)
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="any"
+                  className="field-input money"
+                  value={editForm.price}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, price: e.target.value }))
+                  }
+                />
+              </label>
+            ) : null}
             {isSuperAdmin ? (
               <label className="block">
                 <span className="mb-1.5 block text-sm font-semibold text-slate-700">
@@ -1048,7 +1224,7 @@ function InventoryContent() {
               ) : (
                 <Save className="h-5 w-5" aria-hidden />
               )}
-              {savingEdit ? "Đang lưu..." : "Lưu thông tin"}
+              {savingEdit ? "Đang lưu..." : "Lưu"}
             </button>
           </form>
         </section>
@@ -1076,13 +1252,26 @@ function InventoryContent() {
         ))}
       </div>
 
+      <label className="mb-3 block">
+        <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+          Chọn / tìm tên hàng
+        </span>
+        <input
+          type="search"
+          className="field-input"
+          placeholder="VD: AVIA, mì tôm, đường…"
+          value={nameQuery}
+          onChange={(e) => setNameQuery(e.target.value)}
+        />
+      </label>
+
       <section className="mb-8 space-y-2">
         <h2 className="section-title">Nhập thêm vào món có sẵn</h2>
         {loading ? (
           <div className="card-panel h-24 animate-pulse bg-white/80" />
         ) : visible.length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
-            Chưa có nguyên liệu. Bấm &quot;Thêm nguyên liệu mới&quot; ở trên.
+            Chưa có hàng. Bấm &quot;Thêm hàng kho&quot; ở trên.
           </div>
         ) : (
           visible.map((product) => {
@@ -1090,13 +1279,22 @@ function InventoryContent() {
             const isIng = product.kind === PRODUCT_KIND.INGREDIENT;
             const busy = savingId === product.id;
             const packaging = normalizeProductUnits(product);
-            const receiveUnits = packaging.units.filter(
-              (unit) => unit.canReceive
-            );
+            const receiveUnits = receiveUnitChoices(product);
             const selectedUnit =
-              findUnit(product, d.unitId) || defaultReceiveUnit(product);
+              receiveUnits.find((unit) => unit.id === d.unitId) ||
+              [...receiveUnits].sort((a, b) => b.factor - a.factor)[0] ||
+              defaultReceiveUnit(product);
+            const isPackUnit = Number(selectedUnit?.factor) > 1;
+            const packFactor = isPackUnit
+              ? Math.max(
+                  1,
+                  Math.round(
+                    Number(d.packFactor) || Number(selectedUnit?.factor) || 1
+                  )
+                )
+              : 1;
             const baseQtyPreview = Math.round(
-              (Number(d.addQty) || 0) * (Number(selectedUnit?.factor) || 1)
+              (Number(d.addQty) || 0) * packFactor
             );
             const previewCost = d.cost !== undefined && String(d.cost).trim() !== ""
               ? parseUnitCostInput(d.cost)
@@ -1111,7 +1309,11 @@ function InventoryContent() {
                       {product.name}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      {isIng ? "Kho / nguyên liệu" : "Thành phẩm POS"}
+                      {isIng
+                        ? "Nguyên liệu"
+                        : isRecipeFinished(product)
+                          ? "Món công thức"
+                          : "Thành phẩm nhập"}
                       {" · Tồn "}
                       <span className="font-bold text-slate-800">
                         {stockLine(product)}
@@ -1132,7 +1334,7 @@ function InventoryContent() {
                     </p>
                   </div>
                   <div className="flex shrink-0 gap-1">
-                    {canManageProducts && isIng ? (
+                    {canManageProducts ? (
                       <button
                         type="button"
                         aria-label="Sửa"
@@ -1142,7 +1344,7 @@ function InventoryContent() {
                         <Pencil className="h-4 w-4" />
                       </button>
                     ) : null}
-                    {isSuperAdmin && isIng ? (
+                    {isSuperAdmin ? (
                       <button
                         type="button"
                         aria-label="Xóa"
@@ -1160,12 +1362,44 @@ function InventoryContent() {
                   </div>
                 </div>
 
-                {isIng ? (
-                <>
+                {isRecipeFinished(product) ? (
+                  <p className="rounded-2xl bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-snug text-amber-950 ring-1 ring-amber-100">
+                    Món nấu/pha — nhập hoặc lưu sửa sẽ đổi thành hàng nhập
+                    (trừ tồn khi bán), bỏ công thức.
+                  </p>
+                ) : null}
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      + Số lượng nhập
+                      Đơn vị nhập
+                    </span>
+                    <select
+                      className="field-input"
+                      value={d.unitId || selectedUnit?.id || ""}
+                      onChange={(e) => {
+                        const next = receiveUnits.find(
+                          (unit) => unit.id === e.target.value
+                        );
+                        setDraft(product.id, {
+                          unitId: e.target.value,
+                          packFactor:
+                            Number(next?.factor) > 1
+                              ? String(next.factor)
+                              : "",
+                        });
+                      }}
+                    >
+                      {receiveUnits.map((unit) => (
+                        <option key={unit.id} value={unit.id}>
+                          {unit.label}
+                          {unit.factor > 1 ? ` (×${unit.factor})` : " · lẻ"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                      Số {selectedUnit?.label || "đv"}
                     </span>
                     <input
                       type="number"
@@ -1179,27 +1413,36 @@ function InventoryContent() {
                       }
                     />
                   </label>
-                  <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Đơn vị nhập
-                    </span>
-                    <select
-                      className="field-input"
-                      value={d.unitId || selectedUnit?.id || ""}
-                      onChange={(e) =>
-                        setDraft(product.id, { unitId: e.target.value })
-                      }
-                    >
-                      {receiveUnits.map((unit) => (
-                        <option key={unit.id} value={unit.id}>
-                          {unit.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                  {isPackUnit ? (
+                    <label className="block col-span-2">
+                      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                        1 {selectedUnit?.label || "thùng"} = ? số lẻ (
+                        {packaging.baseUnit})
+                      </span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min="2"
+                        className="field-input money"
+                        placeholder={String(selectedUnit?.factor || 24)}
+                        value={
+                          d.packFactor !== undefined && d.packFactor !== ""
+                            ? d.packFactor
+                            : String(selectedUnit?.factor || "")
+                        }
+                        onChange={(e) =>
+                          setDraft(product.id, { packFactor: e.target.value })
+                        }
+                      />
+                      <span className="mt-1 block text-[11px] text-slate-500">
+                        Gói/chai là đơn vị nhỏ nhất: bán lẻ hoặc gắn công thức
+                        món khác.
+                      </span>
+                    </label>
+                  ) : null}
                   <label className="block col-span-2">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Giá nhập mới
+                      Giá / {selectedUnit?.label || "đv"}
                     </span>
                     <input
                       type="number"
@@ -1220,8 +1463,18 @@ function InventoryContent() {
                       }
                       let preview = null;
                       try {
-                        preview = deriveReceiveCostUpdate(product, {
-                          unit: selectedUnit,
+                        const { product: ready, unitId } = withReceivePack(
+                          product,
+                          {
+                            unitLabel: selectedUnit.label,
+                            packFactor,
+                          }
+                        );
+                        preview = deriveReceiveCostUpdate(ready, {
+                          unit: findUnit(ready, unitId) || {
+                            ...selectedUnit,
+                            factor: packFactor,
+                          },
                           receiveQty: qty,
                           unitReceivePrice: previewCost,
                         });
@@ -1229,14 +1482,18 @@ function InventoryContent() {
                         return null;
                       }
                       return (
-                        <p className="mt-1 text-[11px] font-semibold leading-snug text-slate-600">
-                          {qty} {selectedUnit.label} ×{" "}
+                        <p className="mt-1 text-[11px] font-semibold leading-snug text-emerald-800">
+                          {qty} {selectedUnit.label}
+                          {packFactor > 1
+                            ? ` × ${packFactor} ${packaging.baseUnit}`
+                            : ""}
+                          {" × "}
                           {formatCurrency(previewCost)}
                           {" → +"}
-                          {preview.baseQty}{" "}
-                          {product.packaging?.baseUnit || product.unit || "đv"}
-                          {" · ĐG gốc "}
-                          {formatCurrency(preview.baseUnitCost)}
+                          {preview.baseQty} {packaging.baseUnit}
+                          {" · "}
+                          {formatCurrency(preview.baseUnitCost)}/
+                          {packaging.baseUnit}
                           {" · Trừ quỹ "}
                           {formatCurrency(preview.amount)}
                         </p>
@@ -1249,8 +1506,11 @@ function InventoryContent() {
                   <div className="space-y-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100">
                     <p className="text-xs font-bold text-rose-800">
                       Nhập {Number(d.addQty) || 0}{" "}
-                      {selectedUnit?.label || product.unit || "đv"} ={" "}
-                      {formatUnitCount(baseQtyPreview)} {packaging.baseUnit}
+                      {selectedUnit?.label || product.unit || "đv"}
+                      {packFactor > 1
+                        ? ` × ${packFactor} ${packaging.baseUnit}`
+                        : ""}{" "}
+                      = {formatUnitCount(baseQtyPreview)} {packaging.baseUnit}
                     </p>
                     {canChooseInventoryFundSource ? (
                       <div className="grid grid-cols-2 gap-2">
@@ -1348,20 +1608,6 @@ function InventoryContent() {
                       ? "Lưu nhập + trừ quỹ"
                       : "Lưu nhập hàng"}
                 </button>
-                </>
-                ) : (
-                  <p className="rounded-2xl bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
-                    Thành phẩm không nhập tại kho. Nhập thùng mì / NL phía trên,
-                    bán lẻ theo gói qua công thức trên{" "}
-                    <Link
-                      href="/manager/products"
-                      className="font-bold underline"
-                    >
-                      Món · giá
-                    </Link>
-                    .
-                  </p>
-                )}
               </article>
             );
           })

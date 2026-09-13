@@ -64,19 +64,21 @@ trừ kho = baseQty
 **Màn:** Nhập hàng. **Đối tượng chính:** nguyên liệu.
 
 ```
-Chọn NL → SL + ĐV nhập (kg/túi/thùng) → giá / ĐV nhập
-  → baseQty = SL × hệ số
-  → trừ quỹ = SL × giá nhập
-  → tồn += baseQty
-  → cost gốc = round(tiền / baseQty)
-  → recompute cost mọi món bán dùng NL này
+Chọn tên hàng → ĐV nhập (thùng / gói / chai)
+  → nếu thùng: nhập số lẻ (1 thùng = N gói/chai)
+  → giá / thùng → tự chia: cost gốc = tiền ÷ (SL × N)
+  → tồn += SL × N (đơn vị nhỏ nhất)
+  → gói/chai = ĐV gốc: bán lẻ POS hoặc gắn CT món khác
+  → trừ quỹ = SL × giá thùng
 ```
 
 Ví dụ: 1 túi đường 1kg × 25.000 → +1000g, quỹ −25.000, cost = 25đ/g.
 
 **Giữ:** trừ quỹ quán (QL) / chọn quỹ vốn (Admin); preview chia giá; không FIFO.
 
-**Có thể nhập thành phẩm?** Không. Thùng mì / túi đường là **kho (ingredient)** kèm kiện (1 thùng = 30 gói). Bán lẻ gói = **thành phẩm** + CT 1 gói. Chai nước mua sẵn bán nguyên: vẫn có thể là thành phẩm không trừ NL khác — không nhập tại kho như món nấu.
+**Thành phẩm nhập (AVIA, chai nước):** `kind=finished` + `costMode=manual` + kiện (1 thùng = 24 chai). Nhập/sửa tại kho. POS bán lẻ chai, trừ tồn chai.
+
+**Món nấu/pha:** `kind=finished` + `costMode=recipe`. Không nhập món — nhập NL, CT trừ lúc bán.
 
 ---
 
