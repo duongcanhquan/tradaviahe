@@ -41,8 +41,10 @@ import {
   updateProduct,
 } from "@/lib/products";
 import {
+  ensureRecipeDraftLines,
   isRecipeStockSource,
   migrateRecipeQty,
+  productUsesRecipe,
   recipeLineCost,
 } from "@/lib/recipe";
 import { normalizeProductUnits } from "@/lib/packaging";
@@ -249,12 +251,12 @@ function ProductsContent() {
     return rows;
   };
 
-  const openEdit = (row) => {
+  const openEdit = (row, { addRecipe = false } = {}) => {
     setEditingId(row.id);
     setRecipeSearch("");
     const useRecipe =
       row.kind !== PRODUCT_KIND.INGREDIENT &&
-      row.costMode === COST_MODE.RECIPE;
+      (addRecipe || productUsesRecipe(row));
     const servings = Math.max(1, Number(row.estimatedServings) || 100);
     let recipe = Array.isArray(row.recipe)
       ? row.recipe.map((l) =>
@@ -273,7 +275,10 @@ function ProductsContent() {
                 virtual: false,
               }
         )
-      : [];
+        : [];
+    if (useRecipe) {
+      recipe = ensureRecipeDraftLines(recipe);
+    }
     const packagingEnabled =
       (row.kind === PRODUCT_KIND.INGREDIENT || !useRecipe) &&
       Boolean(row.packaging?.enabled);
@@ -1006,7 +1011,7 @@ function ProductsContent() {
                           ? `Tồn: ${stockSummary || `${stockBase} ${packaging.baseUnit}`}`
                           : `Đơn vị: ${row.unit || "—"} · Tồn: ${row.inStock ?? 0}`}
                         {row.kind !== PRODUCT_KIND.INGREDIENT &&
-                        row.costMode === COST_MODE.RECIPE
+                        productUsesRecipe(row)
                           ? " · Cost theo CT"
                           : ""}
                       </p>
@@ -1034,11 +1039,12 @@ function ProductsContent() {
                       ) : null}
                       <button
                         type="button"
-                        aria-label="Sửa"
+                        aria-label="Sửa món"
                         onClick={() => openEdit(row)}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                        className="flex h-11 items-center gap-1 rounded-xl bg-slate-100 px-3 text-xs font-extrabold text-slate-800"
                       >
                         <Pencil className="h-4 w-4" />
+                        Sửa
                       </button>
                       {row.kind !== PRODUCT_KIND.INGREDIENT || isSuperAdmin ? (
                       <button
@@ -1099,15 +1105,15 @@ function ProductsContent() {
                   (!Array.isArray(row.recipe) || !row.recipe.length) ? (
                     <button
                       type="button"
-                      onClick={() => openEdit(row)}
-                      className="mt-2 w-full rounded-xl bg-amber-50 px-3 py-2 text-left text-xs font-bold text-amber-950 ring-1 ring-amber-200"
+                      onClick={() => openEdit(row, { addRecipe: true })}
+                      className="mt-2 w-full rounded-xl bg-amber-50 px-3 py-2.5 text-left text-xs font-bold text-amber-950 ring-1 ring-amber-200"
                     >
-                      Chưa có công thức — bấm để chọn NL từ kho
+                      Chưa có công thức — bấm để thêm CT (NL / thành phẩm)
                     </button>
                   ) : null}
 
                   {row.kind !== PRODUCT_KIND.INGREDIENT &&
-                  row.costMode === COST_MODE.RECIPE &&
+                  productUsesRecipe(row) &&
                   Array.isArray(row.recipe) &&
                   row.recipe.length ? (
                     <ul className="mt-2 space-y-0.5 border-t border-slate-100 pt-2 text-xs text-slate-500">
@@ -1171,7 +1177,7 @@ function ProductsContent() {
                 {editingId ? "Sửa" : "Thêm"}{" "}
                 {form.kind === PRODUCT_KIND.INGREDIENT
                   ? "nguyên liệu"
-                  : "thành phẩm"}
+                  : "món bán"}
               </h2>
               <button
                 type="button"
@@ -1372,14 +1378,36 @@ function ProductsContent() {
                           }
                         : { enabled: false, baseUnit: f.unit || "ly" },
                       units: bought ? f.units : [],
+                      recipe: bought
+                        ? f.recipe
+                        : ensureRecipeDraftLines(f.recipe),
                     }));
                   }}
                   className="h-5 w-5 accent-emerald-700"
                 />
                 <span className="text-sm font-semibold text-slate-800">
-                  Hàng nhập bán nguyên (AVIA, thùng × chai — không công thức)
+                  Hàng nhập bán nguyên (AVIA, thùng × chai). Bỏ tick để thêm /
+                  sửa công thức món nấu.
                 </span>
               </label>
+            ) : null}
+            {form.kind === PRODUCT_KIND.FINISHED &&
+            form.costMode !== COST_MODE.RECIPE ? (
+              <button
+                type="button"
+                onClick={() =>
+                  setForm((f) => ({
+                    ...f,
+                    costMode: COST_MODE.RECIPE,
+                    packaging: { enabled: false, baseUnit: f.unit || "ly" },
+                    units: [],
+                    recipe: ensureRecipeDraftLines(f.recipe),
+                  }))
+                }
+                className="mb-3 w-full rounded-2xl bg-amber-50 px-3 py-3 text-left text-sm font-bold text-amber-950 ring-1 ring-amber-200"
+              >
+                Thêm / sửa công thức — chọn NL hoặc thành phẩm nhập
+              </button>
             ) : null}
 
             {form.kind === PRODUCT_KIND.INGREDIENT ||

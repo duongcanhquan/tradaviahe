@@ -30,6 +30,7 @@
 
 - POS **chỉ** `kind = finished` + `active`.
 - Công thức gắn **NL kho** + **thành phẩm nhập** (`finished` + `costMode=manual`, vd gói mì, chai) hoặc dòng ảo đá/nước. Không gắn chính món đang sửa / món chỉ có CT (0 tồn).
+- Món bán **đã có** sửa được tên, giá, nhóm, CT (món cũ thiếu `costMode` vẫn mở form CT).
 - Không bán “1 kg đường” trên POS trừ khi cố ý tạo thành phẩm riêng.
 
 ---
