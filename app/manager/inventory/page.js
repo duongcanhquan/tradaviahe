@@ -18,7 +18,7 @@ import { useToast } from "@/components/Toast";
 import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
-import { defaultReceiveUnit, findUnit, normalizeProductUnits } from "@/lib/packaging";
+import { defaultReceiveUnit, deriveReceiveCostUpdate, findUnit, normalizeProductUnits } from "@/lib/packaging";
 import {
   DEFAULT_PRODUCT_GROUPS,
   ensureDefaultProductGroups,
@@ -245,18 +245,23 @@ function InventoryContent() {
           unitId: selectedUnit?.id,
           unitCost: nextCost,
           paymentMethod: payMethod,
-          updateCost: hasCost && Number(selectedUnit?.factor) === 1,
+          updateCost: true, // last-purchase always
           user,
           profile,
         });
-        if (hasCost) {
-          await recomputeRecipeCosts();
-        }
+        await recomputeRecipeCosts();
         const via = result.paymentMethod === "banking" ? "CK" : "TM";
         const fundLabel =
           result.fundSource === "capital" ? "quỹ đầu tư" : "quỹ cửa hàng";
         showToast(
-          `Đã nhập +${result.qty} · trừ ${fundLabel} ${via} ${formatCurrency(result.amount)}`,
+          `Đã nhập +${result.qty} · trừ ${fundLabel} ${via} ${formatCurrency(result.amount)}` +
+            (result.unitReceivePrice != null
+              ? ` · ĐG gốc ${formatCurrency(
+                  Math.round(
+                    result.amount / Math.max(1, Number(result.baseQty) || 1)
+                  )
+                )}`
+              : ""),
           "success"
         );
       } else {
@@ -843,6 +848,35 @@ function InventoryContent() {
                         setDraft(product.id, { cost: e.target.value })
                       }
                     />
+                    {(() => {
+                      const qty = Number(d.addQty) || 0;
+                      if (qty <= 0 || !selectedUnit || previewCost <= 0) {
+                        return null;
+                      }
+                      let preview = null;
+                      try {
+                        preview = deriveReceiveCostUpdate(product, {
+                          unit: selectedUnit,
+                          receiveQty: qty,
+                          unitReceivePrice: previewCost,
+                        });
+                      } catch {
+                        return null;
+                      }
+                      return (
+                        <p className="mt-1 text-[11px] font-semibold leading-snug text-slate-600">
+                          {qty} {selectedUnit.label} ×{" "}
+                          {formatCurrency(previewCost)}
+                          {" → +"}
+                          {preview.baseQty}{" "}
+                          {product.packaging?.baseUnit || product.unit || "đv"}
+                          {" · ĐG gốc "}
+                          {formatCurrency(preview.baseUnitCost)}
+                          {" · Trừ quỹ "}
+                          {formatCurrency(preview.amount)}
+                        </p>
+                      );
+                    })()}
                   </label>
                 </div>
 
