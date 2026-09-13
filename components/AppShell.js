@@ -27,7 +27,7 @@ export default function AppShell({
         <div
           className={cn(
             "mx-auto max-w-lg px-3",
-            posHeader ? "py-1.5" : "px-4 py-3"
+            posHeader ? "px-3 py-2.5" : "px-4 py-3"
           )}
         >
           <div className="flex items-center justify-between gap-2">
@@ -84,7 +84,7 @@ export default function AppShell({
           </div>
 
           {headerExtra ? (
-            <div className={cn(posHeader ? "mt-1.5" : "mt-2")}>{headerExtra}</div>
+            <div className={cn(posHeader ? "mt-2.5" : "mt-2")}>{headerExtra}</div>
           ) : null}
         </div>
       </header>

@@ -40,7 +40,11 @@ import {
   summarizeRecipeCosts,
   updateProduct,
 } from "@/lib/products";
-import { migrateRecipeQty, recipeLineCost } from "@/lib/recipe";
+import {
+  isRecipeStockSource,
+  migrateRecipeQty,
+  recipeLineCost,
+} from "@/lib/recipe";
 import { normalizeProductUnits } from "@/lib/packaging";
 import { formatBaseQty, toIngredientBaseQty, usageUnitsForIngredient } from "@/lib/units";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -177,13 +181,15 @@ function ProductsContent() {
     [products]
   );
 
-  /** Kho = hàng nhập (kind=ingredient), không gồm món bán POS */
-  const warehouseIngredients = useMemo(
+  /** CT: NL kho + thành phẩm nhập (gói mì, chai…) — trừ tồn lúc bán */
+  const recipeStockItems = useMemo(
     () =>
-      [...ingredients].sort((a, b) =>
-        String(a.name || "").localeCompare(String(b.name || ""), "vi")
-      ),
-    [ingredients]
+      products
+        .filter((p) => isRecipeStockSource(p, editingId))
+        .sort((a, b) =>
+          String(a.name || "").localeCompare(String(b.name || ""), "vi")
+        ),
+    [products, editingId]
   );
 
   const list = useMemo(() => {
@@ -233,17 +239,14 @@ function ProductsContent() {
 
   const recipeSourceOptions = (selectedId) => {
     const q = recipeSearch.trim().toLowerCase();
-    const ings = warehouseIngredients.filter(
+    const rows = recipeStockItems.filter(
       (p) => !q || String(p.name || "").toLowerCase().includes(q)
     );
     const selected = selectedId ? byId[selectedId] : null;
-    if (
-      selected?.kind === PRODUCT_KIND.INGREDIENT &&
-      !ings.some((p) => p.id === selectedId)
-    ) {
-      ings.unshift(selected);
+    if (selected && !rows.some((p) => p.id === selectedId)) {
+      rows.unshift(selected);
     }
-    return ings;
+    return rows;
   };
 
   const openEdit = (row) => {
@@ -347,8 +350,11 @@ function ProductsContent() {
       }));
       return;
     }
-    if (!warehouseIngredients.length) {
-      showToast("Chưa có nguyên liệu kho — thêm ở tab Nguyên liệu", "info");
+    if (!recipeStockItems.length) {
+      showToast(
+        "Chưa có hàng kho — thêm nguyên liệu hoặc thành phẩm nhập",
+        "info"
+      );
       return;
     }
     setForm((f) => ({
@@ -1425,17 +1431,18 @@ function ProductsContent() {
                       Công thức mỗi suất
                     </p>
                     <p className="text-xs leading-relaxed text-amber-900/80">
-                      Chỉ hàng kho (NL / thùng mì). Thành phẩm không nằm trong
-                      “Từ kho”. Ví dụ: mì bán lẻ = 1 gói mì (kho nhập thùng
-                      30). Mì 1 trứng = 1 gói + 1 trứng. Đá/nước: Ước tay.
+                      Chọn nguyên liệu hoặc thành phẩm nhập (gói mì, chai…).
+                      Gói mì vừa bán lẻ POS vừa gắn CT: bát mì = 1 gói + nước
+                      sôi; mì 1 trứng = 1 gói + 1 trứng + nước. Đá/nước: Ước
+                      tay.
                     </p>
                     <p className="text-[11px] font-semibold text-amber-950">
-                      Kho: {warehouseIngredients.length} nguyên liệu
+                      Kho: {recipeStockItems.length} hàng (NL + thành phẩm)
                     </p>
                     <input
                       type="search"
                       className="field-input py-2 text-sm"
-                      placeholder="Tìm trong kho (tên NL)…"
+                      placeholder="Tìm NL / thành phẩm…"
                       value={recipeSearch}
                       onChange={(e) => setRecipeSearch(e.target.value)}
                     />
@@ -1526,22 +1533,17 @@ function ProductsContent() {
                             className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-amber-100"
                           >
                             {(() => {
-                              const ings = recipeSourceOptions(line.productId);
-                              const selected = line.productId
-                                ? byId[line.productId]
-                                : null;
-                              const selectedWrongKind =
-                                selected &&
-                                selected.kind !== PRODUCT_KIND.INGREDIENT;
+                              const items = recipeSourceOptions(line.productId);
+                              const nls = items.filter(
+                                (p) => p.kind === PRODUCT_KIND.INGREDIENT
+                              );
+                              const tps = items.filter(
+                                (p) => p.kind !== PRODUCT_KIND.INGREDIENT
+                              );
                               return (
-                                <>
                                   <select
                                     className="field-input w-full py-2 text-sm"
-                                    value={
-                                      selectedWrongKind
-                                        ? ""
-                                        : line.productId || ""
-                                    }
+                                    value={line.productId || ""}
                                     onChange={(e) =>
                                       setForm((f) => {
                                         const nextId = e.target.value;
@@ -1556,21 +1558,30 @@ function ProductsContent() {
                                       })
                                     }
                                   >
-                                    <option value="">— Chọn nguyên liệu kho —</option>
-                                    {ings.map((ing) => (
-                                      <option key={ing.id} value={ing.id}>
-                                        {ing.name} · {formatCurrency(ing.cost)}/
-                                        {ing.unit}
-                                      </option>
-                                    ))}
+                                    <option value="">
+                                      — Chọn NL / thành phẩm —
+                                    </option>
+                                    {nls.length ? (
+                                      <optgroup label="Nguyên liệu">
+                                        {nls.map((ing) => (
+                                          <option key={ing.id} value={ing.id}>
+                                            {ing.name} ·{" "}
+                                            {formatCurrency(ing.cost)}/{ing.unit}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    ) : null}
+                                    {tps.length ? (
+                                      <optgroup label="Thành phẩm nhập">
+                                        {tps.map((ing) => (
+                                          <option key={ing.id} value={ing.id}>
+                                            {ing.name} ·{" "}
+                                            {formatCurrency(ing.cost)}/{ing.unit}
+                                          </option>
+                                        ))}
+                                      </optgroup>
+                                    ) : null}
                                   </select>
-                                  {selectedWrongKind ? (
-                                    <p className="text-[11px] font-semibold text-rose-700">
-                                      “{selected.name}” đang là món bán — đổi
-                                      loại sang Nguyên liệu kho rồi chọn lại.
-                                    </p>
-                                  ) : null}
-                                </>
                               );
                             })()}
                             <div className="grid grid-cols-[1fr_5.5rem_2.5rem] gap-2">

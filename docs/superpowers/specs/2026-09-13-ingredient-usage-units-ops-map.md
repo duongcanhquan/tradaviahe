@@ -29,7 +29,7 @@
 **Quy tắc cứng**
 
 - POS **chỉ** `kind = finished` + `active`.
-- Công thức **chỉ** gắn NL `ingredient` (hoặc dòng ảo đá/nước).
+- Công thức gắn **NL kho** + **thành phẩm nhập** (`finished` + `costMode=manual`, vd gói mì, chai) hoặc dòng ảo đá/nước. Không gắn chính món đang sửa / món chỉ có CT (0 tồn).
 - Không bán “1 kg đường” trên POS trừ khi cố ý tạo thành phẩm riêng.
 
 ---

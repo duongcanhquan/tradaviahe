@@ -378,8 +378,14 @@ export default function EmployeeDesk() {
   const displayName = profile?.name || profile?.username || "Nhân viên";
 
   const groupHeader = (
-    <div className="flex items-center gap-1">
-      <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="space-y-2">
+      <div
+        className={cn(
+          groups.length <= 4
+            ? "grid grid-cols-2 gap-2"
+            : "flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        )}
+      >
         {groups.map((g) => {
           const active = activeGroupId === g.id;
           return (
@@ -388,17 +394,18 @@ export default function EmployeeDesk() {
               type="button"
               onClick={() => setActiveGroupId(g.id)}
               className={cn(
-                "h-7 shrink-0 rounded-lg px-2 text-[10px] font-extrabold leading-none transition active:scale-95",
+                "touch-btn min-h-12 px-3 text-sm font-extrabold",
+                groups.length > 4 ? "shrink-0" : "w-full",
                 active
                   ? "bg-brand-700 text-white"
-                  : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+                  : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
               )}
             >
-              {g.name}
+              <span className="truncate">{g.name}</span>
               <span
                 className={cn(
-                  "ml-1 opacity-80",
-                  active ? "text-white" : "text-slate-400"
+                  "tabular-nums",
+                  active ? "text-white/80" : "text-slate-500"
                 )}
               >
                 {countInGroup(g.id)}
@@ -412,13 +419,13 @@ export default function EmployeeDesk() {
           type="button"
           onClick={() => setSortMode((v) => !v)}
           className={cn(
-            "h-7 shrink-0 rounded-lg px-2 text-[10px] font-extrabold",
+            "touch-btn h-11 w-full text-sm font-extrabold",
             sortMode
               ? "bg-amber-500 text-white"
-              : "bg-slate-100 text-slate-600 ring-1 ring-slate-200"
+              : "bg-slate-100 text-slate-700 ring-1 ring-slate-200"
           )}
         >
-          {sortMode ? "Xong" : "TT"}
+          {sortMode ? "Xong sắp xếp" : "Sắp xếp thứ tự món"}
         </button>
       ) : null}
     </div>
