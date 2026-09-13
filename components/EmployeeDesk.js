@@ -277,7 +277,9 @@ export default function EmployeeDesk() {
     let amount;
     try {
       saleItems = cartItems.map((item) => {
-        assertCanSellStock(item.product, item.unitId, item.qty);
+        if (item.product?.costMode !== "recipe") {
+          assertCanSellStock(item.product, item.unitId, item.qty);
+        }
         return buildSaleLineFromProduct(item.product, {
           qty: item.qty,
           unitId: item.unitId,
@@ -311,7 +313,10 @@ export default function EmployeeDesk() {
     } catch (error) {
       console.error(error);
       setCart(cartSnapshot);
-      showToast("Ghi thu thất bại — thử lại", "error");
+      showToast(
+        error?.message || "Ghi thu thất bại — thử lại",
+        "error"
+      );
     } finally {
       setSubmitting(false);
     }

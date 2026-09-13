@@ -165,30 +165,23 @@ function InventoryContent() {
   const handleAdd = async (e) => {
     e.preventDefault();
     if (!form.name.trim()) {
-      showToast("Nhập tên món / nguyên liệu", "error");
+      showToast("Nhập tên nguyên liệu", "error");
       return;
     }
     const qty = Number(form.inStock) || 0;
     const cost = parseUnitCostInput(form.cost);
-    const price =
-      form.kind === PRODUCT_KIND.FINISHED
-        ? parseUnitCostInput(form.price)
-        : 0;
 
     setSavingAdd(true);
     try {
       await createProduct({
         name: form.name.trim(),
-        kind: form.kind,
-        unit: form.unit || "cái",
+        kind: PRODUCT_KIND.INGREDIENT,
+        unit: form.unit || "g",
         inStock: qty,
         cost,
         costMode: COST_MODE.MANUAL,
-        price,
-        groupId:
-          form.kind === PRODUCT_KIND.FINISHED && form.groupId
-            ? form.groupId
-            : null,
+        price: 0,
+        groupId: null,
         recipe: [],
         active: true,
       });
@@ -200,7 +193,7 @@ function InventoryContent() {
       setShowAdd(false);
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Thêm món thất bại", "error");
+      showToast(error?.message || "Thêm nguyên liệu thất bại", "error");
     } finally {
       setSavingAdd(false);
     }
@@ -544,49 +537,25 @@ function InventoryContent() {
         ) : (
           <>
             <Plus className="h-5 w-5" aria-hidden />
-            Thêm món / nguyên liệu mới
+            Thêm nguyên liệu mới
           </>
         )}
       </button>
 
       {showAdd ? (
         <section className="card-panel mb-4 space-y-3 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
-          <h2 className="section-title text-emerald-950">Thêm hàng mới</h2>
+          <h2 className="section-title text-emerald-950">Thêm nguyên liệu kho</h2>
+          <p className="text-xs leading-relaxed text-slate-500">
+            Chỉ thêm hàng trừ kho (đường, mì, trứng…). Món bán + công thức:{" "}
+            <Link
+              href="/manager/products"
+              className="font-bold text-brand-800 underline"
+            >
+              Món · giá
+            </Link>
+            .
+          </p>
           <form onSubmit={handleAdd} className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
-              {[
-                { id: PRODUCT_KIND.INGREDIENT, label: "Nguyên liệu" },
-                { id: PRODUCT_KIND.FINISHED, label: "Thành phẩm bán" },
-              ].map((k) => (
-                <button
-                  key={k.id}
-                  type="button"
-                  onClick={() =>
-                    setForm((f) => ({
-                      ...f,
-                      kind: k.id,
-                      unit:
-                        k.id === PRODUCT_KIND.INGREDIENT
-                          ? f.kind === PRODUCT_KIND.INGREDIENT
-                            ? f.unit
-                            : "g"
-                          : f.kind === PRODUCT_KIND.FINISHED
-                            ? f.unit
-                            : "ly",
-                    }))
-                  }
-                  className={cn(
-                    "touch-btn h-12 text-sm font-bold",
-                    form.kind === k.id
-                      ? "bg-brand-700 text-white"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
-                >
-                  {k.label}
-                </button>
-              ))}
-            </div>
-
             <label className="block">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">
                 Tên
@@ -597,11 +566,7 @@ function InventoryContent() {
                 onChange={(e) =>
                   setForm((f) => ({ ...f, name: e.target.value }))
                 }
-                placeholder={
-                  form.kind === PRODUCT_KIND.INGREDIENT
-                    ? "VD: Trà khô, Đường, Ly"
-                    : "VD: Trà đá, Trà chanh"
-                }
+                placeholder="VD: Đường, Mì tôm, Trứng"
                 required
               />
             </label>
@@ -661,46 +626,6 @@ function InventoryContent() {
               </label>
             </div>
 
-            {form.kind === PRODUCT_KIND.FINISHED ? (
-              <>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                    Giá bán
-                  </span>
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    min="0"
-                    className="field-input money"
-                    value={form.price}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, price: e.target.value }))
-                    }
-                    placeholder="10000"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                    Nhóm POS
-                  </span>
-                  <select
-                    className="field-input"
-                    value={form.groupId}
-                    onChange={(e) =>
-                      setForm((f) => ({ ...f, groupId: e.target.value }))
-                    }
-                  >
-                    <option value="">— Chọn nhóm —</option>
-                    {groups.map((g) => (
-                      <option key={g.id} value={g.id}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            ) : null}
-
             <button
               type="submit"
               disabled={savingAdd}
@@ -711,7 +636,7 @@ function InventoryContent() {
               ) : (
                 <Save className="h-5 w-5" aria-hidden />
               )}
-              {savingAdd ? "Đang lưu..." : "Lưu món mới"}
+              {savingAdd ? "Đang lưu..." : "Lưu nguyên liệu"}
             </button>
           </form>
         </section>
@@ -746,7 +671,7 @@ function InventoryContent() {
           <div className="card-panel h-24 animate-pulse bg-white/80" />
         ) : visible.length === 0 ? (
           <div className="card-panel text-sm text-slate-500">
-            Chưa có món. Bấm &quot;Thêm món / nguyên liệu mới&quot; ở trên.
+            Chưa có nguyên liệu. Bấm &quot;Thêm nguyên liệu mới&quot; ở trên.
           </div>
         ) : (
           visible.map((product) => {

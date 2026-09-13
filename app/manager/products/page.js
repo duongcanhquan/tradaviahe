@@ -491,6 +491,29 @@ function ProductsContent() {
     e.preventDefault();
     setSaving(true);
     try {
+      const prev = editingId ? byId[editingId] : null;
+      if (
+        prev?.kind === PRODUCT_KIND.INGREDIENT &&
+        form.kind === PRODUCT_KIND.FINISHED
+      ) {
+        const usedIn = finished.filter(
+          (p) =>
+            Array.isArray(p.recipe) &&
+            p.recipe.some((l) => l.productId === editingId)
+        );
+        if (usedIn.length) {
+          const ok = window.confirm(
+            `“${prev.name}” đang nằm trong công thức: ${usedIn
+              .map((p) => p.name)
+              .join(", ")}. Đổi thành món bán sẽ hiện trên POS. Vẫn lưu?`
+          );
+          if (!ok) {
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
       if (form.kind === PRODUCT_KIND.FINISHED) {
         const lines = form.recipe.filter(
           (l) =>
@@ -573,6 +596,9 @@ function ProductsContent() {
       await recomputeRecipeCosts();
 
       showToast(editingId ? "Đã lưu" : "Đã thêm", "success");
+      setTab(
+        form.kind === PRODUCT_KIND.INGREDIENT ? "ingredient" : "finished"
+      );
       setOpen(false);
     } catch (error) {
       console.error(error);
@@ -1143,6 +1169,62 @@ function ProductsContent() {
                 <X className="h-5 w-5" />
               </button>
             </div>
+
+            <div className="mb-3 grid grid-cols-2 gap-2">
+              {[
+                { id: PRODUCT_KIND.INGREDIENT, label: "Nguyên liệu kho" },
+                { id: PRODUCT_KIND.FINISHED, label: "Món bán POS" },
+              ].map((k) => (
+                <button
+                  key={k.id}
+                  type="button"
+                  onClick={() =>
+                    setForm((f) => {
+                      if (f.kind === k.id) return f;
+                      if (k.id === PRODUCT_KIND.INGREDIENT) {
+                        return {
+                          ...f,
+                          kind: PRODUCT_KIND.INGREDIENT,
+                          costMode: COST_MODE.MANUAL,
+                          price: "",
+                          groupId: "",
+                          recipe: [],
+                          active: true,
+                          packaging: {
+                            enabled: Boolean(f.packaging?.enabled),
+                            baseUnit: f.unit || "g",
+                          },
+                        };
+                      }
+                      return {
+                        ...f,
+                        kind: PRODUCT_KIND.FINISHED,
+                        costMode: COST_MODE.RECIPE,
+                        groupId: f.groupId || groups[0]?.id || "",
+                        packaging: { enabled: false, baseUnit: f.unit || "ly" },
+                        units: [],
+                        active: true,
+                      };
+                    })
+                  }
+                  className={cn(
+                    "touch-btn h-11 px-2 text-xs font-bold sm:text-sm",
+                    form.kind === k.id
+                      ? "bg-slate-900 text-white"
+                      : "bg-slate-100 text-slate-700"
+                  )}
+                >
+                  {k.label}
+                </button>
+              ))}
+            </div>
+            {editingId &&
+            byId[editingId]?.kind !== form.kind ? (
+              <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950 ring-1 ring-amber-100">
+                Đang đổi loại hàng. Lưu để áp dụng — món bán mất khỏi POS nếu
+                thành nguyên liệu; nguyên liệu lên POS nếu thành món bán.
+              </p>
+            ) : null}
 
             <label className="mb-3 block">
               <span className="mb-1 block text-sm font-semibold">Tên</span>
