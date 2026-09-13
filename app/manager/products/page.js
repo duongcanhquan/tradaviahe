@@ -1720,7 +1720,7 @@ function ProductsContent() {
                   <span className="text-sm font-semibold text-slate-800">
                     {form.kind === PRODUCT_KIND.FINISHED
                       ? "Nhập thùng (vd AVIA 1 thùng = 24 chai)"
-                      : "Nhập thùng / túi (vd 1 thùng = 30 gói)"}
+                      : "Nhập kiện (thùng × gói, cây thuốc × bao)"}
                   </span>
                 </label>
 

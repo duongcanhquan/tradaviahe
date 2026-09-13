@@ -905,7 +905,7 @@ function InventoryContent() {
               <span className="text-sm font-semibold text-slate-800">
                 {form.kind === PRODUCT_KIND.FINISHED
                   ? "Nhập theo thùng (vd AVIA 1 thùng = 24 chai)"
-                  : "Nhập theo thùng / túi (vd 1 thùng mì = 30 gói)"}
+                  : "Nhập theo kiện (thùng mì × 30 gói, cây thuốc × 10 bao)"}
               </span>
             </label>
 
@@ -1120,7 +1120,7 @@ function InventoryContent() {
               <span className="text-sm font-semibold text-slate-800">
                 {editing.kind === PRODUCT_KIND.FINISHED
                   ? "Nhập theo thùng (vd 1 thùng = 24 chai)"
-                  : "Nhập theo thùng / túi (vd 1 thùng = 30 gói)"}
+                  : "Nhập theo kiện (thùng × gói, cây thuốc × bao)"}
               </span>
             </label>
             {editForm.packEnabled ? (

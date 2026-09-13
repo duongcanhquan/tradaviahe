@@ -161,7 +161,7 @@ Nhập hàng **không** trừ lần nữa trong lãi gộp (đã nằm trong t�
 
 3. **NL mới: gợi ý gốc g/ml** + bật nhiều ĐV nhập (kg, túi)
 
-4. **List đơn vị** thêm `lạng`, `túi`, `thùng`, `vỉ`, `quả`, `bát`
+4. **List đơn vị** thêm `lạng`, `túi`, `thùng`, `vỉ`, `quả`, `bát`, `bao`, `cây thuốc`
 
 5. (Tuỳ chọn) Recipe dòng chọn ĐV từ packaging của NL đó
 
