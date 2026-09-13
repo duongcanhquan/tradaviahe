@@ -325,6 +325,7 @@ function InventoryContent() {
 
   const openEditProduct = (product) => {
     setShowAdd(false);
+    setStocktakeOn(false);
     setEditing(product);
     const pack = largestPackUnit(product);
     setEditForm({
@@ -1110,8 +1111,17 @@ function InventoryContent() {
       ) : null}
 
       {editing ? (
-        <section className="card-panel mb-4 space-y-3 border-amber-100 bg-gradient-to-b from-amber-50/80 to-white">
-          <div className="flex items-center justify-between gap-2">
+        <div
+          className="fixed inset-0 z-[60] flex items-end bg-slate-950/50 sm:items-center sm:justify-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setEditing(null)}
+        >
+        <section
+          className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="mb-3 flex items-center justify-between gap-2">
             <h2 className="section-title text-amber-950">
               {editing.kind === PRODUCT_KIND.FINISHED
                 ? "Sửa thành phẩm nhập"
@@ -1121,7 +1131,7 @@ function InventoryContent() {
               type="button"
               aria-label="Đóng"
               onClick={() => setEditing(null)}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-white ring-1 ring-slate-200"
+              className="touch-btn h-12 w-12 bg-slate-100 p-0"
             >
               <X className="h-5 w-5" />
             </button>
@@ -1299,6 +1309,7 @@ function InventoryContent() {
             </button>
           </form>
         </section>
+        </div>
       ) : null}
 
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -1575,15 +1586,20 @@ function InventoryContent() {
                       <Money amount={lineStockCostValue(product)} />
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                </div>
+                <div className="relative z-10 flex gap-2">
                     {canManageProducts ? (
                       <button
                         type="button"
-                        aria-label="Sửa"
-                        onClick={() => openEditProduct(product)}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          openEditProduct(product);
+                        }}
+                        className="touch-btn h-11 flex-1 bg-slate-100 text-sm font-extrabold text-slate-800"
                       >
-                        <Pencil className="h-4 w-4" />
+                        <Pencil className="h-4 w-4" aria-hidden />
+                        Sửa
                       </button>
                     ) : null}
                     {isSuperAdmin ? (
@@ -1591,8 +1607,12 @@ function InventoryContent() {
                         type="button"
                         aria-label="Xóa"
                         disabled={deletingId === product.id}
-                        onClick={() => handleDeleteProduct(product)}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700 disabled:opacity-50"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleDeleteProduct(product);
+                        }}
+                        className="touch-btn h-11 w-14 bg-rose-50 p-0 text-rose-700 disabled:opacity-50"
                       >
                         {deletingId === product.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1601,7 +1621,6 @@ function InventoryContent() {
                         )}
                       </button>
                     ) : null}
-                  </div>
                 </div>
 
                 {isRecipeFinished(product) ? (
@@ -1837,7 +1856,7 @@ function InventoryContent() {
                   type="button"
                   disabled={busy}
                   onClick={() => handleReceive(product)}
-                  className="touch-btn h-12 w-full gap-2 bg-brand-700 text-sm text-white disabled:opacity-50"
+                  className="relative z-10 touch-btn h-12 w-full gap-2 bg-brand-700 text-sm text-white disabled:opacity-50"
                 >
                   {busy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
