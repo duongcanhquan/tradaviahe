@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDown,
   ArrowUp,
-  Calculator,
   Package,
   Pencil,
   Plus,
@@ -104,7 +103,7 @@ const emptyForm = {
   unit: "ly",
   price: "",
   cost: "",
-  costMode: COST_MODE.MANUAL,
+  costMode: COST_MODE.RECIPE,
   groupId: "drinks",
   inStock: "0",
   active: true,
@@ -132,6 +131,7 @@ function ProductsContent() {
   const [groupName, setGroupName] = useState("");
   const [editingGroup, setEditingGroup] = useState(null);
   const [savingGroup, setSavingGroup] = useState(false);
+  const [recipeSearch, setRecipeSearch] = useState("");
 
   useEffect(() => {
     ensureDefaultProductGroups().catch(() => {});
@@ -176,6 +176,29 @@ function ProductsContent() {
     [products]
   );
 
+  /** Mọi hàng trong kho trừ chính món đang sửa — CT không chỉ kind=ingredient */
+  const warehouseItems = useMemo(
+    () =>
+      [...products]
+        .filter((p) => p.id && p.id !== editingId)
+        .sort((a, b) =>
+          String(a.name || "").localeCompare(String(b.name || ""), "vi")
+        ),
+    [products, editingId]
+  );
+
+  const warehouseIngredients = useMemo(
+    () =>
+      warehouseItems.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT),
+    [warehouseItems]
+  );
+
+  const warehouseOther = useMemo(
+    () =>
+      warehouseItems.filter((p) => p.kind !== PRODUCT_KIND.INGREDIENT),
+    [warehouseItems]
+  );
+
   const list = useMemo(() => {
     const base = tab === "ingredient" ? ingredients : finished;
     let rows = base;
@@ -217,45 +240,32 @@ function ProductsContent() {
       units: [],
       recipe: [],
     });
+    setRecipeSearch("");
     setOpen(true);
   };
 
-  const switchToRecipe = () => {
-    setForm((f) => {
-      if (f.costMode === COST_MODE.RECIPE) return f;
-      const first = ingredients[0];
-      const hasLines = (f.recipe || []).some(
-        (l) =>
-          (l.virtual && String(l.name || "").trim() && Number(l.qty) > 0) ||
-          (l.productId && Number(l.qty) > 0)
-      );
-      if (hasLines || !first) {
-        return {
-          ...f,
-          costMode: COST_MODE.RECIPE,
-          packaging: { ...f.packaging, enabled: false },
-        };
-      }
-      return {
-        ...f,
-        costMode: COST_MODE.RECIPE,
-        packaging: { ...f.packaging, enabled: false },
-        recipe: [
-          {
-            productId: first.id,
-            qty: "1",
-            unitId: first.unit || "g",
-            virtual: false,
-          },
-        ],
-      };
-    });
+  const recipeSourceOptions = (selectedId) => {
+    const q = recipeSearch.trim().toLowerCase();
+    const match = (p) =>
+      !q || String(p.name || "").toLowerCase().includes(q);
+    const ings = warehouseIngredients.filter(match);
+    const others = warehouseOther.filter(match);
+    const selected = selectedId ? byId[selectedId] : null;
+    if (
+      selected &&
+      !ings.some((p) => p.id === selectedId) &&
+      !others.some((p) => p.id === selectedId)
+    ) {
+      if (selected.kind === PRODUCT_KIND.INGREDIENT) ings.unshift(selected);
+      else others.unshift(selected);
+    }
+    return { ings, others };
   };
 
-  const openEdit = (row, { forceRecipe = false } = {}) => {
+  const openEdit = (row) => {
     setEditingId(row.id);
-    const useRecipe =
-      forceRecipe || row.costMode === COST_MODE.RECIPE;
+    setRecipeSearch("");
+    const useRecipe = row.kind !== PRODUCT_KIND.INGREDIENT;
     const servings = Math.max(1, Number(row.estimatedServings) || 100);
     let recipe = Array.isArray(row.recipe)
       ? row.recipe.map((l) =>
@@ -275,26 +285,9 @@ function ProductsContent() {
               }
         )
       : [];
-    if (
-      useRecipe &&
-      forceRecipe &&
-      !recipe.some(
-        (l) =>
-          (l.virtual && String(l.name || "").trim() && Number(l.qty) > 0) ||
-          (l.productId && Number(l.qty) > 0)
-      ) &&
-      ingredients[0]
-    ) {
-      recipe = [
-        {
-          productId: ingredients[0].id,
-          qty: "1",
-          unitId: ingredients[0].unit || "g",
-          virtual: false,
-        },
-      ];
-    }
-    const packagingEnabled = Boolean(row.packaging?.enabled) && !useRecipe;
+    const packagingEnabled =
+      row.kind === PRODUCT_KIND.INGREDIENT &&
+      Boolean(row.packaging?.enabled);
     const normalizedPackaging = normalizeProductUnits(row);
     const baseUnit =
       row.packaging?.baseUnit ||
@@ -326,7 +319,7 @@ function ProductsContent() {
   };
 
   const recipePreview = useMemo(() => {
-    if (form.costMode !== COST_MODE.RECIPE) {
+    if (form.kind !== PRODUCT_KIND.FINISHED) {
       return { unitCost: 0, margin: 0 };
     }
     return summarizeRecipeCosts(
@@ -368,9 +361,8 @@ function ProductsContent() {
       }));
       return;
     }
-    const first = ingredients[0];
-    if (!first) {
-      showToast("Thêm nguyên liệu kho trước (tab Nguyên liệu)", "info");
+    if (!warehouseItems.length) {
+      showToast("Chưa có hàng trong kho — thêm ở tab Nguyên liệu", "info");
       return;
     }
     setForm((f) => ({
@@ -378,9 +370,9 @@ function ProductsContent() {
       recipe: [
         ...f.recipe,
         {
-          productId: first.id,
+          productId: "",
           qty: "1",
-          unitId: first.unit || "g",
+          unitId: "",
           virtual: false,
         },
       ],
@@ -499,10 +491,7 @@ function ProductsContent() {
     e.preventDefault();
     setSaving(true);
     try {
-      if (
-        form.kind === PRODUCT_KIND.FINISHED &&
-        form.costMode === COST_MODE.RECIPE
-      ) {
+      if (form.kind === PRODUCT_KIND.FINISHED) {
         const lines = form.recipe.filter(
           (l) =>
             (l.virtual &&
@@ -526,18 +515,20 @@ function ProductsContent() {
         unit: form.unit,
         price: Number(form.price) || 0,
         cost:
-          form.kind === PRODUCT_KIND.FINISHED &&
-          form.costMode === COST_MODE.RECIPE
+          form.kind === PRODUCT_KIND.FINISHED
             ? recipePreview.unitCost
             : Number(form.cost) || 0,
-        costMode: form.costMode,
+        costMode:
+          form.kind === PRODUCT_KIND.FINISHED
+            ? COST_MODE.RECIPE
+            : COST_MODE.MANUAL,
         groupId:
           form.kind === PRODUCT_KIND.FINISHED
             ? form.groupId || null
             : null,
         active: form.active,
         packaging:
-          form.costMode !== COST_MODE.RECIPE && form.packaging?.enabled
+          form.kind === PRODUCT_KIND.INGREDIENT && form.packaging?.enabled
             ? {
                 enabled: true,
                 baseUnit:
@@ -547,7 +538,7 @@ function ProductsContent() {
             : { enabled: false },
         units: Array.isArray(form.units) ? form.units : [],
         recipe:
-          form.costMode === COST_MODE.RECIPE
+          form.kind === PRODUCT_KIND.FINISHED
             ? form.recipe.map((l) =>
                 l.virtual
                   ? {
@@ -1066,13 +1057,13 @@ function ProductsContent() {
                   )}
 
                   {row.kind !== PRODUCT_KIND.INGREDIENT &&
-                  row.costMode !== COST_MODE.RECIPE ? (
+                  (!Array.isArray(row.recipe) || !row.recipe.length) ? (
                     <button
                       type="button"
-                      onClick={() => openEdit(row, { forceRecipe: true })}
+                      onClick={() => openEdit(row)}
                       className="mt-2 w-full rounded-xl bg-amber-50 px-3 py-2 text-left text-xs font-bold text-amber-950 ring-1 ring-amber-200"
                     >
-                      Chưa có công thức → bấm để gắn NL + tính cost
+                      Chưa có công thức — bấm để chọn NL từ kho
                     </button>
                   ) : null}
 
@@ -1295,75 +1286,27 @@ function ProductsContent() {
                   />
                 </label>
 
-                <div className="mb-3 grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setForm((f) => ({ ...f, costMode: COST_MODE.MANUAL }))
-                    }
-                    className={cn(
-                      "touch-btn h-12 text-sm",
-                      form.costMode === COST_MODE.MANUAL
-                        ? "bg-slate-800 text-white"
-                        : "bg-slate-100 text-slate-700"
-                    )}
-                  >
-                    Cost nhập tay
-                  </button>
-                  <button
-                    type="button"
-                    onClick={switchToRecipe}
-                    className={cn(
-                      "touch-btn h-12 gap-1 text-sm",
-                      form.costMode === COST_MODE.RECIPE
-                        ? "bg-amber-600 text-white"
-                        : "bg-amber-50 text-amber-950 ring-1 ring-amber-200"
-                    )}
-                  >
-                    <Calculator className="h-4 w-4" />
-                    Công thức
-                  </button>
-                </div>
-
-                {form.costMode === COST_MODE.MANUAL ? (
-                  <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-950 ring-1 ring-amber-100">
-                    Món nấu/pha từ kho hãy chọn{" "}
-                    <button
-                      type="button"
-                      onClick={switchToRecipe}
-                      className="font-extrabold underline"
-                    >
-                      Công thức
-                    </button>{" "}
-                    — cost = tổng NL mỗi suất. Cost nhập tay chỉ cho hàng mua sẵn
-                    (chai nước…).
-                  </p>
-                ) : null}
-
-                {form.costMode === COST_MODE.MANUAL ? (
-                  <label className="mb-3 block">
-                    <span className="mb-1 block text-sm font-semibold">
-                      Giá nhập / cost
-                    </span>
-                    <input
-                      type="number"
-                      min="0"
-                      className="field-input"
-                      value={form.cost}
-                      onChange={(e) => updateBaseUnitField("cost", e.target.value)}
-                      placeholder="vd: 8000 (nước ngọt nhập)"
-                    />
-                  </label>
-                ) : (
-                  <div className="mb-3 space-y-3 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
+                <div className="mb-3 space-y-3 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
                     <p className="text-sm font-bold text-amber-900">
                       Công thức mỗi suất
                     </p>
                     <p className="text-xs leading-relaxed text-amber-900/80">
-                      Chọn NL kho + số lượng + đơn vị dùng (lạng/g/kg…). Hệ
-                      thống quy về đơn vị gốc để trừ kho và tính cost. Đá/nước
+                      Chọn hàng trong kho + SL + đơn vị. Cost tự cộng. Đá/nước
                       không kho: Ước tay.
                     </p>
+                    <p className="text-[11px] font-semibold text-amber-950">
+                      Kho: {warehouseIngredients.length} nguyên liệu
+                      {warehouseOther.length
+                        ? ` · ${warehouseOther.length} hàng khác`
+                        : ""}
+                    </p>
+                    <input
+                      type="search"
+                      className="field-input py-2 text-sm"
+                      placeholder="Tìm trong kho (tên NL)…"
+                      value={recipeSearch}
+                      onChange={(e) => setRecipeSearch(e.target.value)}
+                    />
 
                     <div className="space-y-2 rounded-xl bg-white/80 p-2.5 ring-1 ring-amber-100">
                       {form.recipe.map((line, idx) =>
@@ -1450,31 +1393,57 @@ function ProductsContent() {
                             key={`r-${idx}`}
                             className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-amber-100"
                           >
-                            <div className="grid grid-cols-[1fr_4.25rem_4.5rem_2.5rem] gap-2">
-                              <select
-                                className="field-input py-2 text-sm"
-                                value={line.productId}
-                                onChange={(e) =>
-                                  setForm((f) => {
-                                    const nextId = e.target.value;
-                                    const ing = byId[nextId];
-                                    const recipe = [...f.recipe];
-                                    recipe[idx] = {
-                                      ...recipe[idx],
-                                      productId: nextId,
-                                      unitId: ing?.unit || "",
-                                    };
-                                    return { ...f, recipe };
-                                  })
-                                }
-                              >
-                                {ingredients.map((ing) => (
-                                  <option key={ing.id} value={ing.id}>
-                                    {ing.name} ({formatCurrency(ing.cost)}/
-                                    {ing.unit})
-                                  </option>
-                                ))}
-                              </select>
+                            {(() => {
+                              const { ings, others } = recipeSourceOptions(
+                                line.productId
+                              );
+                              return (
+                                <select
+                                  className="field-input w-full py-2 text-sm"
+                                  value={line.productId || ""}
+                                  onChange={(e) =>
+                                    setForm((f) => {
+                                      const nextId = e.target.value;
+                                      const ing = byId[nextId];
+                                      const recipe = [...f.recipe];
+                                      recipe[idx] = {
+                                        ...recipe[idx],
+                                        productId: nextId,
+                                        unitId: ing?.unit || "",
+                                      };
+                                      return { ...f, recipe };
+                                    })
+                                  }
+                                >
+                                  <option value="">— Chọn từ kho —</option>
+                                  {ings.length ? (
+                                    <optgroup
+                                      label={`Nguyên liệu (${ings.length})`}
+                                    >
+                                      {ings.map((ing) => (
+                                        <option key={ing.id} value={ing.id}>
+                                          {ing.name} · {formatCurrency(ing.cost)}/
+                                          {ing.unit}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+                                  {others.length ? (
+                                    <optgroup
+                                      label={`Hàng khác trong kho (${others.length})`}
+                                    >
+                                      {others.map((ing) => (
+                                        <option key={ing.id} value={ing.id}>
+                                          {ing.name} · {formatCurrency(ing.cost)}/
+                                          {ing.unit}
+                                        </option>
+                                      ))}
+                                    </optgroup>
+                                  ) : null}
+                                </select>
+                              );
+                            })()}
+                            <div className="grid grid-cols-[1fr_5.5rem_2.5rem] gap-2">
                               <input
                                 type="number"
                                 min="0"
@@ -1605,11 +1574,10 @@ function ProductsContent() {
                       </p>
                     </div>
                   </div>
-                )}
               </>
             )}
 
-            {form.costMode !== COST_MODE.RECIPE ? (
+            {form.kind === PRODUCT_KIND.INGREDIENT ? (
               <div className="mb-3 space-y-3">
                 <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
                   <input
