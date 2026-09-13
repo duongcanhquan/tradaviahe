@@ -29,11 +29,6 @@ import {
   normalizeProductUnits,
 } from "@/lib/packaging";
 import {
-  DEFAULT_PRODUCT_GROUPS,
-  ensureDefaultProductGroups,
-  subscribeProductGroups,
-} from "@/lib/productGroups";
-import {
   COST_MODE,
   PRODUCT_KIND,
   PRODUCT_UNITS,
@@ -115,8 +110,7 @@ function InventoryContent() {
     isSuperAdmin,
   } = useAuth();
   const [products, setProducts] = useState([]);
-  const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
-  const [filter, setFilter] = useState("ingredient"); // all | ingredient | finished | groupId
+  const [filter, setFilter] = useState("ingredient"); // all | ingredient | finished
   const [loading, setLoading] = useState(true);
 
   const [showAdd, setShowAdd] = useState(false);
@@ -141,21 +135,6 @@ function InventoryContent() {
   const [allTx, setAllTx] = useState([]);
   const [backfillPay, setBackfillPay] = useState("cash");
   const [backfilling, setBackfilling] = useState(false);
-
-  useEffect(() => {
-    ensureDefaultProductGroups().catch(() => {});
-  }, []);
-
-  useEffect(() => {
-    const unsub = subscribeProductGroups(
-      (rows) => {
-        const active = rows.filter((g) => g.active !== false);
-        setGroups(active.length ? active : DEFAULT_PRODUCT_GROUPS);
-      },
-      () => setGroups(DEFAULT_PRODUCT_GROUPS)
-    );
-    return () => unsub();
-  }, []);
 
   useEffect(() => {
     const unsub = subscribeProducts(
@@ -194,7 +173,7 @@ function InventoryContent() {
     if (filter === "finished") {
       return products.filter((p) => isSellable(p));
     }
-    return products.filter((p) => p.groupId === filter);
+    return products;
   }, [products, filter]);
 
   const inventorySummary = useMemo(
@@ -1080,7 +1059,6 @@ function InventoryContent() {
           { id: "all", label: "Tất cả" },
           { id: "ingredient", label: "Nguyên liệu" },
           { id: "finished", label: "Thành phẩm" },
-          ...groups.map((g) => ({ id: g.id, label: g.name })),
         ].map((f) => (
           <button
             key={f.id}
