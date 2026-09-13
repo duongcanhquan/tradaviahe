@@ -76,7 +76,7 @@ Ví dụ: 1 túi đường 1kg × 25.000 → +1000g, quỹ −25.000, cost = 25�
 
 **Giữ:** trừ quỹ quán (QL) / chọn quỹ vốn (Admin); preview chia giá; không FIFO.
 
-**Có thể nhập thành phẩm?** Chỉ hàng mua sẵn bán nguyên (chai nước). Món pha/nấu **không nhập** — nhập NL.
+**Có thể nhập thành phẩm?** Không. Thùng mì / túi đường là **kho (ingredient)** kèm kiện (1 thùng = 30 gói). Bán lẻ gói = **thành phẩm** + CT 1 gói. Chai nước mua sẵn bán nguyên: vẫn có thể là thành phẩm không trừ NL khác — không nhập tại kho như món nấu.
 
 ---
 

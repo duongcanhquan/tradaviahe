@@ -5,9 +5,10 @@ import Link from "next/link";
 import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import {
   Loader2,
-  Package,
+  Pencil,
   Plus,
   Save,
+  Trash2,
   X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
@@ -18,7 +19,15 @@ import { useToast } from "@/components/Toast";
 import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
-import { defaultReceiveUnit, deriveReceiveCostUpdate, findUnit, normalizeProductUnits } from "@/lib/packaging";
+import {
+  buildIngredientPackUnits,
+  defaultIngredientPackHint,
+  defaultReceiveUnit,
+  deriveReceiveCostUpdate,
+  findUnit,
+  largestPackUnit,
+  normalizeProductUnits,
+} from "@/lib/packaging";
 import {
   DEFAULT_PRODUCT_GROUPS,
   ensureDefaultProductGroups,
@@ -29,9 +38,11 @@ import {
   PRODUCT_KIND,
   PRODUCT_UNITS,
   createProduct,
+  deleteProduct,
   isSellable,
   recomputeRecipeCosts,
   subscribeProducts,
+  updateProduct,
 } from "@/lib/products";
 import { lineStockCostValue, summarizeInventory } from "@/lib/stock";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -54,6 +65,33 @@ function formatUnitCount(value) {
     : rounded.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
 }
 
+function resolvePackPayload({ packEnabled, packLabel, packFactor, unit, cost }) {
+  if (!packEnabled) return {};
+  const factor = Math.max(0, Math.round(Number(packFactor) || 0));
+  if (factor < 2) {
+    throw new Error("Nhập hệ số kiện (vd 30 gói / thùng, 1000g / kg)");
+  }
+  const base = String(unit || "gói").trim() || "gói";
+  const pack = String(packLabel || "thùng").trim() || "thùng";
+  if (base.toLowerCase() === pack.toLowerCase()) {
+    throw new Error("Đơn vị gốc phải khác kiện nhập (vd gốc gói, kiện thùng)");
+  }
+  return buildIngredientPackUnits({
+    baseUnit: base,
+    packLabel: pack,
+    packFactor: factor,
+    baseCost: cost,
+  });
+}
+
+function stockLine(product) {
+  const qty = Number(product.inStock) || 0;
+  const base = product.packaging?.baseUnit || product.unit || "đv";
+  const pack = largestPackUnit(product);
+  if (!pack) return `${qty} ${base}`;
+  return `${qty} ${base} ≈ ${formatUnitCount(qty / pack.factor)} ${pack.label}`;
+}
+
 const emptyForm = () => ({
   kind: PRODUCT_KIND.INGREDIENT,
   name: "",
@@ -62,11 +100,20 @@ const emptyForm = () => ({
   cost: "",
   price: "",
   groupId: "",
+  packEnabled: false,
+  packLabel: "kg",
+  packFactor: "1000",
 });
 
 function InventoryContent() {
   const { showToast } = useToast();
-  const { user, profile, canChooseInventoryFundSource } = useAuth();
+  const {
+    user,
+    profile,
+    canChooseInventoryFundSource,
+    canManageProducts,
+    isSuperAdmin,
+  } = useAuth();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
   const [filter, setFilter] = useState("ingredient"); // all | ingredient | finished | groupId
@@ -75,6 +122,18 @@ function InventoryContent() {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [savingAdd, setSavingAdd] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    unit: "g",
+    cost: "",
+    inStock: "",
+    packEnabled: false,
+    packLabel: "thùng",
+    packFactor: "30",
+  });
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   /** per product: { addQty, cost, payMethod, fundSource } */
   const [drafts, setDrafts] = useState({});
@@ -168,25 +227,42 @@ function InventoryContent() {
       showToast("Nhập tên nguyên liệu", "error");
       return;
     }
-    const qty = Number(form.inStock) || 0;
-    const cost = parseUnitCostInput(form.cost);
+    const packOn = Boolean(form.packEnabled);
+    const factor = packOn
+      ? Math.max(0, Math.round(Number(form.packFactor) || 0))
+      : 1;
+    const receiveQty = Number(form.inStock) || 0;
+    const receivePrice = parseUnitCostInput(form.cost);
+    const baseQty = receiveQty * (packOn ? factor : 1);
+    const baseCost =
+      packOn && factor > 0 ? receivePrice / factor : receivePrice;
 
     setSavingAdd(true);
     try {
+      const pack = resolvePackPayload({
+        packEnabled: packOn,
+        packLabel: form.packLabel,
+        packFactor: form.packFactor,
+        unit: form.unit,
+        cost: baseCost,
+      });
       await createProduct({
         name: form.name.trim(),
         kind: PRODUCT_KIND.INGREDIENT,
         unit: form.unit || "g",
-        inStock: qty,
-        cost,
+        inStock: baseQty,
+        cost: baseCost,
         costMode: COST_MODE.MANUAL,
         price: 0,
         groupId: null,
         recipe: [],
         active: true,
+        ...pack,
       });
       showToast(
-        `Đã thêm “${form.name.trim()}” · tồn ${qty} · giá nhập ${formatCurrency(cost)}`,
+        packOn
+          ? `Đã thêm “${form.name.trim()}” · +${receiveQty} ${form.packLabel || "kiện"} = ${baseQty} ${form.unit} · ${formatCurrency(baseCost)}/${form.unit}`
+          : `Đã thêm “${form.name.trim()}” · tồn ${baseQty} · giá nhập ${formatCurrency(baseCost)}`,
         "success"
       );
       setForm(emptyForm());
@@ -199,7 +275,108 @@ function InventoryContent() {
     }
   };
 
+  const openEditProduct = (product) => {
+    setShowAdd(false);
+    setEditing(product);
+    const pack = largestPackUnit(product);
+    setEditForm({
+      name: product.name || "",
+      unit: product.unit || "g",
+      cost:
+        product.cost != null && product.cost !== ""
+          ? String(product.cost)
+          : "",
+      inStock:
+        product.inStock != null ? String(product.inStock) : "0",
+      packEnabled: Boolean(pack),
+      packLabel: pack?.label || defaultIngredientPackHint(product.unit).packLabel,
+      packFactor: pack
+        ? String(pack.factor)
+        : defaultIngredientPackHint(product.unit).packFactor,
+    });
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing?.id) return;
+    if (!editForm.name.trim()) {
+      showToast("Nhập tên nguyên liệu", "error");
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const baseCost = parseUnitCostInput(editForm.cost);
+      const pack = resolvePackPayload({
+        packEnabled: editForm.packEnabled,
+        packLabel: editForm.packLabel,
+        packFactor: editForm.packFactor,
+        unit: editForm.unit,
+        cost: baseCost,
+      });
+      const payload = {
+        name: editForm.name.trim(),
+        kind: PRODUCT_KIND.INGREDIENT,
+        unit: editForm.unit || "g",
+        cost: baseCost,
+        costMode: COST_MODE.MANUAL,
+        price: 0,
+        groupId: null,
+        recipe: [],
+        active: editing.active !== false,
+        packaging: editForm.packEnabled
+          ? pack.packaging
+          : { enabled: false },
+        units: pack.units,
+      };
+      if (isSuperAdmin) {
+        payload.inStock = Number(editForm.inStock) || 0;
+      }
+      await updateProduct(editing.id, payload);
+      await recomputeRecipeCosts();
+      showToast("Đã sửa nguyên liệu", "success");
+      setEditing(null);
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Sửa thất bại", "error");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleDeleteProduct = async (product) => {
+    if (!isSuperAdmin || !product?.id) return;
+    const used = products.some(
+      (p) =>
+        p.id !== product.id &&
+        p.costMode === COST_MODE.RECIPE &&
+        Array.isArray(p.recipe) &&
+        p.recipe.some((l) => l.productId === product.id)
+    );
+    const ok = window.confirm(
+      used
+        ? `“${product.name}” đang dùng trong công thức. Xóa sẽ làm cost lệch — vẫn xóa?`
+        : `Xóa nguyên liệu “${product.name}” khỏi kho?`
+    );
+    if (!ok) return;
+    setDeletingId(product.id);
+    try {
+      await deleteProduct(product.id);
+      await recomputeRecipeCosts();
+      if (editing?.id === product.id) setEditing(null);
+      showToast("Đã xóa nguyên liệu", "info");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Xóa thất bại", "error");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const handleReceive = async (product) => {
+    if (product.kind !== PRODUCT_KIND.INGREDIENT) {
+      showToast("Thành phẩm không nhập tại kho — nhập nguyên liệu / thùng mì", "error");
+      return;
+    }
     const d = drafts[product.id] || {};
     const addQty = Number(d.addQty) || 0;
     const selectedUnit = findUnit(product, d.unitId) || defaultReceiveUnit(product);
@@ -327,16 +504,16 @@ function InventoryContent() {
       dense
     >
       <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        Quản lý nhập hàng luôn trừ <strong>quỹ cửa hàng</strong> (TM/CK). Admin /
-        Super Admin chọn trừ quỹ cửa hàng hoặc <strong>quỹ đầu tư</strong>. Số
-        tiền = SL × giá nhập. Setup công thức &amp; giá bán:{" "}
+        <strong>Kho</strong> = nguyên liệu hoặc hàng nhập kiện (thùng mì × 30
+        gói, túi đường × 1000g). <strong>Thành phẩm</strong> = món POS có giá
+        bán, CT tách gói/NL để bán lẻ — không nhập tại đây.{" "}
         <Link
           href="/manager/products"
           className="font-bold text-brand-800 underline"
         >
           Món · giá
         </Link>
-        .
+        . Nhập trừ quỹ TM/CK.
       </p>
 
       {!loading && !backfillPreview.backfillDone && backfillPreview.stockValue > 0 ? (
@@ -546,7 +723,8 @@ function InventoryContent() {
         <section className="card-panel mb-4 space-y-3 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
           <h2 className="section-title text-emerald-950">Thêm nguyên liệu kho</h2>
           <p className="text-xs leading-relaxed text-slate-500">
-            Chỉ thêm hàng trừ kho (đường, mì, trứng…). Món bán + công thức:{" "}
+            Đường / trứng / thùng mì… Tồn lưu theo đơn vị gốc (g, gói, quả).
+            Món bán lẻ (mì 1 gói, mì 1 trứng):{" "}
             <Link
               href="/manager/products"
               className="font-bold text-brand-800 underline"
@@ -573,14 +751,22 @@ function InventoryContent() {
 
             <label className="block">
               <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Đơn vị
+                Đơn vị gốc (tồn / công thức)
               </span>
               <select
                 className="field-input"
                 value={form.unit}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, unit: e.target.value }))
-                }
+                onChange={(e) => {
+                  const unit = e.target.value;
+                  const hint = defaultIngredientPackHint(unit);
+                  setForm((f) => ({
+                    ...f,
+                    unit,
+                    ...(f.packEnabled
+                      ? { packLabel: hint.packLabel, packFactor: hint.packFactor }
+                      : {}),
+                  }));
+                }}
               >
                 {PRODUCT_UNITS.map((u) => (
                   <option key={u} value={u}>
@@ -590,10 +776,73 @@ function InventoryContent() {
               </select>
             </label>
 
+            <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-emerald-100">
+              <input
+                type="checkbox"
+                className="h-5 w-5 accent-emerald-700"
+                checked={form.packEnabled}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setForm((f) => {
+                    const hint = defaultIngredientPackHint(f.unit);
+                    return {
+                      ...f,
+                      packEnabled: on,
+                      ...(on
+                        ? {
+                            packLabel: hint.packLabel,
+                            packFactor: hint.packFactor,
+                          }
+                        : {}),
+                    };
+                  });
+                }}
+              />
+              <span className="text-sm font-semibold text-slate-800">
+                Nhập theo thùng / túi (vd 1 thùng mì = 30 gói)
+              </span>
+            </label>
+
+            {form.packEnabled ? (
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    Tên kiện
+                  </span>
+                  <input
+                    className="field-input"
+                    value={form.packLabel}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, packLabel: e.target.value }))
+                    }
+                    placeholder="thùng"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    1 {form.packLabel || "kiện"} = ? {form.unit}
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="2"
+                    className="field-input money"
+                    value={form.packFactor}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, packFactor: e.target.value }))
+                    }
+                    placeholder="30"
+                  />
+                </label>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Số lượng nhập
+                  {form.packEnabled
+                    ? `Số ${form.packLabel || "kiện"} nhập`
+                    : "Số lượng nhập"}
                 </span>
                 <input
                   type="number"
@@ -609,7 +858,9 @@ function InventoryContent() {
               </label>
               <label className="block">
                 <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Giá nhập / ĐV
+                  {form.packEnabled
+                    ? `Giá / ${form.packLabel || "kiện"}`
+                    : "Giá nhập / ĐV"}
                 </span>
                 <input
                   type="number"
@@ -625,6 +876,20 @@ function InventoryContent() {
                 />
               </label>
             </div>
+            {form.packEnabled &&
+            Number(form.inStock) > 0 &&
+            Number(form.packFactor) >= 2 &&
+            parseUnitCostInput(form.cost) > 0 ? (
+              <p className="text-[11px] font-semibold leading-snug text-emerald-800">
+                {form.inStock} {form.packLabel} × {form.packFactor} {form.unit} = +
+                {Number(form.inStock) * Number(form.packFactor)} {form.unit}
+                {" · "}
+                {formatCurrency(
+                  parseUnitCostInput(form.cost) / Number(form.packFactor)
+                )}
+                /{form.unit}
+              </p>
+            ) : null}
 
             <button
               type="submit"
@@ -642,11 +907,179 @@ function InventoryContent() {
         </section>
       ) : null}
 
+      {editing ? (
+        <section className="card-panel mb-4 space-y-3 border-amber-100 bg-gradient-to-b from-amber-50/80 to-white">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="section-title text-amber-950">Sửa nguyên liệu</h2>
+            <button
+              type="button"
+              aria-label="Đóng"
+              onClick={() => setEditing(null)}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-white ring-1 ring-slate-200"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <form onSubmit={handleSaveEdit} className="space-y-3">
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Tên
+              </span>
+              <input
+                className="field-input"
+                value={editForm.name}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, name: e.target.value }))
+                }
+                required
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Đơn vị gốc (tồn / CT)
+              </span>
+              <select
+                className="field-input"
+                value={editForm.unit}
+                onChange={(e) => {
+                  const unit = e.target.value;
+                  const hint = defaultIngredientPackHint(unit);
+                  setEditForm((f) => ({
+                    ...f,
+                    unit,
+                    ...(f.packEnabled
+                      ? { packLabel: hint.packLabel, packFactor: hint.packFactor }
+                      : {}),
+                  }));
+                }}
+              >
+                {PRODUCT_UNITS.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-amber-100">
+              <input
+                type="checkbox"
+                className="h-5 w-5 accent-amber-700"
+                checked={editForm.packEnabled}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  setEditForm((f) => {
+                    const hint = defaultIngredientPackHint(f.unit);
+                    return {
+                      ...f,
+                      packEnabled: on,
+                      ...(on
+                        ? {
+                            packLabel: hint.packLabel,
+                            packFactor: hint.packFactor,
+                          }
+                        : {}),
+                    };
+                  });
+                }}
+              />
+              <span className="text-sm font-semibold text-slate-800">
+                Nhập theo thùng / túi (vd 1 thùng = 30 gói)
+              </span>
+            </label>
+            {editForm.packEnabled ? (
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    Tên kiện
+                  </span>
+                  <input
+                    className="field-input"
+                    value={editForm.packLabel}
+                    onChange={(e) =>
+                      setEditForm((f) => ({ ...f, packLabel: e.target.value }))
+                    }
+                    placeholder="thùng"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                    1 {editForm.packLabel || "kiện"} = ? {editForm.unit}
+                  </span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="2"
+                    className="field-input money"
+                    value={editForm.packFactor}
+                    onChange={(e) =>
+                      setEditForm((f) => ({
+                        ...f,
+                        packFactor: e.target.value,
+                      }))
+                    }
+                    placeholder="30"
+                  />
+                </label>
+              </div>
+            ) : null}
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                Giá nhập / {editForm.unit || "đơn vị gốc"}
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                className="field-input money"
+                value={editForm.cost}
+                onChange={(e) =>
+                  setEditForm((f) => ({ ...f, cost: e.target.value }))
+                }
+              />
+            </label>
+            {isSuperAdmin ? (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  Tồn kho (theo {editForm.unit || "gốc"}
+                  {editForm.packEnabled
+                    ? `, không phải ${editForm.packLabel || "kiện"}`
+                    : ""}
+                  )
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  className="field-input money"
+                  value={editForm.inStock}
+                  onChange={(e) =>
+                    setEditForm((f) => ({ ...f, inStock: e.target.value }))
+                  }
+                />
+              </label>
+            ) : null}
+            <button
+              type="submit"
+              disabled={savingEdit}
+              className="touch-btn h-14 w-full gap-2 bg-amber-700 text-white"
+            >
+              {savingEdit ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <Save className="h-5 w-5" aria-hidden />
+              )}
+              {savingEdit ? "Đang lưu..." : "Lưu thông tin"}
+            </button>
+          </form>
+        </section>
+      ) : null}
+
       <div className="mb-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {[
           { id: "all", label: "Tất cả" },
           { id: "ingredient", label: "Nguyên liệu" },
-          { id: "finished", label: "Bán POS" },
+          { id: "finished", label: "Thành phẩm" },
           ...groups.map((g) => ({ id: g.id, label: g.name })),
         ].map((f) => (
           <button
@@ -700,12 +1133,10 @@ function InventoryContent() {
                       {product.name}
                     </p>
                     <p className="mt-0.5 text-xs text-slate-500">
-                      {isIng ? "Nguyên liệu" : "Thành phẩm"}
-                      {" · "}
-                      {product.unit || "—"}
+                      {isIng ? "Kho / nguyên liệu" : "Thành phẩm POS"}
                       {" · Tồn "}
                       <span className="font-bold text-slate-800">
-                        {Number(product.inStock) || 0}
+                        {stockLine(product)}
                       </span>
                     </p>
                     <p className="mt-1 text-xs font-semibold text-amber-800">
@@ -722,12 +1153,37 @@ function InventoryContent() {
                       <Money amount={lineStockCostValue(product)} />
                     </p>
                   </div>
-                  <Package
-                    className="h-4 w-4 shrink-0 text-slate-400"
-                    aria-hidden
-                  />
+                  <div className="flex shrink-0 gap-1">
+                    {canManageProducts && isIng ? (
+                      <button
+                        type="button"
+                        aria-label="Sửa"
+                        onClick={() => openEditProduct(product)}
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </button>
+                    ) : null}
+                    {isSuperAdmin && isIng ? (
+                      <button
+                        type="button"
+                        aria-label="Xóa"
+                        disabled={deletingId === product.id}
+                        onClick={() => handleDeleteProduct(product)}
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700 disabled:opacity-50"
+                      >
+                        {deletingId === product.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" />
+                        )}
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
 
+                {isIng ? (
+                <>
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
@@ -914,6 +1370,20 @@ function InventoryContent() {
                       ? "Lưu nhập + trừ quỹ"
                       : "Lưu nhập hàng"}
                 </button>
+                </>
+                ) : (
+                  <p className="rounded-2xl bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
+                    Thành phẩm không nhập tại kho. Nhập thùng mì / NL phía trên,
+                    bán lẻ theo gói qua công thức trên{" "}
+                    <Link
+                      href="/manager/products"
+                      className="font-bold underline"
+                    >
+                      Món · giá
+                    </Link>
+                    .
+                  </p>
+                )}
               </article>
             );
           })

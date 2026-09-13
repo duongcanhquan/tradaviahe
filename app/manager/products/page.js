@@ -116,7 +116,8 @@ const emptyForm = {
 };
 
 function ProductsContent() {
-  const { canManageProducts, canDeleteProductGroups, role } = useAuth();
+  const { canManageProducts, canDeleteProductGroups, role, isSuperAdmin } =
+    useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState([]);
@@ -176,27 +177,13 @@ function ProductsContent() {
     [products]
   );
 
-  /** Mọi hàng trong kho trừ chính món đang sửa — CT không chỉ kind=ingredient */
-  const warehouseItems = useMemo(
-    () =>
-      [...products]
-        .filter((p) => p.id && p.id !== editingId)
-        .sort((a, b) =>
-          String(a.name || "").localeCompare(String(b.name || ""), "vi")
-        ),
-    [products, editingId]
-  );
-
+  /** Kho = hàng nhập (kind=ingredient), không gồm món bán POS */
   const warehouseIngredients = useMemo(
     () =>
-      warehouseItems.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT),
-    [warehouseItems]
-  );
-
-  const warehouseOther = useMemo(
-    () =>
-      warehouseItems.filter((p) => p.kind !== PRODUCT_KIND.INGREDIENT),
-    [warehouseItems]
+      [...ingredients].sort((a, b) =>
+        String(a.name || "").localeCompare(String(b.name || ""), "vi")
+      ),
+    [ingredients]
   );
 
   const list = useMemo(() => {
@@ -246,20 +233,17 @@ function ProductsContent() {
 
   const recipeSourceOptions = (selectedId) => {
     const q = recipeSearch.trim().toLowerCase();
-    const match = (p) =>
-      !q || String(p.name || "").toLowerCase().includes(q);
-    const ings = warehouseIngredients.filter(match);
-    const others = warehouseOther.filter(match);
+    const ings = warehouseIngredients.filter(
+      (p) => !q || String(p.name || "").toLowerCase().includes(q)
+    );
     const selected = selectedId ? byId[selectedId] : null;
     if (
-      selected &&
-      !ings.some((p) => p.id === selectedId) &&
-      !others.some((p) => p.id === selectedId)
+      selected?.kind === PRODUCT_KIND.INGREDIENT &&
+      !ings.some((p) => p.id === selectedId)
     ) {
-      if (selected.kind === PRODUCT_KIND.INGREDIENT) ings.unshift(selected);
-      else others.unshift(selected);
+      ings.unshift(selected);
     }
-    return { ings, others };
+    return ings;
   };
 
   const openEdit = (row) => {
@@ -361,8 +345,8 @@ function ProductsContent() {
       }));
       return;
     }
-    if (!warehouseItems.length) {
-      showToast("Chưa có hàng trong kho — thêm ở tab Nguyên liệu", "info");
+    if (!warehouseIngredients.length) {
+      showToast("Chưa có nguyên liệu kho — thêm ở tab Nguyên liệu", "info");
       return;
     }
     setForm((f) => ({
@@ -582,8 +566,11 @@ function ProductsContent() {
         _productsById: byId,
       };
 
-      // Sửa món: không ghi đè tồn (POS / nhập hàng đang trừ)
+      // Sửa món: không ghi đè tồn — Super Admin được sửa tồn nguyên liệu
       if (editingId) {
+        if (isSuperAdmin && form.kind === PRODUCT_KIND.INGREDIENT) {
+          payload.inStock = Number(form.inStock) || 0;
+        }
         await updateProduct(editingId, payload);
       } else {
         await createProduct({
@@ -609,6 +596,10 @@ function ProductsContent() {
   };
 
   const handleDelete = async (row) => {
+    if (row.kind === PRODUCT_KIND.INGREDIENT && !isSuperAdmin) {
+      showToast("Chỉ Super Admin được xóa nguyên liệu kho", "error");
+      return;
+    }
     if (row.kind === PRODUCT_KIND.INGREDIENT) {
       const used = finished.some(
         (p) =>
@@ -718,7 +709,7 @@ function ProductsContent() {
         >
           <span className="text-sm font-extrabold">Thêm nguyên liệu</span>
           <span className="text-[10px] font-medium text-white/80">
-            Đường, mì, trứng… vào kho
+            Đường, thùng mì × 30 gói…
           </span>
         </button>
         <button
@@ -731,15 +722,15 @@ function ProductsContent() {
         >
           <span className="text-sm font-extrabold">Thêm món bán</span>
           <span className="text-[10px] font-medium text-white/80">
-            Công thức trừ NL lúc bán
+            Giá bán · tách gói bán lẻ
           </span>
         </button>
       </div>
       <p className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
-        <span className="font-extrabold">Cách làm:</span> tạo NL (gốc g / gói /
-        quả) → nhập hàng theo kg/túi/thùng → gắn công thức món bán (vd 2 lạng
-        đường = 200g). Bán POS trừ đúng lượng gốc. Đá/nước không kho: dòng ước
-        tay.
+        <span className="font-extrabold">Cách làm:</span> kho nhập NL hoặc kiện
+        (1 thùng mì = 30 gói, túi đường = 1000g). Thành phẩm = giá bán + CT
+        tách gói bán lẻ (vd mì 1 gói, mì 1 trứng = 1 gói mì + 1 trứng). POS trừ
+        đúng gói/g. Đá/nước: ước tay.
       </p>
       <div className="mb-4 grid grid-cols-3 gap-2">
         <button
@@ -1029,6 +1020,7 @@ function ProductsContent() {
                       >
                         <Pencil className="h-4 w-4" />
                       </button>
+                      {row.kind !== PRODUCT_KIND.INGREDIENT || isSuperAdmin ? (
                       <button
                         type="button"
                         aria-label="Xóa"
@@ -1037,6 +1029,7 @@ function ProductsContent() {
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+                      ) : null}
                     </div>
                   </div>
 
@@ -1281,14 +1274,19 @@ function ProductsContent() {
                   step="any"
                   className="field-input"
                   value={form.inStock}
-                  disabled={Boolean(editingId)}
+                  disabled={
+                    Boolean(editingId) &&
+                    !(isSuperAdmin && form.kind === PRODUCT_KIND.INGREDIENT)
+                  }
                   onChange={(e) =>
                     setForm((f) => ({ ...f, inStock: e.target.value }))
                   }
                 />
                 {editingId ? (
                   <span className="mt-1 block text-[11px] text-slate-500">
-                    Đổi tồn tại Nhập hàng / POS — không ghi đè khi lưu món.
+                    {isSuperAdmin && form.kind === PRODUCT_KIND.INGREDIENT
+                      ? "Super Admin được sửa tồn nguyên liệu."
+                      : "Đổi tồn tại Nhập hàng / POS — không ghi đè khi lưu món."}
                   </span>
                 ) : null}
               </label>
@@ -1347,8 +1345,8 @@ function ProductsContent() {
                   placeholder="vd: 2 hoặc 0.5"
                 />
                 <span className="mt-1 block text-[11px] text-slate-500">
-                  Giá / 1 đơn vị gốc (g, gói, quả…). Nhập kg/túi/thùng: bật Nhiều
-                  đơn vị bên dưới.
+                  Giá / 1 đơn vị gốc (g, gói, quả). Thùng mì / túi đường: bật
+                  nhập kiện bên dưới.
                 </span>
               </label>
             ) : (
@@ -1373,14 +1371,12 @@ function ProductsContent() {
                       Công thức mỗi suất
                     </p>
                     <p className="text-xs leading-relaxed text-amber-900/80">
-                      Chọn hàng trong kho + SL + đơn vị. Cost tự cộng. Đá/nước
-                      không kho: Ước tay.
+                      Chỉ hàng kho (NL / thùng mì). Thành phẩm không nằm trong
+                      “Từ kho”. Ví dụ: mì bán lẻ = 1 gói mì (kho nhập thùng
+                      30). Mì 1 trứng = 1 gói + 1 trứng. Đá/nước: Ước tay.
                     </p>
                     <p className="text-[11px] font-semibold text-amber-950">
                       Kho: {warehouseIngredients.length} nguyên liệu
-                      {warehouseOther.length
-                        ? ` · ${warehouseOther.length} hàng khác`
-                        : ""}
                     </p>
                     <input
                       type="search"
@@ -1476,53 +1472,51 @@ function ProductsContent() {
                             className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-amber-100"
                           >
                             {(() => {
-                              const { ings, others } = recipeSourceOptions(
-                                line.productId
-                              );
+                              const ings = recipeSourceOptions(line.productId);
+                              const selected = line.productId
+                                ? byId[line.productId]
+                                : null;
+                              const selectedWrongKind =
+                                selected &&
+                                selected.kind !== PRODUCT_KIND.INGREDIENT;
                               return (
-                                <select
-                                  className="field-input w-full py-2 text-sm"
-                                  value={line.productId || ""}
-                                  onChange={(e) =>
-                                    setForm((f) => {
-                                      const nextId = e.target.value;
-                                      const ing = byId[nextId];
-                                      const recipe = [...f.recipe];
-                                      recipe[idx] = {
-                                        ...recipe[idx],
-                                        productId: nextId,
-                                        unitId: ing?.unit || "",
-                                      };
-                                      return { ...f, recipe };
-                                    })
-                                  }
-                                >
-                                  <option value="">— Chọn từ kho —</option>
-                                  {ings.length ? (
-                                    <optgroup
-                                      label={`Nguyên liệu (${ings.length})`}
-                                    >
-                                      {ings.map((ing) => (
-                                        <option key={ing.id} value={ing.id}>
-                                          {ing.name} · {formatCurrency(ing.cost)}/
-                                          {ing.unit}
-                                        </option>
-                                      ))}
-                                    </optgroup>
+                                <>
+                                  <select
+                                    className="field-input w-full py-2 text-sm"
+                                    value={
+                                      selectedWrongKind
+                                        ? ""
+                                        : line.productId || ""
+                                    }
+                                    onChange={(e) =>
+                                      setForm((f) => {
+                                        const nextId = e.target.value;
+                                        const ing = byId[nextId];
+                                        const recipe = [...f.recipe];
+                                        recipe[idx] = {
+                                          ...recipe[idx],
+                                          productId: nextId,
+                                          unitId: ing?.unit || "",
+                                        };
+                                        return { ...f, recipe };
+                                      })
+                                    }
+                                  >
+                                    <option value="">— Chọn nguyên liệu kho —</option>
+                                    {ings.map((ing) => (
+                                      <option key={ing.id} value={ing.id}>
+                                        {ing.name} · {formatCurrency(ing.cost)}/
+                                        {ing.unit}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {selectedWrongKind ? (
+                                    <p className="text-[11px] font-semibold text-rose-700">
+                                      “{selected.name}” đang là món bán — đổi
+                                      loại sang Nguyên liệu kho rồi chọn lại.
+                                    </p>
                                   ) : null}
-                                  {others.length ? (
-                                    <optgroup
-                                      label={`Hàng khác trong kho (${others.length})`}
-                                    >
-                                      {others.map((ing) => (
-                                        <option key={ing.id} value={ing.id}>
-                                          {ing.name} · {formatCurrency(ing.cost)}/
-                                          {ing.unit}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ) : null}
-                                </select>
+                                </>
                               );
                             })()}
                             <div className="grid grid-cols-[1fr_5.5rem_2.5rem] gap-2">
@@ -1669,7 +1663,7 @@ function ProductsContent() {
                     className="h-5 w-5 accent-brand-700"
                   />
                   <span className="text-sm font-semibold text-slate-800">
-                    Nhiều đơn vị (cây/bao…)
+                    Nhập thùng / túi (vd 1 thùng = 30 gói)
                   </span>
                 </label>
 
@@ -1689,7 +1683,8 @@ function ProductsContent() {
                       </button>
                     </div>
                     <p className="text-[11px] leading-relaxed text-slate-500">
-                      Dòng có hệ số 1 là đơn vị gốc, đồng bộ với ô Đơn vị phía trên.
+                      Dòng hệ số 1 = gốc tồn/CT (gói). Dòng thùng ×30 = nhập
+                      kiện. Bán lẻ gói: tạo món POS + CT 1 gói, không bán NL.
                     </p>
                     <div className="space-y-2">
                       {form.units.map((unit, index) => {
