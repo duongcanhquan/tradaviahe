@@ -1268,12 +1268,22 @@ function ProductsContent() {
                   {form.packaging?.enabled ? "Đơn vị gốc" : "Đơn vị"}
                 </span>
                 {form.packaging?.enabled ? (
-                  <input
-                    className="field-input"
-                    value={form.unit}
-                    onChange={(e) => updateBaseUnitField("unit", e.target.value)}
-                    placeholder="vd: bao"
-                  />
+                  <>
+                    <input
+                      className="field-input"
+                      list="product-units-list"
+                      value={form.unit}
+                      onChange={(e) =>
+                        updateBaseUnitField("unit", e.target.value)
+                      }
+                      placeholder="vd: quả (trứng, chanh)"
+                    />
+                    <datalist id="product-units-list">
+                      {PRODUCT_UNITS.map((u) => (
+                        <option key={u} value={u} />
+                      ))}
+                    </datalist>
+                  </>
                 ) : (
                   <select
                     className="field-input"

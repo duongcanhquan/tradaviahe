@@ -936,6 +936,9 @@ function InventoryContent() {
                   </option>
                 ))}
               </select>
+              <p className="mt-1 text-xs text-slate-500">
+                Trứng, chanh… chọn <strong>quả</strong> (kiện gợi ý: vỉ × 10).
+              </p>
             </label>
 
             <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-emerald-100">
@@ -1326,8 +1329,8 @@ function InventoryContent() {
       {stocktakeOn ? (
         <section className="mb-8 space-y-3">
           <div className="rounded-2xl bg-amber-50 px-3 py-3 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
-            Đếm thực tế theo <strong>đơn vị gốc</strong> (gói, g, bao, chai).
-            Để trống = bỏ qua. Nhập 0 = hết hàng. Lưu chỉ ghi món lệch —{" "}
+            Đếm thực tế theo <strong>đơn vị gốc</strong> (gói, g, quả, bao,
+            chai). Để trống = bỏ qua. Nhập 0 = hết hàng. Lưu chỉ ghi món lệch —{" "}
             <strong>không trừ quỹ</strong>.
           </div>
           <div className="grid grid-cols-3 gap-2 text-xs">
