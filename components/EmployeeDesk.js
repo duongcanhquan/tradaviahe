@@ -65,6 +65,7 @@ export default function EmployeeDesk() {
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
   const [activeGroupId, setActiveGroupId] = useState("drinks");
   const [cart, setCart] = useState({});
+  const [unitPrefs, setUnitPrefs] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showQr, setShowQr] = useState(false);
@@ -174,6 +175,26 @@ export default function EmployeeDesk() {
     return [...rows].sort(comparePosOrder);
   }, [products, activeGroupId, groups, knownGroupIds]);
 
+  const resolveCartUnitId = (product, line) => {
+    if (!product) return "base";
+    const preferred =
+      line?.unitId || unitPrefs[product.id] || getDefaultCartUnitId(product);
+    const sellable = getSellableUnits(product);
+    if (sellable.some((u) => u.id === preferred)) return preferred;
+    return getDefaultCartUnitId(product);
+  };
+
+  const pickSellUnit = (productId, unitId) => {
+    setUnitPrefs((prev) => ({ ...prev, [productId]: unitId }));
+    setCart((prev) => {
+      if (!prev[productId]) return prev;
+      return {
+        ...prev,
+        [productId]: { ...prev[productId], unitId },
+      };
+    });
+  };
+
   const productsById = useMemo(
     () => Object.fromEntries(products.map((p) => [p.id, p])),
     [products]
@@ -186,7 +207,7 @@ export default function EmployeeDesk() {
         const qty = Number(line?.qty) || 0;
         if (!product || qty <= 0) return null;
 
-        const unitId = line?.unitId || getDefaultCartUnitId(product);
+        const unitId = resolveCartUnitId(product, line);
         let saleLine;
         try {
           saleLine = buildSaleLineFromProduct(product, {
@@ -212,7 +233,8 @@ export default function EmployeeDesk() {
         };
       })
       .filter(Boolean);
-  }, [cart, productsById]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- unitPrefs via resolveCartUnitId
+  }, [cart, productsById, unitPrefs]);
 
   const total = cartItems.reduce((sum, item) => sum + item.lineRevenue, 0);
   const totalQty = cartItems.reduce((sum, item) => sum + item.qty, 0);
@@ -242,7 +264,7 @@ export default function EmployeeDesk() {
       } else {
         next[id] = {
           qty: value,
-          unitId: current?.unitId || getDefaultCartUnitId(product),
+          unitId: resolveCartUnitId(product, current),
         };
       }
       return next;
@@ -251,22 +273,7 @@ export default function EmployeeDesk() {
   };
 
   const setCartUnit = (productId, unitId) => {
-    setCart((prev) => {
-      const product = productsById[productId];
-      if (!product || !prev[productId]) return prev;
-      const sellableUnits = getSellableUnits(product);
-      const selectedUnit =
-        sellableUnits.find((unit) => unit.id === unitId) ||
-        defaultSellUnit(product);
-      if (!selectedUnit) return prev;
-      return {
-        ...prev,
-        [productId]: {
-          ...prev[productId],
-          unitId: selectedUnit.id,
-        },
-      };
-    });
+    pickSellUnit(productId, unitId);
   };
 
   const writeSale = async ({ items, amount, paymentMethod }) => {
@@ -475,7 +482,20 @@ export default function EmployeeDesk() {
             ))
           : visibleProducts.map((product, index) => {
               const qty = Number(cart[product.id]?.qty) || 0;
-              const price = Number(product.price) || 0;
+              const sellableUnits = getSellableUnits(product);
+              const multiUnit =
+                Boolean(product?.packaging?.enabled) &&
+                sellableUnits.length > 1;
+              const unitId = resolveCartUnitId(
+                product,
+                cart[product.id]
+              );
+              const selectedUnit =
+                sellableUnits.find((u) => u.id === unitId) ||
+                defaultSellUnit(product);
+              const price = Math.round(
+                Number(selectedUnit?.sellPrice) || Number(product.price) || 0
+              );
               const active = qty > 0;
               const flashing = flashId === product.id;
 
@@ -483,7 +503,8 @@ export default function EmployeeDesk() {
                 <div
                   key={product.id}
                   className={cn(
-                    "relative flex h-[4.75rem] overflow-hidden rounded-xl bg-white ring-1 transition duration-150",
+                    "relative flex overflow-hidden rounded-xl bg-white ring-1 transition duration-150",
+                    multiUnit ? "min-h-[5.5rem]" : "h-[4.75rem]",
                     active
                       ? "ring-2 ring-brand-700"
                       : "ring-slate-200",
@@ -528,30 +549,58 @@ export default function EmployeeDesk() {
                     </>
                   ) : (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => changeQty(product.id, 1)}
-                        className="flex h-full min-w-0 flex-1 flex-col justify-center px-2 py-1 text-left active:bg-brand-50/80"
-                      >
-                        <div className="flex items-start justify-between gap-1">
-                          <p className="line-clamp-2 min-w-0 flex-1 text-base font-extrabold leading-tight text-slate-900">
-                            {product.name}
+                      <div className="flex min-w-0 flex-1 flex-col justify-center px-2 py-1">
+                        <button
+                          type="button"
+                          onClick={() => changeQty(product.id, 1)}
+                          className="w-full text-left active:opacity-80"
+                        >
+                          <div className="flex items-start justify-between gap-1">
+                            <p className="line-clamp-2 min-w-0 flex-1 text-base font-extrabold leading-tight text-slate-900">
+                              {product.name}
+                            </p>
+                            <span
+                              className={cn(
+                                "money flex h-6 min-w-[1.5rem] shrink-0 items-center justify-center rounded-md px-1 text-xs font-extrabold",
+                                active
+                                  ? "bg-brand-700 text-white"
+                                  : "bg-slate-100 text-slate-500"
+                              )}
+                            >
+                              {qty}
+                            </span>
+                          </div>
+                          <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
+                            <Money amount={price} />
+                            {selectedUnit?.label ? (
+                              <span className="ml-1 font-semibold text-slate-400">
+                                / {selectedUnit.label}
+                              </span>
+                            ) : null}
                           </p>
-                          <span
-                            className={cn(
-                              "money flex h-6 min-w-[1.5rem] shrink-0 items-center justify-center rounded-md px-1 text-xs font-extrabold",
-                              active
-                                ? "bg-brand-700 text-white"
-                                : "bg-slate-100 text-slate-500"
-                            )}
-                          >
-                            {qty}
-                          </span>
-                        </div>
-                        <p className="money mt-0.5 text-[11px] font-bold text-brand-700">
-                          <Money amount={price} />
-                        </p>
-                      </button>
+                        </button>
+                        {multiUnit ? (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {sellableUnits.map((unit) => (
+                              <button
+                                key={unit.id}
+                                type="button"
+                                onClick={() =>
+                                  pickSellUnit(product.id, unit.id)
+                                }
+                                className={cn(
+                                  "rounded-md px-1.5 py-0.5 text-[10px] font-extrabold ring-1",
+                                  unit.id === unitId
+                                    ? "bg-brand-700 text-white ring-brand-700"
+                                    : "bg-white text-slate-600 ring-slate-200"
+                                )}
+                              >
+                                {unit.label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="flex w-8 flex-col border-l border-slate-100">
                         <button
                           type="button"

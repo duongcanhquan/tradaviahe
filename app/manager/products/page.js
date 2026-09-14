@@ -48,6 +48,11 @@ import {
   recipeLineCost,
 } from "@/lib/recipe";
 import { normalizeProductUnits } from "@/lib/packaging";
+import {
+  PACKAGING_PRESETS,
+  buildRetailPackPreset,
+  defaultIngredientPackHint,
+} from "@/lib/packaging";
 import { formatBaseQty, toIngredientBaseQty, usageUnitsForIngredient } from "@/lib/units";
 import { cn, formatCurrency } from "@/lib/utils";
 
@@ -392,16 +397,91 @@ function ProductsContent() {
       }
       const baseUnit =
         String(f.packaging?.baseUnit || f.unit || "cái").trim() || "cái";
+      const retail = Number(f.price) || 0;
+      const cost = Number(f.cost) || 0;
+      const isFinishedBought =
+        f.kind === PRODUCT_KIND.FINISHED && f.costMode !== COST_MODE.RECIPE;
+      const hasPack = (Array.isArray(f.units) ? f.units : []).some(
+        (u) => Number(u.factor) > 1
+      );
+      if (hasPack) {
+        return {
+          ...f,
+          packaging: { enabled: true, baseUnit },
+          units: ensureBaseUnitRow(f.units, baseUnit, retail, cost),
+        };
+      }
+      const preset = buildRetailPackPreset({
+        baseUnit,
+        retailPrice: retail,
+        baseCost: cost,
+        canSellPack: isFinishedBought || f.kind === PRODUCT_KIND.INGREDIENT,
+      });
+      // NL: mặc định bán lẻ tắt trên kiện (chỉ nhập); thành phẩm: bán cả lẻ + kiện.
+      if (f.kind === PRODUCT_KIND.INGREDIENT) {
+        preset.units = preset.units.map((u) =>
+          Number(u.factor) > 1 ? { ...u, canSell: false } : u
+        );
+      }
       return {
         ...f,
-        packaging: { enabled: true, baseUnit },
-        units: ensureBaseUnitRow(
-          f.units,
-          baseUnit,
-          Number(f.price) || 0,
-          Number(f.cost) || 0
-        ),
+        unit: preset.unit,
+        packaging: preset.packaging,
+        units: preset.units,
       };
+    });
+  };
+
+  const applyPackagingPreset = (presetId) => {
+    const meta = PACKAGING_PRESETS.find((p) => p.id === presetId);
+    if (!meta) return;
+    setForm((f) => {
+      const preset = buildRetailPackPreset({
+        baseUnit: meta.baseUnit,
+        packLabel: meta.packLabel,
+        packFactor: meta.packFactor,
+        retailPrice: Number(f.price) || 0,
+        packPrice: 0,
+        baseCost: Number(f.cost) || 0,
+        canSellPack:
+          f.kind === PRODUCT_KIND.FINISHED && f.costMode !== COST_MODE.RECIPE
+            ? true
+            : f.kind === PRODUCT_KIND.INGREDIENT
+              ? false
+              : true,
+      });
+      if (f.kind === PRODUCT_KIND.INGREDIENT) {
+        preset.units = preset.units.map((u) =>
+          Number(u.factor) > 1 ? { ...u, canSell: false } : { ...u, canSell: false }
+        );
+      }
+      return {
+        ...f,
+        unit: preset.unit,
+        price: String(preset.price || f.price || ""),
+        packaging: preset.packaging,
+        units: preset.units,
+      };
+    });
+  };
+
+  const addPackagingUnit = () => {
+    setForm((f) => {
+      const hint = defaultIngredientPackHint(
+        f.packaging?.baseUnit || f.unit || "cái"
+      );
+      const nextRow = createUnitRow({
+        id: makeUnitId(`unit-${f.units.length + 1}-${Date.now()}`),
+        label: hint.packLabel || "thùng",
+        factor: Number(hint.packFactor) || 10,
+        sellPrice: 0,
+        sellCost:
+          (Number(f.cost) || 0) * (Number(hint.packFactor) || 10),
+        canSell:
+          f.kind === PRODUCT_KIND.FINISHED && f.costMode !== COST_MODE.RECIPE,
+        canReceive: true,
+      });
+      return { ...f, units: [...f.units, nextRow] };
     });
   };
 
@@ -457,19 +537,6 @@ function ProductsContent() {
         };
       }
       return { ...f, units };
-    });
-  };
-
-  const addPackagingUnit = () => {
-    setForm((f) => {
-      const nextRow = createUnitRow({
-        id: makeUnitId(`unit-${f.units.length + 1}-${Date.now()}`),
-        label: "cây",
-        factor: 10,
-        sellPrice: Number(f.price) || 0,
-        sellCost: Number(f.cost) || 0,
-      });
-      return { ...f, units: [...f.units, nextRow] };
     });
   };
 
@@ -1773,17 +1840,15 @@ function ProductsContent() {
                     className="h-5 w-5 accent-brand-700"
                   />
                   <span className="text-sm font-semibold text-slate-800">
-                    {form.kind === PRODUCT_KIND.FINISHED
-                      ? "Nhập thùng (vd AVIA 1 thùng = 24 chai)"
-                      : "Nhập kiện (thùng × gói, cây thuốc × bao)"}
+                    Nhiều đơn vị — bán lẻ &amp; bán kiện (bao/cây, gói/thùng…)
                   </span>
                 </label>
 
                 {form.packaging?.enabled ? (
                   <div className="space-y-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-bold text-slate-900">
-                        Đơn vị bán / nhập
+                        Giá bán / nhập theo từng đơn vị
                       </p>
                       <button
                         type="button"
@@ -1795,9 +1860,32 @@ function ProductsContent() {
                       </button>
                     </div>
                     <p className="text-[11px] leading-relaxed text-slate-500">
-                      Dòng hệ số 1 = gốc tồn/CT (gói). Dòng thùng ×30 = nhập
-                      kiện. Bán lẻ gói: tạo món POS + CT 1 gói, không bán NL.
+                      Hệ số 1 = đơn vị gốc tồn (vd bao, gói, chai). Dòng kiện
+                      (cây×10, thùng×24) dùng để nhập và bán nguyên kiện — tick{" "}
+                      <strong>Bán</strong> / <strong>Nhập</strong> từng dòng.
+                      Giá bán lẻ và giá bán kiện nhập riêng.
                     </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PACKAGING_PRESETS.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => applyPackagingPreset(p.id)}
+                          className="touch-btn h-9 bg-white px-2.5 text-[11px] font-bold text-brand-800 ring-1 ring-brand-200"
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="hidden grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[1.4fr_5.5rem_6rem_6rem_4rem_4rem_2.75rem]">
+                      <span>Tên ĐV</span>
+                      <span>Hệ số</span>
+                      <span>Giá bán</span>
+                      <span>Giá vốn</span>
+                      <span className="text-center">Bán</span>
+                      <span className="text-center">Nhập</span>
+                      <span />
+                    </div>
                     <div className="space-y-2">
                       {form.units.map((unit, index) => {
                         const isBase = Number(unit.factor) === 1;
@@ -1814,7 +1902,7 @@ function ProductsContent() {
                                   label: e.target.value,
                                 })
                               }
-                              placeholder="Tên đơn vị"
+                              placeholder={isBase ? "bao / gói" : "cây / thùng"}
                             />
                             <input
                               type="number"
@@ -1829,6 +1917,7 @@ function ProductsContent() {
                                 })
                               }
                               placeholder="Hệ số"
+                              title="1 kiện = ? đơn vị gốc"
                             />
                             <input
                               type="number"
@@ -1841,7 +1930,9 @@ function ProductsContent() {
                                   sellPrice: e.target.value,
                                 })
                               }
-                              placeholder="Giá bán"
+                              placeholder={
+                                isBase ? "Giá bán lẻ" : "Giá bán kiện"
+                              }
                             />
                             <input
                               type="number"
@@ -1856,7 +1947,7 @@ function ProductsContent() {
                               }
                               placeholder="Giá vốn"
                             />
-                            <label className="flex items-center justify-center rounded-xl bg-white px-2 ring-1 ring-slate-200">
+                            <label className="flex items-center justify-center gap-1 rounded-xl bg-white px-2 ring-1 ring-slate-200">
                               <input
                                 type="checkbox"
                                 checked={unit.canSell !== false}
@@ -1867,9 +1958,11 @@ function ProductsContent() {
                                 }
                                 className="h-4 w-4 accent-brand-700"
                               />
-                              <span className="sr-only">Bán</span>
+                              <span className="text-[10px] font-bold text-slate-600 sm:sr-only">
+                                Bán
+                              </span>
                             </label>
-                            <label className="flex items-center justify-center rounded-xl bg-white px-2 ring-1 ring-slate-200">
+                            <label className="flex items-center justify-center gap-1 rounded-xl bg-white px-2 ring-1 ring-slate-200">
                               <input
                                 type="checkbox"
                                 checked={unit.canReceive !== false}
@@ -1880,7 +1973,9 @@ function ProductsContent() {
                                 }
                                 className="h-4 w-4 accent-brand-700"
                               />
-                              <span className="sr-only">Nhập</span>
+                              <span className="text-[10px] font-bold text-slate-600 sm:sr-only">
+                                Nhập
+                              </span>
                             </label>
                             <button
                               type="button"

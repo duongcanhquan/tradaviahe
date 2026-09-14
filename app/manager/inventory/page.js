@@ -1603,7 +1603,7 @@ function InventoryContent() {
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Đơn vị nhập
+                      Đơn vị nhập (bao / cây / thùng…)
                     </span>
                     <select
                       className="field-input"
