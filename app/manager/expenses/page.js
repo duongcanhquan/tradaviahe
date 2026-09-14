@@ -31,6 +31,7 @@ import {
   deleteShopFundEntry,
   expenseCategoryLabel,
   EXPENSE_CATEGORIES,
+  MANUAL_EXPENSE_CATEGORIES,
   isFundIn,
   isShopExpense,
   isShopFundEntry,
@@ -69,7 +70,7 @@ const FILTERS = [
 
 function ExpensesContent() {
   const { showToast } = useToast();
-  const { user, profile, role, canManageShop, canManageShareholderCapital } =
+  const { user, profile, role, canManageShop, canDeleteShopFundEntry, canManageShareholderCapital } =
     useAuth();
   const [allTx, setAllTx] = useState([]);
   const [rows, setRows] = useState([]);
@@ -84,7 +85,7 @@ function ExpensesContent() {
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [dateInput, setDateInput] = useState(todayInputValue());
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0].value);
+  const [category, setCategory] = useState(MANUAL_EXPENSE_CATEGORIES[0].value);
   const [payMethod, setPayMethod] = useState("cash");
   /** Nạp quỹ từ vốn cổ đông — trừ sổ vốn */
   const [fromCapital, setFromCapital] = useState(true);
@@ -182,7 +183,7 @@ function ExpensesContent() {
     setAmount("");
     setNote("");
     setDateInput(todayInputValue());
-    setCategory(EXPENSE_CATEGORIES[0].value);
+    setCategory(MANUAL_EXPENSE_CATEGORIES[0].value);
     setPayMethod("cash");
     setFromCapital(true);
   };
@@ -249,16 +250,16 @@ function ExpensesContent() {
   };
 
   const handleDelete = async (row) => {
-    if (!canManageShop || !row?.id) return;
+    if (!canDeleteShopFundEntry || !row?.id) return;
     const label = isFundIn(row) ? "nạp quỹ" : "khoản chi";
     const ok = window.confirm(
-      `Xóa ${label} · ${formatCurrency(row.amount)}?\nChỉ xóa khi ghi nhầm.`
+      `Xóa ${label} · ${formatCurrency(row.amount)}?\nTiền sẽ về lại quỹ ngay. Không xóa được phiếu nhập hàng.`
     );
     if (!ok) return;
     setDeletingId(row.id);
     try {
       await deleteShopFundEntry(row.id, role);
-      showToast("Đã xóa", "success");
+      showToast("Đã xóa — quỹ đã cập nhật", "success");
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Xóa thất bại", "error");
@@ -412,12 +413,15 @@ function ExpensesContent() {
                   onChange={(e) => setCategory(e.target.value)}
                   required
                 >
-                  {EXPENSE_CATEGORIES.map((c) => (
+                  {MANUAL_EXPENSE_CATEGORIES.map((c) => (
                     <option key={c.value} value={c.value}>
                       {c.label}
                     </option>
                   ))}
                 </select>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Nhập hàng ghi ở màn Nhập hàng (cộng tồn + trừ quỹ).
+                </p>
               </label>
             ) : (
               <>
@@ -704,7 +708,7 @@ function ExpensesContent() {
                           {formatActorLabel(row)}
                         </p>
                       </div>
-                      {canManageShop ? (
+                      {canDeleteShopFundEntry ? (
                         <button
                           type="button"
                           aria-label="Xóa"

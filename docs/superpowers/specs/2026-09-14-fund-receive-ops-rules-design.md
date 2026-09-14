@@ -22,6 +22,7 @@
 | 3 | Xóa chi ngoài (lương, điện…) | Chỉ **superadmin**; xóa dòng expense = tiền về quỹ (sổ quỹ = tổng giao dịch) |
 | 4 | Form chi tay category “Nhập hàng” | **Bỏ / cấm** — nhập hàng chỉ qua `receiveInventoryPaid` |
 | 5 | Quỹ khi nhập | Manager → shop; Superadmin/Investor → shop **hoặc** capital (đã có `canChooseInventoryFundSource`) |
+| 6 | Danh sách Nhập hàng | Chỉ **NL** + **thành phẩm nhập** (`!productUsesRecipe`). **Ẩn** món POS công thức (bát mì…). Cấm nhập / đổi CT → manual từ màn nhập |
 
 ## Non-goals (phase này)
 
@@ -63,10 +64,24 @@ Nhập hàng (SL > 0, có giá)
 - Payload tạo product: **`inStock` luôn 0** (bỏ / ignore ô tồn đầu nếu còn trên UI).
 - Copy UI: hướng dẫn “Sau khi tạo, vào Nhập hàng để cộng tồn và trừ quỹ”.
 - Backend: `createProduct` / wrapper save — nếu caller không phải superadmin chỉnh kho đặc biệt, clamp `inStock` về 0 khi create (defense in depth). Superadmin sửa tồn tay (nếu còn) giữ ngoài scope nhập hàng thường.
+- Form “Thêm hàng kho” chỉ tạo **NL** hoặc **thành phẩm nhập** (`costMode: manual`). Món CT tạo ở màn Món · giá.
+
+### Danh sách & hành vi Nhập hàng (món CT)
+
+| Loại | Hiện trên Nhập hàng? | Nhập + trừ quỹ? |
+|------|----------------------|-----------------|
+| Nguyên liệu | Có | Có |
+| Thành phẩm nhập (`costMode: manual`, không CT) | Có | Có |
+| Món POS công thức (`productUsesRecipe`) | **Không** | **Cấm** API + UI |
+
+- Filter tab “Thành phẩm” = thành phẩm nhập, **không** dùng `isSellable` (vì gồm món CT).
+- Tab “Tất cả” cũng loại món CT.
+- Xóa confirm “nhập sẽ bỏ công thức” — không còn path đổi CT → hàng nhập từ màn này.
+- `receiveInventoryFromShopFund` / `FromCapitalFund`: reject nếu `productUsesRecipe(product)`.
 
 ### Kiểm kho
 
-- Giữ: chỉnh sổ tồn, **không** trừ quỹ (đã ghi chú UI). Không đổi phase này.
+- Giữ: chỉnh sổ tồn, **không** trừ quỹ (đã ghi chú UI). Target kiểm kho = cùng tập hàng có tồn (NL + thành phẩm nhập), không gồm món CT.
 
 ---
 

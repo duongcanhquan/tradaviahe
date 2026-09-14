@@ -42,6 +42,7 @@ import {
   subscribeProducts,
   updateProduct,
 } from "@/lib/products";
+import { isInventoryReceivable, productUsesRecipe } from "@/lib/recipe";
 import { lineStockCostValue, summarizeInventory } from "@/lib/stock";
 import {
   buildStocktakeLine,
@@ -99,10 +100,7 @@ function resolvePackPayload({
 }
 
 function isRecipeFinished(product) {
-  return (
-    product?.kind === PRODUCT_KIND.FINISHED &&
-    product?.costMode === COST_MODE.RECIPE
-  );
+  return productUsesRecipe(product);
 }
 
 function stockLine(product) {
@@ -206,11 +204,12 @@ function InventoryContent() {
 
   const visible = useMemo(() => {
     const q = nameQuery.trim().toLowerCase();
-    let list = products;
+    // Chỉ NL + thành phẩm nhập — ẩn món POS công thức (bát mì…)
+    let list = products.filter(isInventoryReceivable);
     if (filter === "ingredient") {
-      list = products.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT);
+      list = list.filter((p) => p.kind === PRODUCT_KIND.INGREDIENT);
     } else if (filter === "finished") {
-      list = products.filter((p) => isSellable(p));
+      list = list.filter((p) => p.kind === PRODUCT_KIND.FINISHED);
     }
     if (!q) return list;
     return list.filter((p) => String(p.name || "").toLowerCase().includes(q));
@@ -277,9 +276,8 @@ function InventoryContent() {
     const factor = packOn
       ? Math.max(0, Math.round(Number(form.packFactor) || 0))
       : 1;
-    const receiveQty = Number(form.inStock) || 0;
+    // Tồn đầu = 0; cộng tồn qua Nhập hàng (trừ quỹ)
     const receivePrice = parseUnitCostInput(form.cost);
-    const baseQty = receiveQty * (packOn ? factor : 1);
     const baseCost =
       packOn && factor > 0 ? receivePrice / factor : receivePrice;
 
@@ -298,7 +296,7 @@ function InventoryContent() {
         name: form.name.trim(),
         kind: isFin ? PRODUCT_KIND.FINISHED : PRODUCT_KIND.INGREDIENT,
         unit: form.unit || (isFin ? "chai" : "g"),
-        inStock: baseQty,
+        inStock: 0,
         cost: baseCost,
         costMode: COST_MODE.MANUAL,
         price: sellPrice,
@@ -308,9 +306,7 @@ function InventoryContent() {
         ...pack,
       });
       showToast(
-        packOn
-          ? `Đã thêm “${form.name.trim()}” · +${receiveQty} ${form.packLabel || "kiện"} = ${baseQty} ${form.unit} · ${formatCurrency(baseCost)}/${form.unit}`
-          : `Đã thêm “${form.name.trim()}” · tồn ${baseQty} · giá nhập ${formatCurrency(baseCost)}`,
+        `Đã thêm “${form.name.trim()}” · tồn 0 · vào Nhập hàng để cộng tồn + trừ quỹ`,
         "success"
       );
       setForm(emptyForm());
@@ -440,11 +436,12 @@ function InventoryContent() {
   };
 
   const handleReceive = async (product) => {
-    if (isRecipeFinished(product)) {
-      const ok = window.confirm(
-        `“${product.name}” đang có công thức. Nhập kho sẽ đổi thành hàng nhập (trừ tồn khi bán), bỏ CT. Tiếp tục?`
+    if (productUsesRecipe(product)) {
+      showToast(
+        "Món công thức POS không nhập kho — nhập nguyên liệu / thành phẩm mua về",
+        "error"
       );
-      if (!ok) return;
+      return;
     }
     const d = drafts[product.id] || {};
     const addQty = Number(d.addQty) || 0;
@@ -506,13 +503,6 @@ function InventoryContent() {
           user,
           profile,
         });
-        if (isRecipeFinished(product)) {
-          await updateDoc(doc(db, "products", product.id), {
-            costMode: COST_MODE.MANUAL,
-            recipe: [],
-            updatedAt: serverTimestamp(),
-          });
-        }
         await recomputeRecipeCosts();
         const via = result.paymentMethod === "banking" ? "CK" : "TM";
         const fundLabel =
@@ -535,10 +525,6 @@ function InventoryContent() {
         if (hasCost) {
           payload.cost = nextCost;
           payload.costMode = COST_MODE.MANUAL;
-        }
-        if (isRecipeFinished(product)) {
-          payload.costMode = COST_MODE.MANUAL;
-          payload.recipe = [];
         }
         await updateDoc(doc(db, "products", product.id), payload);
         if (hasCost) {
@@ -1015,59 +1001,29 @@ function InventoryContent() {
               </div>
             ) : null}
 
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  {form.packEnabled
-                    ? `Số ${form.packLabel || "kiện"} nhập`
-                    : "Số lượng nhập"}
-                </span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  className="field-input money"
-                  value={form.inStock}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, inStock: e.target.value }))
-                  }
-                  placeholder="0"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  {form.packEnabled
-                    ? `Giá / ${form.packLabel || "kiện"}`
-                    : "Giá nhập / ĐV"}
-                </span>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="any"
-                  className="field-input money"
-                  value={form.cost}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, cost: e.target.value }))
-                  }
-                  placeholder="0"
-                />
-              </label>
-            </div>
-            {form.packEnabled &&
-            Number(form.inStock) > 0 &&
-            Number(form.packFactor) >= 2 &&
-            parseUnitCostInput(form.cost) > 0 ? (
-              <p className="text-[11px] font-semibold leading-snug text-emerald-800">
-                {form.inStock} {form.packLabel} × {form.packFactor} {form.unit} = +
-                {Number(form.inStock) * Number(form.packFactor)} {form.unit}
-                {" · "}
-                {formatCurrency(
-                  parseUnitCostInput(form.cost) / Number(form.packFactor)
-                )}
-                /{form.unit}
-              </p>
-            ) : null}
+            <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold leading-snug text-slate-600 ring-1 ring-slate-100">
+              Tồn đầu = 0. Sau khi tạo, dùng form Nhập hàng bên dưới để cộng tồn
+              và trừ quỹ.
+            </p>
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                {form.packEnabled
+                  ? `Giá tham khảo / ${form.packLabel || "kiện"}`
+                  : "Giá nhập tham khảo / ĐV"}
+              </span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                className="field-input money"
+                value={form.cost}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, cost: e.target.value }))
+                }
+                placeholder="0"
+              />
+            </label>
 
             {form.kind === PRODUCT_KIND.FINISHED ? (
               <label className="block">
@@ -1316,7 +1272,7 @@ function InventoryContent() {
         {[
           { id: "all", label: "Tất cả" },
           { id: "ingredient", label: "Nguyên liệu" },
-          { id: "finished", label: "Thành phẩm" },
+          { id: "finished", label: "Thành phẩm nhập" },
         ].map((f) => (
           <button
             key={f.id}
@@ -1623,12 +1579,6 @@ function InventoryContent() {
                     ) : null}
                 </div>
 
-                {isRecipeFinished(product) ? (
-                  <p className="rounded-2xl bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-snug text-amber-950 ring-1 ring-amber-100">
-                    Món nấu/pha — nhập hoặc lưu sửa sẽ đổi thành hàng nhập
-                    (trừ tồn khi bán), bỏ công thức.
-                  </p>
-                ) : null}
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
                     <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
