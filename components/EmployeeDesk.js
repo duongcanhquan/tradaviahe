@@ -35,12 +35,17 @@ import {
   moveProductInOrder,
   subscribeProducts,
 } from "@/lib/products";
+import { productUsesRecipe } from "@/lib/recipe";
 import { deleteSaleTransaction, recordPosSale } from "@/lib/sales";
 import {
   assertCanSellStock,
   defaultSellUnit,
   getSellableUnits,
 } from "@/lib/packaging";
+import {
+  checkStockDeltas,
+  stockDeltasForSaleItems,
+} from "@/lib/stock";
 import { cn, dateInfoCode, formatCurrency, todayKey } from "@/lib/utils";
 
 /**
@@ -184,10 +189,17 @@ export default function EmployeeDesk() {
         const unitId = line?.unitId || getDefaultCartUnitId(product);
         let saleLine;
         try {
-          saleLine = buildSaleLineFromProduct(product, { qty, unitId });
+          saleLine = buildSaleLineFromProduct(product, {
+            qty,
+            unitId,
+            productsById,
+          });
         } catch {
           try {
-            saleLine = buildSaleLineFromProduct(product, { qty });
+            saleLine = buildSaleLineFromProduct(product, {
+              qty,
+              productsById,
+            });
           } catch (fallbackError) {
             console.error(fallbackError);
             return null;
@@ -277,12 +289,13 @@ export default function EmployeeDesk() {
     let amount;
     try {
       saleItems = cartItems.map((item) => {
-        if (item.product?.costMode !== "recipe") {
+        if (!productUsesRecipe(item.product)) {
           assertCanSellStock(item.product, item.unitId, item.qty);
         }
         return buildSaleLineFromProduct(item.product, {
           qty: item.qty,
           unitId: item.unitId,
+          productsById,
         });
       });
       amount = saleItems.reduce(
@@ -292,6 +305,12 @@ export default function EmployeeDesk() {
       if (amount <= 0) {
         throw new Error("Số tiền phải > 0");
       }
+      const recipeDeltas = stockDeltasForSaleItems(
+        saleItems,
+        -1,
+        productsById
+      );
+      checkStockDeltas(productsById, recipeDeltas);
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Ghi thu thất bại — thử lại", "error");
