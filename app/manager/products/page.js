@@ -599,9 +599,10 @@ function ProductsContent() {
         }
         await updateProduct(editingId, payload);
       } else {
+        // Tồn chỉ qua Nhập hàng (trừ quỹ) — không seed tồn khi tạo món.
         await createProduct({
           ...payload,
-          inStock: Number(form.inStock) || 0,
+          inStock: 0,
         });
       }
 
@@ -1302,21 +1303,22 @@ function ProductsContent() {
               </label>
               <label className="block">
                 <span className="mb-1 block text-sm font-semibold">
-                  {editingId ? "Tồn kho (xem)" : "Tồn kho ban đầu"}
+                  {editingId ? "Tồn kho (xem)" : "Tồn kho"}
                 </span>
                 <input
                   type="number"
                   min="0"
                   step="any"
                   className="field-input"
-                  value={form.inStock}
+                  value={editingId ? form.inStock : "0"}
                   disabled={
-                    Boolean(editingId) &&
-                    !(
-                      isSuperAdmin &&
-                      (form.kind === PRODUCT_KIND.INGREDIENT ||
-                        form.costMode !== COST_MODE.RECIPE)
-                    )
+                    !editingId ||
+                    (Boolean(editingId) &&
+                      !(
+                        isSuperAdmin &&
+                        (form.kind === PRODUCT_KIND.INGREDIENT ||
+                          form.costMode !== COST_MODE.RECIPE)
+                      ))
                   }
                   onChange={(e) =>
                     setForm((f) => ({ ...f, inStock: e.target.value }))
@@ -1330,7 +1332,11 @@ function ProductsContent() {
                       ? "Super Admin được sửa tồn hàng nhập."
                       : "Đổi tồn tại Nhập hàng / POS — không ghi đè khi lưu món."}
                   </span>
-                ) : null}
+                ) : (
+                  <span className="mt-1 block text-[11px] text-slate-500">
+                    Tạo món tồn = 0. Nhập hàng tại kho để cộng tồn và trừ quỹ.
+                  </span>
+                )}
               </label>
             </div>
 

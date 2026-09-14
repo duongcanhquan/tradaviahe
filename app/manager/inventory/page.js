@@ -499,7 +499,7 @@ function InventoryContent() {
           unitId: selectedUnit?.id,
           unitCost: nextCost,
           paymentMethod: payMethod,
-          updateCost: true, // last-purchase always
+          updateCost: true, // WAC / giá vốn BQ always
           user,
           profile,
         });
@@ -509,12 +509,10 @@ function InventoryContent() {
           result.fundSource === "capital" ? "quỹ đầu tư" : "quỹ cửa hàng";
         showToast(
           `Đã nhập +${result.qty} · trừ ${fundLabel} ${via} ${formatCurrency(result.amount)}` +
-            (result.unitReceivePrice != null
-              ? ` · ĐG gốc ${formatCurrency(
-                  Math.round(
-                    result.amount / Math.max(1, Number(result.baseQty) || 1)
-                  )
-                )}`
+            (result.baseUnitCost != null
+              ? result.costMethod === "wac"
+                ? ` · Giá vốn BQ ${formatCurrency(result.baseUnitCost)}`
+                : ` · Giá vốn ${formatCurrency(result.baseUnitCost)}`
               : ""),
           "success"
         );
@@ -523,14 +521,34 @@ function InventoryContent() {
           updatedAt: serverTimestamp(),
         };
         if (hasCost) {
-          payload.cost = nextCost;
+          const baseCost = nextCost;
+          payload.cost = baseCost;
           payload.costMode = COST_MODE.MANUAL;
+          const norm = normalizeProductUnits(product);
+          if (norm.enabled && norm.units.length) {
+            payload.units = norm.units.map((u) => ({
+              ...u,
+              sellCost: Math.round(
+                baseCost * Math.max(1, Number(u.factor) || 1)
+              ),
+            }));
+            payload.packaging = {
+              enabled: true,
+              baseUnit: norm.baseUnit,
+            };
+            payload.unit = norm.baseUnit;
+          }
         }
         await updateDoc(doc(db, "products", product.id), payload);
         if (hasCost) {
           await recomputeRecipeCosts();
         }
-        showToast(`Đã cập nhật giá nhập · ${product.name}`, "success");
+        showToast(
+          hasCost
+            ? `Đã cập nhật giá vốn · ${product.name}`
+            : `Đã cập nhật · ${product.name}`,
+          "success"
+        );
       }
       setDrafts((prev) => {
         const next = { ...prev };
@@ -1532,7 +1550,7 @@ function InventoryContent() {
                       </span>
                     </p>
                     <p className="mt-1 text-xs font-semibold text-amber-800">
-                      Giá nhập: <Money amount={product.cost} />
+                      Giá vốn BQ: <Money amount={product.cost} />
                       {!isIng ? (
                         <>
                           {" · Bán "}
@@ -1705,11 +1723,27 @@ function InventoryContent() {
                           {formatCurrency(previewCost)}
                           {" → +"}
                           {preview.baseQty} {packaging.baseUnit}
-                          {" · "}
-                          {formatCurrency(preview.baseUnitCost)}/
-                          {packaging.baseUnit}
                           {" · Trừ quỹ "}
                           {formatCurrency(preview.amount)}
+                          {preview.costMethod === "wac" ? (
+                            <>
+                              {" · Giá vốn BQ "}
+                              {formatCurrency(preview.baseUnitCost)}/
+                              {packaging.baseUnit}
+                              {" (còn "}
+                              {preview.priorQty} ×{" "}
+                              {formatCurrency(preview.priorCost)}
+                              {" + nhập "}
+                              {formatCurrency(preview.purchaseBaseUnitCost)}
+                              {"/)"}
+                            </>
+                          ) : (
+                            <>
+                              {" · Giá vốn "}
+                              {formatCurrency(preview.baseUnitCost)}/
+                              {packaging.baseUnit}
+                            </>
+                          )}
                         </p>
                       );
                     })()}
