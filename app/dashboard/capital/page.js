@@ -21,6 +21,7 @@ import {
   Pencil,
   Plus,
   Save,
+  Trash2,
   Building2,
   Wallet,
   X,
@@ -57,6 +58,7 @@ import {
   addCapitalContribution,
   addCapitalExpense,
   capitalKindLabel,
+  deleteCapitalExpense,
   displayNamesForRole,
   filterShareholderCapitalEntries,
   findInitialEntry,
@@ -273,6 +275,8 @@ function CapitalHistoryList({
   emptyText,
   canEditExpense = false,
   onEditExpense,
+  onDeleteExpense,
+  deletingExpenseId = null,
 }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -452,14 +456,28 @@ function CapitalHistoryList({
                     </p>
                   ) : null}
                   {isExpense && canEditExpense ? (
-                    <button
-                      type="button"
-                      onClick={() => onEditExpense?.(row)}
-                      className="touch-btn h-11 w-full gap-2 bg-slate-900 text-sm text-white"
-                    >
-                      <Pencil className="h-4 w-4" aria-hidden />
-                      Sửa / chuyển quỹ
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onEditExpense?.(row)}
+                        className="touch-btn h-11 w-full gap-2 bg-slate-900 text-sm text-white"
+                      >
+                        <Pencil className="h-4 w-4" aria-hidden />
+                        Sửa
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteExpense?.(row)}
+                        disabled={
+                          row.source === "inventory_receive" ||
+                          deletingExpenseId === row.id
+                        }
+                        className="touch-btn h-11 w-full gap-2 bg-rose-50 text-sm font-extrabold text-rose-700 ring-1 ring-rose-100 disabled:opacity-40"
+                      >
+                        <Trash2 className="h-4 w-4" aria-hidden />
+                        {deletingExpenseId === row.id ? "…" : "Xóa"}
+                      </button>
+                    </div>
                   ) : null}
                 </article>
               );
@@ -547,6 +565,7 @@ function CapitalContent() {
   const [editExpPayMethod, setEditExpPayMethod] = useState("cash");
   const [savingEditExp, setSavingEditExp] = useState(false);
   const [convertingExp, setConvertingExp] = useState(false);
+  const [deletingExpId, setDeletingExpId] = useState(null);
 
   const [editName, setEditName] = useState("");
   const [editAmount, setEditAmount] = useState("");
@@ -844,6 +863,47 @@ function CapitalContent() {
       showToast(error.message || "Sửa thất bại", "error");
     } finally {
       setSavingEditExp(false);
+    }
+  };
+
+  const handleDeleteExpense = async (row) => {
+    if (!canManageShareholderCapital || row?.kind !== CAPITAL_KINDS.expense) {
+      return;
+    }
+    if (row.source === "inventory_receive") {
+      showToast(
+        "Dòng nhập hàng từ quỹ đầu tư — không xóa trên sổ vốn",
+        "error"
+      );
+      return;
+    }
+    const linked = row.toShopFund || row.shopFundTxId;
+    const ok = window.confirm(
+      `Xóa chi tiêu vốn ${formatCurrency(row.amount)}?\n` +
+        (linked
+          ? "Dòng này đã nạp quỹ cửa hàng — sẽ xóa luôn giao dịch nạp đó.\n"
+          : "") +
+        (row.note ? `${row.note}\n` : "") +
+        "Chỉ xóa khi ghi nhầm."
+    );
+    if (!ok) return;
+
+    setDeletingExpId(row.id);
+    try {
+      await deleteCapitalExpense({
+        entryId: row.id,
+        role: profile?.role,
+      });
+      if (editingExpense?.id === row.id) setEditingExpense(null);
+      showToast(
+        linked ? "Đã xóa chi tiêu vốn + giao dịch quỹ" : "Đã xóa chi tiêu vốn",
+        "info"
+      );
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Xóa thất bại", "error");
+    } finally {
+      setDeletingExpId(null);
     }
   };
 
@@ -1200,7 +1260,7 @@ function CapitalContent() {
           ) : (
             <p className="card-panel mb-4 text-sm text-slate-600">
               Bạn đang xem sổ vốn cổ đông (đã góp · đã chi · thu CK · số dư · %
-              cổ phần). Chỉ tài khoản quản trị được ghi/sửa vốn và chi tiêu vốn.
+              cổ phần). Super Admin được ghi / sửa / xóa chi tiêu vốn.
             </p>
           )}
 
@@ -1650,8 +1710,13 @@ function CapitalContent() {
 
                   <button
                     type="submit"
-                    disabled={savingEditExp || convertingExp}
-                    className="touch-btn h-14 w-full bg-slate-900 text-white"
+                    disabled={
+                      savingEditExp ||
+                      convertingExp ||
+                      deletingExpId === editingExpense.id ||
+                      editingExpense.source === "inventory_receive"
+                    }
+                    className="touch-btn h-14 w-full bg-slate-900 text-white disabled:opacity-50"
                   >
                     {savingEditExp ? (
                       <Loader2 className="h-5 w-5 animate-spin" />
@@ -1661,6 +1726,33 @@ function CapitalContent() {
                     {savingEditExp ? "Đang lưu..." : "Lưu nội dung chi tiêu"}
                   </button>
                 </form>
+
+                {editingExpense.source === "inventory_receive" ? (
+                  <p className="rounded-2xl bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-800 ring-1 ring-rose-100">
+                    Dòng nhập hàng từ quỹ đầu tư — không sửa/xóa trên sổ vốn.
+                    Chỉnh tồn ở Kho / Kiểm kho.
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={
+                      savingEditExp ||
+                      convertingExp ||
+                      deletingExpId === editingExpense.id
+                    }
+                    onClick={() => handleDeleteExpense(editingExpense)}
+                    className="touch-btn h-12 w-full gap-2 bg-rose-50 text-rose-700 ring-1 ring-rose-200 disabled:opacity-50"
+                  >
+                    {deletingExpId === editingExpense.id ? (
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="h-5 w-5" aria-hidden />
+                    )}
+                    {deletingExpId === editingExpense.id
+                      ? "Đang xóa..."
+                      : "Xóa chi tiêu vốn này"}
+                  </button>
+                )}
 
                 {editingExpense.toShopFund || editingExpense.shopFundTxId ? (
                   <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-100">
@@ -1721,6 +1813,8 @@ function CapitalContent() {
                 emptyText="Chưa có giao dịch trên sổ vốn cổ đông."
                 canEditExpense={canManageShareholderCapital}
                 onEditExpense={openEditExpense}
+                onDeleteExpense={handleDeleteExpense}
+                deletingExpenseId={deletingExpId}
               />
             )}
           </section>
