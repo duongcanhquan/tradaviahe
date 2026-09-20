@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Pencil,
+  Search,
   Trash2,
   Wallet,
 } from "lucide-react";
@@ -42,17 +44,21 @@ import {
   MANUAL_EXPENSE_CATEGORIES,
   isFundIn,
   isShopExpense,
+  isShopFundEditable,
   isShopFundEntry,
+  matchesFundSearch,
   normalizeExpenseCategory,
   recordFundIn,
   recordFundInFromCapital,
   recordShopExpense,
+  shopFundSourceLabel,
   summarizeShopFund,
+  updateShopFundEntry,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
-import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
+import { cn, formatCurrency, todayInputValue, dateKeyToInputValue } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
 
@@ -99,6 +105,16 @@ function ExpensesContent() {
   const [fromCapital, setFromCapital] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [editing, setEditing] = useState(null);
+  const [editAmount, setEditAmount] = useState("");
+  const [editNote, setEditNote] = useState("");
+  const [editDate, setEditDate] = useState(todayInputValue());
+  const [editCategory, setEditCategory] = useState(
+    MANUAL_EXPENSE_CATEGORIES[0].value
+  );
+  const [editPay, setEditPay] = useState("cash");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
     const unsub = subscribeCollection(
@@ -151,8 +167,11 @@ function ExpensesContent() {
           isShopExpense(r) && normalizeExpenseCategory(r.category) === filter
       );
     }
+    if (searchQuery.trim()) {
+      list = list.filter((r) => matchesFundSearch(r, searchQuery));
+    }
     return list;
-  }, [rangedFundRows, filter]);
+  }, [rangedFundRows, filter, searchQuery]);
 
   const periodSummary = useMemo(() => {
     const base = summarizeShopFund(rangedFundRows, cashInPeriod);
@@ -176,7 +195,7 @@ function ExpensesContent() {
 
   useEffect(() => {
     setPage(1);
-  }, [filter, dateFrom, dateTo]);
+  }, [filter, dateFrom, dateTo, searchQuery]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -185,6 +204,59 @@ function ExpensesContent() {
   const clearDateFilter = () => {
     setDateFrom("");
     setDateTo("");
+  };
+
+  const openEdit = (row) => {
+    if (!isShopFundEditable(row)) {
+      showToast(
+        "Khoản gắn nhập hàng / vốn / chuyển quỹ — sửa ở màn tương ứng",
+        "info"
+      );
+      return;
+    }
+    setEditing(row);
+    setEditAmount(String(row.amount ?? ""));
+    setEditNote(row.note || "");
+    setEditDate(
+      row.businessDate
+        ? dateKeyToInputValue(row.businessDate)
+        : todayInputValue()
+    );
+    setEditCategory(
+      normalizeExpenseCategory(row.category) ||
+        MANUAL_EXPENSE_CATEGORIES[0].value
+    );
+    setEditPay(row.paymentMethod === "banking" ? "banking" : "cash");
+  };
+
+  const closeEdit = () => {
+    setEditing(null);
+    setSavingEdit(false);
+  };
+
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    if (!editing?.id || !canManageShop) return;
+    setSavingEdit(true);
+    try {
+      await updateShopFundEntry({
+        id: editing.id,
+        amount: editAmount,
+        category: editCategory,
+        note: editNote,
+        dateInput: editDate,
+        paymentMethod: editPay,
+        user,
+        profile,
+      });
+      showToast("Đã cập nhật khoản quỹ", "success");
+      closeEdit();
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Sửa thất bại", "error");
+    } finally {
+      setSavingEdit(false);
+    }
   };
 
   const resetForm = () => {
@@ -414,6 +486,21 @@ function ExpensesContent() {
             }
           />
 
+          <label className="relative block">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+              aria-hidden
+            />
+            <input
+              className="field-input !h-12 pl-11"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Tìm ghi chú, hạng mục, số tiền, người…"
+              inputMode="search"
+              enterKeyHint="search"
+            />
+          </label>
+
           <DateRangeFilter
             dense
             dateFrom={dateFrom}
@@ -553,13 +640,31 @@ function ExpensesContent() {
                               {row.note}
                             </p>
                           ) : null}
+                          <p className="mt-1 text-xs font-bold text-brand-800">
+                            {shopFundSourceLabel(row)}
+                            {" · "}
+                            {row.paymentMethod === "banking"
+                              ? "Chuyển khoản"
+                              : "Tiền mặt"}
+                          </p>
                           <p className="mt-1 text-sm text-slate-500">
                             {formatTxTime(row)}
                             {" · "}
                             {formatActorLabel(row)}
                           </p>
                         </div>
-                        {canDeleteShopFundEntry ? (
+                        <div className="flex shrink-0 flex-col gap-2">
+                          {canManageShop && isShopFundEditable(row) ? (
+                            <button
+                              type="button"
+                              aria-label="Sửa"
+                              onClick={() => openEdit(row)}
+                              className="touch-btn h-11 w-11 rounded-2xl bg-brand-50 p-0 text-brand-800 ring-1 ring-brand-100"
+                            >
+                              <Pencil className="h-4 w-4" aria-hidden />
+                            </button>
+                          ) : null}
+                          {canDeleteShopFundEntry ? (
                           <button
                             type="button"
                             aria-label="Xóa"
@@ -574,6 +679,7 @@ function ExpensesContent() {
                             )}
                           </button>
                         ) : null}
+                        </div>
                       </div>
                     </li>
                   );
@@ -755,6 +861,109 @@ function ExpensesContent() {
                   ? "VD: Nạp 30tr quỹ vận hành tháng 7"
                   : "VD: Nhập trà đường · sửa bếp"
               }
+            />
+          </label>
+        </form>
+      </BottomSheet>
+
+      <BottomSheet
+        open={canManageShop && Boolean(editing)}
+        onClose={closeEdit}
+        title={isFundIn(editing) ? "Sửa nạp quỹ" : "Sửa khoản chi"}
+        subtitle={editing ? shopFundSourceLabel(editing) : null}
+        labelledBy="expenses-edit-sheet"
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={closeEdit}
+              className="touch-btn h-12 flex-1 border border-slate-200 bg-white text-slate-700"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              form="expenses-edit-form"
+              disabled={savingEdit}
+              className="btn-primary h-12 flex-[1.4] disabled:opacity-50"
+            >
+              {savingEdit ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                "Lưu thay đổi"
+              )}
+            </button>
+          </div>
+        }
+      >
+        <form
+          id="expenses-edit-form"
+          onSubmit={handleSaveEdit}
+          className="space-y-4"
+        >
+          <label className="block">
+            <FieldLabel>Ngày</FieldLabel>
+            <input
+              type="date"
+              className="field-input"
+              value={editDate}
+              onChange={(e) => setEditDate(e.target.value)}
+              required
+            />
+          </label>
+          {editing && isShopExpense(editing) ? (
+            <label className="block">
+              <FieldLabel>Hạng mục</FieldLabel>
+              <select
+                className="field-input"
+                value={editCategory}
+                onChange={(e) => setEditCategory(e.target.value)}
+                required
+              >
+                {MANUAL_EXPENSE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="block">
+            <FieldLabel>Hình thức</FieldLabel>
+            <select
+              className="field-input"
+              value={editPay}
+              onChange={(e) => setEditPay(e.target.value)}
+            >
+              <option value="cash">Tiền mặt</option>
+              <option value="banking">Chuyển khoản</option>
+            </select>
+          </label>
+          <label className="block">
+            <FieldLabel>Số tiền</FieldLabel>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="1"
+              className="field-input money"
+              value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              required
+            />
+            {editAmount ? (
+              <p className="mt-1.5 text-sm font-medium text-brand-700">
+                = <Money amount={editAmount} />
+              </p>
+            ) : null}
+          </label>
+          <label className="block">
+            <FieldLabel optional>Ghi chú</FieldLabel>
+            <input
+              type="text"
+              className="field-input"
+              value={editNote}
+              onChange={(e) => setEditNote(e.target.value)}
+              placeholder="Mô tả khoản chi / nạp"
             />
           </label>
         </form>

@@ -15,12 +15,15 @@ import {
   Box,
   ChevronLeft,
   ChevronRight,
+  Gift,
   Landmark,
   Loader2,
   Package,
   Pencil,
   Plus,
   Save,
+  Search,
+  ShoppingCart,
   Trash2,
   Building2,
   Wallet,
@@ -44,6 +47,7 @@ import {
   formatRangeLabel,
   hasDateRange,
 } from "@/lib/dateRange";
+import { matchesCapitalExpenseSearch } from "@/lib/fundSearch";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
@@ -53,10 +57,13 @@ import {
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { sumCapitalBankingIncome } from "@/lib/construction";
 import {
+  ACQUISITION,
+  acquisitionLabel,
   createInvestment,
   filterInvestmentsForRole,
   isAssetInvestment,
   investmentTypeLabel,
+  matchesAssetSearch,
   subscribeInvestments,
   summarizeAssets,
 } from "@/lib/investments";
@@ -239,46 +246,86 @@ function PersonPicker({
 }
 
 function AssetHistoryList({ rows, emptyText }) {
-  if (!rows.length) {
-    return (
-      <EmptyState
-        icon={Package}
-        title="Chưa có tài sản"
-        description={emptyText}
-      />
-    );
-  }
+  const [query, setQuery] = useState("");
+  const filtered = useMemo(
+    () => (rows || []).filter((r) => matchesAssetSearch(r, query)),
+    [rows, query]
+  );
 
-  return rows.map((row) => (
-    <article key={row.id} className="card-panel space-y-2">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate font-bold text-slate-900">{row.investorName}</p>
-          <p className="text-xs text-slate-500">{formatEntryDate(row)}</p>
-        </div>
-        <p className="money shrink-0 text-base font-bold text-brand-800">
-          <Money amount={row.amount} />
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <span className={cn("chip", typeChipClass(row.type))}>
-          {investmentTypeLabel(row.type)}
-        </span>
-        {(row.type === "equipment" || row.type === "goods") &&
-        row.equipmentName ? (
-          <span className="chip bg-slate-50 text-slate-700 ring-1 ring-slate-200">
-            {row.equipmentName}
-          </span>
-        ) : null}
-      </div>
-      {row.note ? <p className="text-xs text-slate-500">{row.note}</p> : null}
-      {row.createdByName || row.createdByUsername ? (
-        <p className="text-xs font-medium text-brand-800">
-          Nhập bởi: {formatActorLabel(row)}
-        </p>
-      ) : null}
-    </article>
-  ));
+  return (
+    <div className="space-y-3">
+      <label className="relative block">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+          aria-hidden
+        />
+        <input
+          className="field-input !h-12 pl-11"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Tìm tên thiết bị, nguồn, miễn phí / mua…"
+          inputMode="search"
+        />
+      </label>
+      {!filtered.length ? (
+        <EmptyState
+          icon={Package}
+          title="Chưa có tài sản"
+          description={
+            query.trim()
+              ? "Không khớp từ khóa — thử tên khác."
+              : emptyText
+          }
+        />
+      ) : (
+        filtered.map((row) => (
+          <article key={row.id} className="card-panel space-y-2">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate font-bold text-slate-900">
+                  {row.equipmentName || row.investorName || "—"}
+                </p>
+                <p className="text-xs text-slate-500">
+                  {formatEntryDate(row)}
+                  {row.investorName ? ` · ${row.investorName}` : ""}
+                </p>
+              </div>
+              <p className="money shrink-0 text-base font-bold text-brand-800">
+                {Number(row.amount) > 0 ? (
+                  <Money amount={row.amount} />
+                ) : (
+                  "0đ"
+                )}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <span className={cn("chip", typeChipClass(row.type))}>
+                {investmentTypeLabel(row.type)}
+              </span>
+              <span
+                className={cn(
+                  "chip",
+                  row.acquisition === ACQUISITION.free
+                    ? "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100"
+                    : "bg-slate-50 text-slate-700 ring-1 ring-slate-200"
+                )}
+              >
+                {acquisitionLabel(row.acquisition)}
+              </span>
+            </div>
+            {row.note ? (
+              <p className="text-xs text-slate-500">{row.note}</p>
+            ) : null}
+            {row.createdByName || row.createdByUsername ? (
+              <p className="text-xs font-medium text-brand-800">
+                Nhập bởi: {formatActorLabel(row)}
+              </p>
+            ) : null}
+          </article>
+        ))
+      )}
+    </div>
+  );
 }
 
 function CapitalHistoryList({
@@ -291,6 +338,7 @@ function CapitalHistoryList({
 }) {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
 
   const sorted = useMemo(
@@ -302,8 +350,11 @@ function CapitalHistoryList({
   );
 
   const filtered = useMemo(
-    () => sorted.filter((r) => capitalRowInDateRange(r, dateFrom, dateTo)),
-    [sorted, dateFrom, dateTo]
+    () =>
+      sorted
+        .filter((r) => capitalRowInDateRange(r, dateFrom, dateTo))
+        .filter((r) => matchesCapitalExpenseSearch(r, searchQuery)),
+    [sorted, dateFrom, dateTo, searchQuery]
   );
 
   const totalPages = Math.max(
@@ -319,7 +370,7 @@ function CapitalHistoryList({
 
   useEffect(() => {
     setPage(1);
-  }, [dateFrom, dateTo, rows]);
+  }, [dateFrom, dateTo, rows, searchQuery]);
 
   useEffect(() => {
     if (page > totalPages) setPage(totalPages);
@@ -352,6 +403,20 @@ function CapitalHistoryList({
             : ""}
         </p>
       </div>
+
+      <label className="relative block">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400"
+          aria-hidden
+        />
+        <input
+          className="field-input !h-12 pl-11"
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Tìm chi vốn: ghi chú, số tiền…"
+          inputMode="search"
+        />
+      </label>
 
       <DateRangeFilter
         dense
@@ -594,10 +659,13 @@ function CapitalContent() {
   const [assetMode, setAssetMode] = useState("select");
   const [assetSelect, setAssetSelect] = useState("");
   const [assetCustom, setAssetCustom] = useState("");
-  const [assetType, setAssetType] = useState("goods");
+  const [assetType, setAssetType] = useState("equipment");
   const [assetName, setAssetName] = useState("");
   const [assetAmount, setAssetAmount] = useState("");
   const [assetNote, setAssetNote] = useState("");
+  const [assetAcquisition, setAssetAcquisition] = useState(
+    ACQUISITION.purchased
+  );
   const [savingAsset, setSavingAsset] = useState(false);
 
   useEffect(() => {
@@ -1081,11 +1149,12 @@ function CapitalContent() {
 
     const investorName = resolveName(assetMode, assetSelect, assetCustom);
     if (!investorName) {
-      showToast("Nhập nguồn / người phụ trách", "error");
+      showToast("Nhập nguồn / người phụ trách (vd CĐT)", "error");
       return;
     }
-    if (!assetAmount || Number(assetAmount) <= 0) {
-      showToast("Nhập giá trị hợp lệ", "error");
+    const isFree = assetAcquisition === ACQUISITION.free;
+    if (!isFree && (!assetAmount || Number(assetAmount) <= 0)) {
+      showToast("Hàng mua cần nhập giá trị > 0", "error");
       return;
     }
     if (!assetName.trim()) {
@@ -1102,19 +1171,26 @@ function CapitalContent() {
       await createInvestment({
         investorName,
         type: assetType,
-        amount: assetAmount,
+        amount: isFree ? 0 : assetAmount,
         equipmentName: assetName,
         note: assetNote,
+        acquisition: assetAcquisition,
         ...actor,
       });
-      showToast("Đã lưu hàng hóa / thiết bị", "success");
+      showToast(
+        isFree
+          ? "Đã ghi thiết bị / hàng miễn phí từ CĐT"
+          : "Đã lưu hàng hóa / thiết bị mua",
+        "success"
+      );
       setAssetName("");
       setAssetAmount("");
       setAssetNote("");
+      setAssetAcquisition(ACQUISITION.purchased);
       setAssetWriteOpen(false);
     } catch (error) {
       console.error(error);
-      showToast("Lưu thất bại", "error");
+      showToast(error?.message || "Lưu thất bại", "error");
     } finally {
       setSavingAsset(false);
     }
@@ -1925,11 +2001,7 @@ function CapitalContent() {
         open={canManageShop && assetWriteOpen}
         onClose={() => setAssetWriteOpen(false)}
         title="Nhập hàng hóa / thiết bị"
-        subtitle={
-          !canViewInvestmentCapital
-            ? "Tài sản quán · vốn cổ đông chỉ Chủ ĐT xem"
-            : "Tách với sổ vốn cổ đông"
-        }
+        subtitle="Chọn mua hoặc miễn phí từ CĐT"
         labelledBy="capital-asset-sheet"
         footer={
           <div className="flex gap-2">
@@ -1964,17 +2036,17 @@ function CapitalContent() {
             customValue={assetCustom}
             setCustomValue={setAssetCustom}
             options={assetPersonOptions}
-            selectLabel="Nguồn / phụ trách"
-            customLabel="Nguồn / phụ trách"
-            customPlaceholder="VD: Nhà cung cấp A"
+            selectLabel="Nguồn / CĐT phụ trách"
+            customLabel="Nguồn / CĐT phụ trách"
+            customPlaceholder="VD: Anh Minh (CĐT)"
           />
 
           <div>
             <FieldLabel>Loại</FieldLabel>
             <ChipRow>
               {[
-                { id: "goods", label: "Hàng hóa", icon: Package },
                 { id: "equipment", label: "Thiết bị", icon: Box },
+                { id: "goods", label: "Hàng hóa", icon: Package },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -1993,6 +2065,33 @@ function CapitalContent() {
             </ChipRow>
           </div>
 
+          <div>
+            <FieldLabel>Hình thức</FieldLabel>
+            <ChipRow>
+              <FilterChip
+                active={assetAcquisition === ACQUISITION.purchased}
+                onClick={() => setAssetAcquisition(ACQUISITION.purchased)}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <ShoppingCart className="h-4 w-4" aria-hidden />
+                  Mua
+                </span>
+              </FilterChip>
+              <FilterChip
+                active={assetAcquisition === ACQUISITION.free}
+                onClick={() => {
+                  setAssetAcquisition(ACQUISITION.free);
+                  setAssetAmount("");
+                }}
+              >
+                <span className="inline-flex items-center gap-1.5">
+                  <Gift className="h-4 w-4" aria-hidden />
+                  Miễn phí / CĐT cho
+                </span>
+              </FilterChip>
+            </ChipRow>
+          </div>
+
           <label className="block">
             <FieldLabel>
               {assetType === "goods" ? "Tên hàng hóa" : "Tên thiết bị"}
@@ -2008,24 +2107,30 @@ function CapitalContent() {
             />
           </label>
 
-          <label className="block">
-            <FieldLabel>Giá trị (VNĐ)</FieldLabel>
-            <input
-              type="number"
-              inputMode="numeric"
-              min="1"
-              className="field-input money"
-              value={assetAmount}
-              onChange={(e) => setAssetAmount(e.target.value)}
-              placeholder="5000000"
-              required
-            />
-            {assetAmount ? (
-              <p className="mt-1.5 text-sm font-medium text-brand-700">
-                = <Money amount={assetAmount} />
-              </p>
-            ) : null}
-          </label>
+          {assetAcquisition === ACQUISITION.purchased ? (
+            <label className="block">
+              <FieldLabel>Giá mua (VNĐ)</FieldLabel>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="1"
+                className="field-input money"
+                value={assetAmount}
+                onChange={(e) => setAssetAmount(e.target.value)}
+                placeholder="5000000"
+                required
+              />
+              {assetAmount ? (
+                <p className="mt-1.5 text-sm font-medium text-brand-700">
+                  = <Money amount={assetAmount} />
+                </p>
+              ) : null}
+            </label>
+          ) : (
+            <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-900 ring-1 ring-emerald-100">
+              Miễn phí — giá trị sổ = 0đ. Vẫn lưu tên thiết bị để quản lý.
+            </p>
+          )}
 
           <label className="block">
             <FieldLabel optional>Ghi chú</FieldLabel>
@@ -2033,7 +2138,7 @@ function CapitalContent() {
               className="field-input"
               value={assetNote}
               onChange={(e) => setAssetNote(e.target.value)}
-              placeholder="Tuỳ chọn"
+              placeholder="VD: CĐT cho mượn / mua tại chợ"
             />
           </label>
         </form>
