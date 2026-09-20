@@ -9,17 +9,17 @@ import {
   Landmark,
   Wallet,
   Package,
-  Building2,
+  Warehouse,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-/** Quản lý: thu · đối soát · món · xây dựng · cài đặt */
+/** Quản lý: thu · đối soát · kho · món · cài đặt */
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
+  { href: "/manager/inventory", label: "Kho", icon: Warehouse },
   { href: "/manager/products", label: "Món", icon: Package },
-  { href: "/manager/construction", label: "Xây dựng", icon: Building2 },
   { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
@@ -31,7 +31,7 @@ const ownerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/manager/expenses", label: "Quỹ quán", icon: Wallet },
-  { href: "/manager/construction", label: "Xây dựng", icon: Building2 },
+  { href: "/manager/inventory", label: "Kho", icon: Warehouse },
   { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
 ];
 
@@ -59,9 +59,9 @@ export default function BottomNav() {
   return (
     <nav
       aria-label="Điều hướng chính"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200 bg-white/95 backdrop-blur-md safe-bottom"
+      className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 shadow-[0_-8px_24px_rgb(15_23_42_/_0.06)] backdrop-blur-xl safe-bottom"
     >
-      <ul className="mx-auto flex max-w-lg items-stretch justify-around gap-0.5 px-1 py-1.5 sm:gap-1 sm:px-2">
+      <ul className="mx-auto flex max-w-lg items-stretch justify-around gap-0.5 px-2 py-1.5">
         {links.map(({ href, label, icon: Icon }) => {
           const active =
             href === "/dashboard"
@@ -72,9 +72,9 @@ export default function BottomNav() {
                 ? pathname === href || pathname?.startsWith(`${href}/`)
                 : href === "/manager/expenses"
                   ? pathname === href || pathname?.startsWith(`${href}/`)
-                  : href === "/manager/products"
+                  : href === "/manager/inventory"
                     ? pathname === href || pathname?.startsWith(`${href}/`)
-                    : href === "/manager/construction"
+                    : href === "/manager/products"
                       ? pathname === href || pathname?.startsWith(`${href}/`)
                       : pathname === href || pathname?.startsWith(`${href}/`);
           return (
@@ -83,20 +83,25 @@ export default function BottomNav() {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative flex min-h-14 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-2xl px-0.5 py-2 text-[10px] font-semibold transition duration-200 active:scale-95 sm:gap-1 sm:px-1 sm:text-xs",
+                  "relative flex min-h-[3.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-xs font-bold transition duration-200 active:scale-95",
                   active
-                    ? "bg-brand-50 text-brand-800"
-                    : "text-slate-500 hover:bg-slate-50"
+                    ? "bg-brand-50 text-brand-800 ring-1 ring-brand-700/10"
+                    : "text-slate-500"
                 )}
               >
-                <Icon
+                <span
                   className={cn(
-                    "h-5 w-5 sm:h-6 sm:w-6",
-                    active ? "stroke-[2.5]" : "stroke-2"
+                    "flex h-8 w-8 items-center justify-center rounded-xl transition duration-200",
+                    active ? "bg-brand-700 text-white shadow-sm" : "text-slate-500"
                   )}
-                  aria-hidden
-                />
-                <span className="truncate">{label}</span>
+                >
+                  <Icon
+                    className="h-5 w-5"
+                    strokeWidth={active ? 2.5 : 2}
+                    aria-hidden
+                  />
+                </span>
+                <span className="truncate leading-none">{label}</span>
               </Link>
             </li>
           );

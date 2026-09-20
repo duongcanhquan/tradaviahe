@@ -14,13 +14,19 @@ import {
   RefreshCw,
   Shield,
   Trash2,
-  UserCog,
   UserPlus,
   Users,
-  X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import {
+  BottomSheet,
+  ChipRow,
+  EmptyState,
+  FieldLabel,
+  FilterChip,
+  SectionHeader,
+} from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { defaultPasswordForUsername } from "@/lib/authIdentity";
@@ -51,10 +57,10 @@ const emptyForm = {
 };
 
 function roleBadgeClass(role) {
-  if (role === "superadmin") return "bg-violet-100 text-violet-900 ring-1 ring-violet-200";
+  if (role === "superadmin") return "bg-brand-50 text-brand-900 ring-1 ring-brand-200";
   if (role === "manager") return "bg-brand-50 text-brand-800 ring-1 ring-brand-100";
-  if (role === "employee") return "bg-emerald-50 text-emerald-800 ring-1 ring-emerald-100";
-  if (role === "investor") return "bg-amber-50 text-amber-800 ring-1 ring-amber-100";
+  if (role === "employee") return "bg-slate-100 text-slate-800 ring-1 ring-slate-200";
+  if (role === "investor") return "bg-slate-50 text-slate-800 ring-1 ring-slate-200";
   return "bg-slate-100 text-slate-700";
 }
 
@@ -69,7 +75,7 @@ function PasswordReveal({ value }) {
       <button
         type="button"
         onClick={() => setShow((s) => !s)}
-        className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition active:scale-95"
+        className="touch-btn inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 p-0 text-slate-600"
         aria-label={show ? "Ẩn mật khẩu" : "Hiện mật khẩu"}
       >
         {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -365,39 +371,25 @@ function AdminUsersContent() {
 
   return (
     <AppShell title={pageTitle} subtitle={pageSubtitle}>
+      <div className="space-y-4">
       {isSuperAdmin ? (
-        <div className="card-panel mb-4 flex items-start gap-3 border-slate-200 bg-slate-50">
-          <Crown className="mt-0.5 h-5 w-5 shrink-0 text-slate-600" aria-hidden />
-          <div className="min-w-0 text-sm">
-            <p className="font-bold text-slate-900">Quản trị người dùng</p>
-            <p className="mt-1 text-slate-600">
-              {profile?.name || profile?.username} — xem mật khẩu, reset từng
-              người hoặc reset tất cả.
-            </p>
-          </div>
-        </div>
+        <p className="text-sm leading-snug text-slate-500">
+          {profile?.name || profile?.username} — xem / reset mật khẩu từng người hoặc tất cả.
+        </p>
       ) : actorRole === "investor" ? (
-        <div className="card-panel mb-4 border-amber-200 bg-amber-50 text-sm text-amber-900">
-          <p className="font-bold">Cổ đông — xem & cập nhật hệ thống</p>
-          <p className="mt-1 text-amber-800/80">
-            Xem sổ vốn / cổ tức / tiền nhận (TM hoặc CK), món giá, người dùng,
-            vận hành quán. Ghi vốn & chi tiêu vốn do tài khoản quản trị.
-          </p>
-        </div>
+        <p className="text-sm leading-snug text-slate-500">
+          Cổ đông — xem sổ vốn, cổ tức, món giá, người dùng và vận hành quán.
+        </p>
       ) : actorRole === "manager" ? (
-        <div className="card-panel mb-4 border-brand-100 bg-brand-50 text-sm text-brand-900">
-          <p className="font-bold">Quản lý — quán + món/giá + thu hàng hóa</p>
-          <p className="mt-1 text-brand-800/80">
-            Setup món/giá, POS, nhân viên, tồn kho. Chỉ xem tổng thu hàng hóa —
-            không cổ tức / chia lãi / vốn góp cổ đông.
-          </p>
-        </div>
+        <p className="text-sm leading-snug text-slate-500">
+          Quản lý — setup món/giá, POS, nhân viên, tồn kho · không xem cổ tức.
+        </p>
       ) : null}
 
       {canManageProducts ? (
         <Link
           href="/admin/products"
-          className="touch-btn mb-3 h-14 w-full gap-2 bg-amber-600 text-white"
+          className="touch-btn h-14 w-full gap-2 bg-brand-700 text-white"
         >
           <Package className="h-5 w-5" />
           Setup món & giá để bán
@@ -408,12 +400,12 @@ function AdminUsersContent() {
         type="button"
         disabled={syncingLogin || users.length === 0}
         onClick={handleSyncLoginIndex}
-        className="touch-btn mb-3 h-12 w-full gap-2 border border-sky-200 bg-sky-50 text-sky-900 disabled:opacity-40"
+        className="touch-btn h-12 w-full gap-2 border border-sky-200 bg-sky-50 text-sky-900 disabled:opacity-40"
       >
         <RefreshCw className={cn("h-5 w-5", syncingLogin && "animate-spin")} />
         {syncingLogin
           ? "Đang đồng bộ..."
-          : "Đồng bộ đăng nhập bằng tên (bỏ email)"}
+          : "Đồng bộ đăng nhập bằng tên"}
       </button>
 
       {canManageUsers ? (
@@ -421,47 +413,34 @@ function AdminUsersContent() {
           type="button"
           disabled={resettingAll || users.length === 0}
           onClick={handleResetAll}
-          className="touch-btn mb-4 h-12 w-full gap-2 border border-rose-200 bg-rose-50 text-rose-800 disabled:opacity-40"
+          className="touch-btn h-12 w-full gap-2 border border-rose-200 bg-rose-50 text-rose-800 disabled:opacity-40"
         >
           <RefreshCw className={cn("h-5 w-5", resettingAll && "animate-spin")} />
           {resettingAll ? "Đang reset tất cả..." : "Reset tất cả mật khẩu"}
         </button>
       ) : null}
 
-      <section className="mb-4 grid grid-cols-2 gap-2">
+      <ChipRow>
         {filterTabs.map((item) => (
-          <button
+          <FilterChip
             key={item.key}
-            type="button"
+            active={filter === item.key}
             onClick={() => setFilter(item.key)}
-            className={cn(
-              "card-panel flex min-h-14 cursor-pointer items-center justify-between gap-2 py-3 transition duration-200 active:scale-95",
-              filter === item.key &&
-                "border-brand-700 bg-brand-50 ring-2 ring-brand-700/20"
-            )}
           >
-            <span className="text-sm font-semibold">{item.label}</span>
-            <span className="rounded-full bg-white px-2.5 py-1 text-xs font-bold text-slate-700 ring-1 ring-slate-200">
-              {item.count}
-            </span>
-          </button>
+            {item.label} ({item.count})
+          </FilterChip>
         ))}
-      </section>
+      </ChipRow>
 
-      <section className="mb-4 space-y-2">
-        <p className="text-sm font-semibold text-slate-700">Thêm nhanh theo loại</p>
+      <section className="space-y-2">
+        <SectionHeader title="Thêm nhanh theo loại" />
         <div className="grid grid-cols-1 gap-2">
           {quickAdds.map((item) => (
             <button
               key={item.value}
               type="button"
               onClick={() => openCreate(item.value)}
-              className={cn(
-                "touch-btn h-14 w-full justify-start px-4",
-                item.tone === "emerald" && "bg-emerald-600 text-white",
-                item.tone === "amber" && "bg-amber-600 text-white",
-                item.tone === "brand" && "bg-brand-700 text-white"
-              )}
+              className="touch-btn h-14 w-full justify-start bg-brand-700 px-4 text-white"
             >
               {item.value === "employee" ? (
                 <UserPlus className="h-5 w-5" aria-hidden />
@@ -479,23 +458,33 @@ function AdminUsersContent() {
       <button
         type="button"
         onClick={() => openCreate("employee")}
-        className="touch-btn mb-4 h-12 w-full border border-slate-200 bg-white text-slate-800"
+        className="touch-btn h-12 w-full border border-slate-200 bg-white text-slate-800"
       >
         <Plus className="h-5 w-5" aria-hidden />
         Thêm người dùng khác
       </button>
 
       <section className="space-y-3">
-        <h2 className="section-title">Danh sách tài khoản</h2>
+        <SectionHeader title="Danh sách tài khoản" />
         {loading ? (
           Array.from({ length: 3 }).map((_, i) => (
             <div key={i} className="card-panel h-24 animate-pulse bg-slate-100" />
           ))
         ) : filtered.length === 0 ? (
-          <div className="card-panel flex flex-col items-center gap-2 py-10 text-slate-500">
-            <Users className="h-8 w-8" />
-            <p>Chưa có người dùng trong nhóm này</p>
-          </div>
+          <EmptyState
+            icon={Users}
+            title="Chưa có người dùng"
+            description="Chưa có tài khoản trong nhóm lọc này."
+            action={
+              <button
+                type="button"
+                onClick={() => openCreate("employee")}
+                className="touch-btn h-11 w-full bg-brand-700 text-sm font-bold text-white"
+              >
+                <Plus className="h-4 w-4" /> Thêm người dùng
+              </button>
+            }
+          />
         ) : (
           filtered.map((row) => {
             const id = row.uid || row.id;
@@ -525,7 +514,7 @@ function AdminUsersContent() {
                       </div>
                     ) : null}
                     {row.phone ? (
-                      <p className="text-xs text-slate-400">{row.phone}</p>
+                      <p className="text-sm text-slate-400">{row.phone}</p>
                     ) : null}
                   </div>
                   <span
@@ -540,7 +529,7 @@ function AdminUsersContent() {
                 </div>
 
                 {row.note ? (
-                  <p className="text-xs text-slate-500">{row.note}</p>
+                  <p className="text-sm text-slate-500">{row.note}</p>
                 ) : null}
 
                 <div
@@ -563,7 +552,7 @@ function AdminUsersContent() {
                       type="button"
                       disabled={resettingId === id}
                       onClick={() => handleResetOne(row)}
-                      className="touch-btn h-12 gap-1 bg-amber-600 text-white disabled:opacity-40"
+                      className="touch-btn h-12 gap-1 bg-brand-700 text-white disabled:opacity-40"
                     >
                       <RefreshCw className="h-4 w-4" />
                       {resettingId === id ? "..." : "Reset MK"}
@@ -586,181 +575,167 @@ function AdminUsersContent() {
           })
         )}
       </section>
+      </div>
 
-      {modalOpen ? (
-        <div className="fixed inset-0 z-[60] flex items-end bg-slate-950/50 p-4 sm:items-center sm:justify-center">
-          <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-[28px] bg-white p-5 shadow-2xl">
-            <div className="mb-4 flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <UserCog className="h-5 w-5 text-brand-700" />
-                <h2 className="text-lg font-bold">
-                  {editing ? "Sửa người dùng" : `Thêm ${roleLabel(form.role)}`}
-                </h2>
-              </div>
-              <button
-                type="button"
-                onClick={() => closeModal()}
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 transition active:scale-95"
-              >
-                <X className="h-5 w-5" />
-              </button>
+      <BottomSheet
+        open={modalOpen}
+        onClose={() => closeModal()}
+        title={editing ? "Sửa người dùng" : `Thêm ${roleLabel(form.role)}`}
+        labelledBy="admin-users-sheet"
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => closeModal()}
+              disabled={saving}
+              className="touch-btn h-12 flex-1 border border-slate-200 bg-white text-slate-700 disabled:opacity-40"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              form="admin-users-form"
+              disabled={saving}
+              className="touch-btn h-12 flex-[1.4] bg-brand-700 text-white disabled:opacity-50"
+            >
+              {saving
+                ? "Đang lưu..."
+                : editing
+                  ? "Lưu thay đổi"
+                  : "Tạo tài khoản"}
+            </button>
+          </div>
+        }
+      >
+        <form id="admin-users-form" onSubmit={handleSubmit} className="space-y-4">
+          <label className="block">
+            <FieldLabel>Họ tên</FieldLabel>
+            <input
+              required
+              className="field-input"
+              value={form.name}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, name: e.target.value }))
+              }
+              placeholder="Nguyễn Văn A"
+            />
+          </label>
+
+          {editing?.role === "superadmin" ? (
+            <div className="rounded-2xl bg-brand-50 px-4 py-3 text-sm text-brand-900 ring-1 ring-brand-100">
+              Vai trò: <strong>Super Admin</strong> (không đổi được)
             </div>
+          ) : (
+            <div>
+              <FieldLabel>Vai trò / quyền</FieldLabel>
+              <div className="space-y-2">
+                {roleOptions.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() =>
+                      setForm((f) => ({ ...f, role: opt.value }))
+                    }
+                    className={cn(
+                      "w-full rounded-2xl border px-4 py-3 text-left transition active:scale-[0.99]",
+                      form.role === opt.value
+                        ? "border-brand-700 bg-brand-50 ring-2 ring-brand-700/20"
+                        : "border-slate-200 bg-white"
+                    )}
+                  >
+                    <p className="font-bold text-slate-900">{opt.label}</p>
+                    <p className="mt-0.5 text-sm text-slate-500">
+                      {opt.description}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
-            <form onSubmit={handleSubmit} className="space-y-3">
+          {!editing ? (
+            <>
               <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Họ tên
-                </span>
+                <FieldLabel>Tên đăng nhập</FieldLabel>
                 <input
+                  type="text"
                   required
+                  autoComplete="off"
                   className="field-input"
-                  value={form.name}
+                  value={form.username}
                   onChange={(e) =>
-                    setForm((f) => ({ ...f, name: e.target.value }))
+                    setForm((f) => ({ ...f, username: e.target.value }))
                   }
-                  placeholder="Nguyễn Văn A"
+                  placeholder="vd: nhanvien1"
                 />
               </label>
-
-              {editing?.role === "superadmin" ? (
-                <div className="rounded-2xl bg-violet-50 px-4 py-3 text-sm text-violet-900">
-                  Vai trò: <strong>Super Admin</strong> (không đổi được)
-                </div>
-              ) : (
-                <div>
-                  <span className="mb-2 block text-sm font-semibold text-slate-700">
-                    Vai trò / quyền
-                  </span>
-                  <div className="space-y-2">
-                    {roleOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() =>
-                          setForm((f) => ({ ...f, role: opt.value }))
-                        }
-                        className={cn(
-                          "w-full rounded-2xl border px-4 py-3 text-left transition active:scale-[0.99]",
-                          form.role === opt.value
-                            ? "border-brand-700 bg-brand-50 ring-2 ring-brand-700/20"
-                            : "border-slate-200 bg-white"
-                        )}
-                      >
-                        <p className="font-bold text-slate-900">{opt.label}</p>
-                        <p className="mt-0.5 text-xs text-slate-500">
-                          {opt.description}
-                        </p>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {!editing ? (
+              <label className="block">
+                <FieldLabel>Mật khẩu</FieldLabel>
+                <input
+                  type="text"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  className="field-input"
+                  value={form.password}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, password: e.target.value }))
+                  }
+                  placeholder="Tối thiểu 6 ký tự"
+                />
+              </label>
+            </>
+          ) : (
+            <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              <p>
+                Tên đăng nhập:{" "}
+                <strong className="text-slate-900">@{form.username}</strong>
+              </p>
+              {canManageUsers ? (
                 <>
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Tên đăng nhập
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      autoComplete="off"
-                      className="field-input"
-                      value={form.username}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, username: e.target.value }))
-                      }
-                      placeholder="vd: nhanvien1"
-                    />
-                  </label>
-                  <label className="block">
-                    <span className="mb-2 block text-sm font-semibold text-slate-700">
-                      Mật khẩu
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      minLength={6}
-                      autoComplete="new-password"
-                      className="field-input"
-                      value={form.password}
-                      onChange={(e) =>
-                        setForm((f) => ({ ...f, password: e.target.value }))
-                      }
-                      placeholder="Tối thiểu 6 ký tự"
-                    />
-                  </label>
+                  <p className="mt-1">
+                    Mật khẩu:{" "}
+                    <strong className="font-mono text-slate-900">
+                      {form.password || "—"}
+                    </strong>
+                  </p>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Dùng nút Reset MK trên danh sách để đặt lại mật khẩu.
+                  </p>
                 </>
               ) : (
-                <div className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
-                  <p>
-                    Tên đăng nhập:{" "}
-                    <strong className="text-slate-900">@{form.username}</strong>
-                  </p>
-                  {canManageUsers ? (
-                    <>
-                      <p className="mt-1">
-                        Mật khẩu:{" "}
-                        <strong className="font-mono text-slate-900">
-                          {form.password || "—"}
-                        </strong>
-                      </p>
-                      <p className="mt-2 text-xs text-slate-500">
-                        Dùng nút Reset MK trên danh sách để đặt lại mật khẩu.
-                      </p>
-                    </>
-                  ) : (
-                    <p className="mt-2 text-xs text-slate-500">
-                      Chỉ Super Admin xem/reset được mật khẩu.
-                    </p>
-                  )}
-                </div>
+                <p className="mt-2 text-sm text-slate-500">
+                  Chỉ Super Admin xem/reset được mật khẩu.
+                </p>
               )}
+            </div>
+          )}
 
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Số điện thoại
-                </span>
-                <input
-                  className="field-input"
-                  value={form.phone}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, phone: e.target.value }))
-                  }
-                  placeholder="09..."
-                />
-              </label>
+          <label className="block">
+            <FieldLabel optional>Số điện thoại</FieldLabel>
+            <input
+              className="field-input"
+              value={form.phone}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, phone: e.target.value }))
+              }
+              placeholder="09..."
+            />
+          </label>
 
-              <label className="block">
-                <span className="mb-2 block text-sm font-semibold text-slate-700">
-                  Ghi chú
-                </span>
-                <input
-                  className="field-input"
-                  value={form.note}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, note: e.target.value }))
-                  }
-                  placeholder="VD: ca tối, cổ đông 25%..."
-                />
-              </label>
-
-              <button
-                type="submit"
-                disabled={saving}
-                className="touch-btn h-14 w-full bg-brand-700 text-white"
-              >
-                {saving
-                  ? "Đang lưu..."
-                  : editing
-                    ? "Lưu thay đổi"
-                    : "Tạo tài khoản"}
-              </button>
-            </form>
-          </div>
-        </div>
-      ) : null}
+          <label className="block">
+            <FieldLabel optional>Ghi chú</FieldLabel>
+            <input
+              className="field-input"
+              value={form.note}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, note: e.target.value }))
+              }
+              placeholder="VD: ca tối, cổ đông 25%..."
+            />
+          </label>
+        </form>
+      </BottomSheet>
     </AppShell>
   );
 }

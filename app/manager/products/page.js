@@ -16,6 +16,14 @@ import { Money } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
+  BottomSheet,
+  ChipRow,
+  EmptyState,
+  FieldLabel,
+  FilterChip,
+  SectionHeader,
+} from "@/components/ui/MobileUI";
+import {
   createProductGroup,
   deleteProductGroup,
   ensureDefaultProductGroups,
@@ -341,7 +349,7 @@ function ProductsContent() {
       },
       byId
     );
-  }, [form.costMode, form.recipe, form.price, byId]);
+  }, [form.kind, form.costMode, form.recipe, form.price, byId]);
 
   const addRecipeLine = ({ virtual = false } = {}) => {
     if (virtual) {
@@ -655,14 +663,15 @@ function ProductsContent() {
         _productsById: byId,
       };
 
-      // Sửa món: không ghi đè tồn — Super Admin được sửa tồn nguyên liệu
+      // Sửa món: không ghi đè tồn — Super Admin được sửa tồn hàng nhập;
+      // món CT luôn inStock = 0
       if (editingId) {
-        if (
-          isSuperAdmin &&
-          (form.kind === PRODUCT_KIND.INGREDIENT ||
-            form.costMode !== COST_MODE.RECIPE)
-        ) {
-          payload.inStock = Number(form.inStock) || 0;
+        if (boughtFinished || form.kind === PRODUCT_KIND.INGREDIENT) {
+          if (isSuperAdmin) {
+            payload.inStock = Number(form.inStock) || 0;
+          }
+        } else {
+          payload.inStock = 0;
         }
         await updateProduct(editingId, payload);
       } else {
@@ -799,12 +808,10 @@ function ProductsContent() {
             setTab("ingredient");
             openCreate(PRODUCT_KIND.INGREDIENT);
           }}
-          className="touch-btn h-14 flex-col gap-0.5 bg-slate-800 px-2 text-white"
+          className="touch-btn h-14 gap-2 bg-slate-800 px-3 text-white"
         >
-          <span className="text-sm font-extrabold">Thêm nguyên liệu</span>
-          <span className="text-[10px] font-medium text-white/80">
-            Đường, thùng mì × 30 gói…
-          </span>
+          <Plus className="h-5 w-5" aria-hidden />
+          <span className="text-sm font-bold">Thêm nguyên liệu</span>
         </button>
         <button
           type="button"
@@ -812,57 +819,33 @@ function ProductsContent() {
             setTab("finished");
             openCreate(PRODUCT_KIND.FINISHED);
           }}
-          className="touch-btn h-14 flex-col gap-0.5 bg-amber-600 px-2 text-white"
+          className="touch-btn h-14 gap-2 bg-brand-700 px-3 text-white"
         >
-          <span className="text-sm font-extrabold">Thêm món bán</span>
-          <span className="text-[10px] font-medium text-white/80">
-            Giá bán · tách gói bán lẻ
-          </span>
+          <Plus className="h-5 w-5" aria-hidden />
+          <span className="text-sm font-bold">Thêm món bán</span>
         </button>
       </div>
-      <p className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
-        <span className="font-extrabold">Cách làm:</span> kho chọn hàng → thùng
-        / gói. Thùng: nhập số lẻ + giá thùng, hệ thống chia ra từng gói/chai
-        (ĐV nhỏ nhất — bán lẻ hoặc gắn CT món khác). Đá/nước: ước tay.
-      </p>
-      <div className="mb-4 grid grid-cols-3 gap-2">
-        <button
-          type="button"
+
+      <ChipRow className="mb-4">
+        <FilterChip
+          active={tab === "finished"}
           onClick={() => setTab("finished")}
-          className={cn(
-            "touch-btn h-12 px-1 text-xs sm:text-sm",
-            tab === "finished"
-              ? "bg-brand-700 text-white"
-              : "bg-white text-slate-700 ring-1 ring-slate-200"
-          )}
         >
           Thành phẩm ({finished.length})
-        </button>
-        <button
-          type="button"
+        </FilterChip>
+        <FilterChip
+          active={tab === "ingredient"}
           onClick={() => setTab("ingredient")}
-          className={cn(
-            "touch-btn h-12 px-1 text-xs sm:text-sm",
-            tab === "ingredient"
-              ? "bg-brand-700 text-white"
-              : "bg-white text-slate-700 ring-1 ring-slate-200"
-          )}
         >
           Nguyên liệu ({ingredients.length})
-        </button>
-        <button
-          type="button"
+        </FilterChip>
+        <FilterChip
+          active={tab === "groups"}
           onClick={() => setTab("groups")}
-          className={cn(
-            "touch-btn h-12 px-1 text-xs sm:text-sm",
-            tab === "groups"
-              ? "bg-brand-700 text-white"
-              : "bg-white text-slate-700 ring-1 ring-slate-200"
-          )}
         >
           Nhóm SP ({groups.length})
-        </button>
-      </div>
+        </FilterChip>
+      </ChipRow>
 
       {tab !== "groups" ? (
         <div className="mb-4 flex gap-2">
@@ -875,7 +858,7 @@ function ProductsContent() {
                   : PRODUCT_KIND.FINISHED
               )
             }
-            className="touch-btn h-12 flex-1 gap-2 bg-emerald-600 text-white"
+            className="touch-btn h-14 flex-1 gap-2 bg-brand-700 text-white"
           >
             <Plus className="h-5 w-5" />
             {tab === "ingredient" ? "Thêm nguyên liệu" : "Thêm món bán"}
@@ -884,67 +867,57 @@ function ProductsContent() {
       ) : null}
 
       {tab === "finished" ? (
-        <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
-          <button
-            type="button"
+        <ChipRow className="mb-3">
+          <FilterChip
+            active={groupFilter === "all"}
             onClick={() => setGroupFilter("all")}
-            className={cn(
-              "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
-              groupFilter === "all"
-                ? "bg-brand-700 text-white"
-                : "bg-white text-slate-600 ring-1 ring-slate-200"
-            )}
           >
             Tất cả
-          </button>
+          </FilterChip>
           {groups.map((g) => (
-            <button
+            <FilterChip
               key={g.id}
-              type="button"
+              active={groupFilter === g.id}
               onClick={() => setGroupFilter(g.id)}
-              className={cn(
-                "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
-                groupFilter === g.id
-                  ? "bg-brand-700 text-white"
-                  : "bg-white text-slate-600 ring-1 ring-slate-200"
-              )}
             >
               {g.name}
-            </button>
+            </FilterChip>
           ))}
-          <button
-            type="button"
+          <FilterChip
+            active={groupFilter === "none"}
             onClick={() => setGroupFilter("none")}
-            className={cn(
-              "shrink-0 rounded-full px-3 py-1.5 text-xs font-bold",
-              groupFilter === "none"
-                ? "bg-brand-700 text-white"
-                : "bg-white text-slate-600 ring-1 ring-slate-200"
-            )}
           >
             Chưa nhóm
-          </button>
-        </div>
+          </FilterChip>
+        </ChipRow>
       ) : null}
 
       {products.length === 0 && !loading ? (
-        <button
-          type="button"
-          disabled={seeding}
-          onClick={handleSeed}
-          className="touch-btn mb-4 h-14 w-full gap-2 border border-brand-200 bg-brand-50 text-brand-900"
-        >
-          <Package className="h-5 w-5" />
-          {seeding ? "Đang tạo..." : "Tạo danh mục mẫu (Trà đá + NL)"}
-        </button>
+        <EmptyState
+          className="mb-4"
+          icon={Package}
+          title="Chưa có danh mục"
+          description="Tạo nhanh trà đá + nguyên liệu mẫu."
+          action={
+            <button
+              type="button"
+              disabled={seeding}
+              onClick={handleSeed}
+              className="touch-btn h-12 w-full gap-2 bg-brand-700 text-white"
+            >
+              <Package className="h-5 w-5" />
+              {seeding ? "Đang tạo..." : "Tạo danh mục mẫu"}
+            </button>
+          }
+        />
       ) : null}
 
       {tab === "groups" ? (
         <section className="mb-6 space-y-3">
-          <p className="text-xs leading-relaxed text-slate-500">
-            POS chia theo nhóm (mặc định: Nước uống, Đồ ăn, Đồ dùng, Dịch vụ).
-            Thêm/sửa được; <strong>xóa chỉ Admin</strong> (Cổ đông / Super Admin).
-          </p>
+          <SectionHeader
+            title="Nhóm sản phẩm"
+            hint="POS chia theo nhóm · xóa chỉ Admin"
+          />
 
           <form onSubmit={handleSaveGroup} className="flex gap-2">
             <input
@@ -957,7 +930,7 @@ function ProductsContent() {
             <button
               type="submit"
               disabled={savingGroup}
-              className="touch-btn h-12 shrink-0 bg-emerald-600 px-4 text-white"
+              className="touch-btn h-14 shrink-0 bg-brand-700 px-4 text-white"
             >
               {editingGroup ? "Lưu" : "Thêm"}
             </button>
@@ -968,65 +941,69 @@ function ProductsContent() {
                   setEditingGroup(null);
                   setGroupName("");
                 }}
-                className="touch-btn h-12 shrink-0 bg-slate-100 px-3 text-slate-700"
+                className="touch-btn h-14 shrink-0 bg-slate-100 px-3 text-slate-700"
               >
                 Hủy
               </button>
             ) : null}
           </form>
 
-          {groups.map((g) => (
-            <div
-              key={g.id}
-              className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"
-            >
-              <div className="min-w-0">
-                <p className="truncate font-extrabold text-slate-900">{g.name}</p>
-                <p className="text-xs text-slate-400">
-                  {finished.filter((p) => p.groupId === g.id).length} món · thứ tự{" "}
-                  {g.sortOrder ?? 0}
-                </p>
-              </div>
-              <div className="flex shrink-0 gap-1">
-                <button
-                  type="button"
-                  aria-label="Sửa nhóm"
-                  onClick={() => {
-                    setEditingGroup(g);
-                    setGroupName(g.name);
-                  }}
-                  className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
-                >
-                  <Pencil className="h-4 w-4" />
-                </button>
-                {canDeleteProductGroups ? (
+          {groups.length === 0 ? (
+            <EmptyState
+              icon={Package}
+              title="Chưa có nhóm"
+              description="Thêm nhóm để chia POS."
+            />
+          ) : (
+            groups.map((g) => (
+              <div
+                key={g.id}
+                className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-base font-bold text-slate-900">
+                    {g.name}
+                  </p>
+                  <p className="text-sm text-slate-400">
+                    {finished.filter((p) => p.groupId === g.id).length} món · thứ
+                    tự {g.sortOrder ?? 0}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-1">
                   <button
                     type="button"
-                    aria-label="Xóa nhóm"
-                    onClick={() => handleDeleteGroup(g)}
-                    className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
+                    aria-label="Sửa nhóm"
+                    onClick={() => {
+                      setEditingGroup(g);
+                      setGroupName(g.name);
+                    }}
+                    className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Pencil className="h-4 w-4" />
                   </button>
-                ) : null}
+                  {canDeleteProductGroups ? (
+                    <button
+                      type="button"
+                      aria-label="Xóa nhóm"
+                      onClick={() => handleDeleteGroup(g)}
+                      className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
-            </div>
-          ))}
-
-          {!canDeleteProductGroups ? (
-            <p className="text-xs text-slate-400">
-              Quản lý được thêm/sửa nhóm. Xóa nhóm cần quyền Admin.
-            </p>
-          ) : null}
+            ))
+          )}
         </section>
       ) : null}
 
       {tab !== "groups" ? (
-      <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        {tab === "ingredient"
-          ? "Nhập giá mua / đơn vị (vd: trà khô 2đ/g). Thành phẩm dùng công thức sẽ tự cộng cost."
-          : "Chọn nhóm SP. ↑↓ sắp thứ tự POS — món gọi nhiều để trên."}
-      </p>
+        <p className="mb-3 text-sm text-slate-500">
+          {tab === "ingredient"
+            ? "Giá mua / đơn vị · CT tự cộng cost."
+            : "↑↓ sắp thứ tự POS · món gọi nhiều để trên."}
+        </p>
       ) : null}
 
       {tab !== "groups" ? (
@@ -1068,16 +1045,18 @@ function ProductsContent() {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="truncate text-lg font-extrabold text-slate-900">
+                      <p className="truncate text-lg font-bold text-slate-900">
                         {row.name}
                       </p>
-                      <p className="text-xs font-medium text-slate-400">
+                      <p className="text-sm font-medium text-slate-400">
                         {row.kind !== PRODUCT_KIND.INGREDIENT
                           ? `${groupLabel} · `
                           : ""}
-                        {packaging
-                          ? `Tồn: ${stockSummary || `${stockBase} ${packaging.baseUnit}`}`
-                          : `Đơn vị: ${row.unit || "—"} · Tồn: ${row.inStock ?? 0}`}
+                        {productUsesRecipe(row)
+                          ? "Không tồn món · trừ NL/TP trong CT"
+                          : packaging
+                            ? `Tồn: ${stockSummary || `${stockBase} ${packaging.baseUnit}`}`
+                            : `Đơn vị: ${row.unit || "—"} · Tồn: ${row.inStock ?? 0}`}
                         {row.kind !== PRODUCT_KIND.INGREDIENT &&
                         productUsesRecipe(row)
                           ? " · Cost theo CT"
@@ -1091,7 +1070,7 @@ function ProductsContent() {
                             type="button"
                             aria-label="Đưa lên"
                             onClick={() => handleMoveProduct(row, "up")}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                            className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100"
                           >
                             <ArrowUp className="h-4 w-4" />
                           </button>
@@ -1099,7 +1078,7 @@ function ProductsContent() {
                             type="button"
                             aria-label="Đưa xuống"
                             onClick={() => handleMoveProduct(row, "down")}
-                            className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-100"
+                            className="flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100"
                           >
                             <ArrowDown className="h-4 w-4" />
                           </button>
@@ -1109,7 +1088,7 @@ function ProductsContent() {
                         type="button"
                         aria-label="Sửa món"
                         onClick={() => openEdit(row)}
-                        className="flex h-11 items-center gap-1 rounded-xl bg-slate-100 px-3 text-xs font-extrabold text-slate-800"
+                        className="flex h-12 items-center gap-1 rounded-xl bg-slate-100 px-3 text-sm font-bold text-slate-800"
                       >
                         <Pencil className="h-4 w-4" />
                         Sửa
@@ -1119,7 +1098,7 @@ function ProductsContent() {
                         type="button"
                         aria-label="Xóa"
                         onClick={() => handleDelete(row)}
-                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
+                        className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
@@ -1128,8 +1107,8 @@ function ProductsContent() {
                   </div>
 
                   {row.kind === PRODUCT_KIND.INGREDIENT ? (
-                    <p className="money mt-2 text-base font-bold text-amber-800">
-                      Giá nhập: <Money amount={cost} />
+                    <p className="money mt-2 text-lg font-bold text-brand-800">
+                      <Money amount={cost} />
                       <span className="text-sm font-semibold text-slate-400">
                         {" "}
                         / {row.unit}
@@ -1138,28 +1117,28 @@ function ProductsContent() {
                   ) : (
                     <div className="mt-2 grid grid-cols-3 gap-2 text-sm">
                       <div>
-                        <p className="text-[11px] font-semibold text-slate-400">
+                        <p className="text-sm font-semibold text-slate-400">
                           Giá bán
                         </p>
-                        <p className="money font-extrabold text-brand-800">
+                        <p className="money text-base font-bold text-brand-800">
                           <Money amount={row.price} />
                         </p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold text-slate-400">
+                        <p className="text-sm font-semibold text-slate-400">
                           Cost
                         </p>
-                        <p className="money font-extrabold text-amber-800">
+                        <p className="money text-base font-bold text-slate-800">
                           <Money amount={cost} />
                         </p>
                       </div>
                       <div>
-                        <p className="text-[11px] font-semibold text-slate-400">
+                        <p className="text-sm font-semibold text-slate-400">
                           Lãi/đv
                         </p>
                         <p
                           className={cn(
-                            "money font-extrabold",
+                            "money text-base font-bold",
                             margin >= 0 ? "text-emerald-700" : "text-rose-600"
                           )}
                         >
@@ -1174,9 +1153,9 @@ function ProductsContent() {
                     <button
                       type="button"
                       onClick={() => openEdit(row, { addRecipe: true })}
-                      className="mt-2 w-full rounded-xl bg-amber-50 px-3 py-2.5 text-left text-xs font-bold text-amber-950 ring-1 ring-amber-200"
+                      className="mt-2 w-full rounded-xl bg-white px-3 py-3 text-left text-sm font-bold text-brand-800 ring-1 ring-brand-100"
                     >
-                      Chưa có công thức — bấm để thêm CT (NL / thành phẩm)
+                      Chưa có CT — bấm để thêm
                     </button>
                   ) : null}
 
@@ -1191,7 +1170,7 @@ function ProductsContent() {
                             <li key={`${row.id}-v-${lineIdx}-${line.name}`}>
                               {line.name || "Ước tay"} × {line.qty} ·{" "}
                               {formatCurrency(line.unitCost || 0)}
-                              <span className="ml-1 font-semibold text-amber-700">
+                              <span className="ml-1 font-semibold text-slate-600">
                                 (không trừ kho)
                               </span>
                             </li>
@@ -1223,48 +1202,58 @@ function ProductsContent() {
             })}
 
         {!loading && list.length === 0 ? (
-          <p className="py-8 text-center text-sm text-slate-500">
-            Chưa có mục nào trong tab này.
-          </p>
+          <EmptyState
+            icon={Package}
+            title="Chưa có mục nào"
+            description="Thêm món hoặc đổi bộ lọc nhóm."
+            action={
+              <button
+                type="button"
+                onClick={() =>
+                  openCreate(
+                    tab === "ingredient"
+                      ? PRODUCT_KIND.INGREDIENT
+                      : PRODUCT_KIND.FINISHED
+                  )
+                }
+                className="touch-btn h-12 w-full gap-2 bg-brand-700 text-white"
+              >
+                <Plus className="h-5 w-5" />
+                {tab === "ingredient" ? "Thêm nguyên liệu" : "Thêm món bán"}
+              </button>
+            }
+          />
         ) : null}
       </div>
       ) : null}
 
-      {open ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end bg-slate-950/50 sm:items-center sm:justify-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <form
-            onSubmit={handleSave}
-            className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]"
+      <BottomSheet
+        open={open}
+        onClose={() => setOpen(false)}
+        title={`${editingId ? "Sửa" : "Thêm"} ${
+          form.kind === PRODUCT_KIND.INGREDIENT ? "nguyên liệu" : "món bán"
+        }`}
+        labelledBy="products-form-sheet"
+        footer={
+          <button
+            type="submit"
+            form="products-form"
+            disabled={saving}
+            className="touch-btn h-14 w-full bg-brand-700 text-white disabled:opacity-50"
           >
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-extrabold">
-                {editingId ? "Sửa" : "Thêm"}{" "}
-                {form.kind === PRODUCT_KIND.INGREDIENT
-                  ? "nguyên liệu"
-                  : "món bán"}
-              </h2>
-              <button
-                type="button"
-                aria-label="Đóng"
-                onClick={() => setOpen(false)}
-                className="flex h-12 w-12 items-center justify-center rounded-full bg-slate-100"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="mb-3 grid grid-cols-2 gap-2">
+            {saving ? "Đang lưu..." : "Lưu"}
+          </button>
+        }
+      >
+          <form id="products-form" onSubmit={handleSave} className="space-y-3">
+            <ChipRow>
               {[
                 { id: PRODUCT_KIND.INGREDIENT, label: "Nguyên liệu kho" },
                 { id: PRODUCT_KIND.FINISHED, label: "Món bán POS" },
               ].map((k) => (
-                <button
+                <FilterChip
                   key={k.id}
-                  type="button"
+                  active={form.kind === k.id}
                   onClick={() =>
                     setForm((f) => {
                       if (f.kind === k.id) return f;
@@ -1294,27 +1283,20 @@ function ProductsContent() {
                       };
                     })
                   }
-                  className={cn(
-                    "touch-btn h-11 px-2 text-xs font-bold sm:text-sm",
-                    form.kind === k.id
-                      ? "bg-slate-900 text-white"
-                      : "bg-slate-100 text-slate-700"
-                  )}
                 >
                   {k.label}
-                </button>
+                </FilterChip>
               ))}
-            </div>
+            </ChipRow>
             {editingId &&
             byId[editingId]?.kind !== form.kind ? (
-              <p className="mb-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950 ring-1 ring-amber-100">
-                Đang đổi loại hàng. Lưu để áp dụng — món bán mất khỏi POS nếu
-                thành nguyên liệu; nguyên liệu lên POS nếu thành món bán.
+              <p className="alert-soft">
+                Đang đổi loại hàng — lưu để áp dụng.
               </p>
             ) : null}
 
-            <label className="mb-3 block">
-              <span className="mb-1 block text-sm font-semibold">Tên</span>
+            <label className="block">
+              <FieldLabel>Tên</FieldLabel>
               <input
                 required
                 className="field-input"
@@ -1330,11 +1312,11 @@ function ProductsContent() {
               />
             </label>
 
-            <div className="mb-3 grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="mb-1 block text-sm font-semibold">
+                <FieldLabel>
                   {form.packaging?.enabled ? "Đơn vị gốc" : "Đơn vị"}
-                </span>
+                </FieldLabel>
                 {form.packaging?.enabled ? (
                   <>
                     <input
@@ -1344,7 +1326,7 @@ function ProductsContent() {
                       onChange={(e) =>
                         updateBaseUnitField("unit", e.target.value)
                       }
-                      placeholder="vd: quả (trứng, chanh)"
+                      placeholder="vd: quả"
                     />
                     <datalist id="product-units-list">
                       {PRODUCT_UNITS.map((u) => (
@@ -1369,50 +1351,62 @@ function ProductsContent() {
                 )}
               </label>
               <label className="block">
-                <span className="mb-1 block text-sm font-semibold">
-                  {editingId ? "Tồn kho (xem)" : "Tồn kho"}
-                </span>
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  className="field-input"
-                  value={editingId ? form.inStock : "0"}
-                  disabled={
-                    !editingId ||
-                    (Boolean(editingId) &&
-                      !(
-                        isSuperAdmin &&
+                <FieldLabel>
+                  {form.kind === PRODUCT_KIND.FINISHED &&
+                  form.costMode === COST_MODE.RECIPE
+                    ? "Tồn kho"
+                    : editingId
+                      ? "Tồn kho (xem)"
+                      : "Tồn kho"}
+                </FieldLabel>
+                {form.kind === PRODUCT_KIND.FINISHED &&
+                form.costMode === COST_MODE.RECIPE ? (
+                  <p className="hint-line rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-200">
+                    Món CT không giữ tồn — bán trừ NL/TP trong CT.
+                  </p>
+                ) : (
+                  <>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      className="field-input"
+                      value={editingId ? form.inStock : "0"}
+                      disabled={
+                        !editingId ||
+                        (Boolean(editingId) &&
+                          !(
+                            isSuperAdmin &&
+                            (form.kind === PRODUCT_KIND.INGREDIENT ||
+                              form.costMode !== COST_MODE.RECIPE)
+                          ))
+                      }
+                      onChange={(e) =>
+                        setForm((f) => ({ ...f, inStock: e.target.value }))
+                      }
+                    />
+                    {editingId ? (
+                      <span className="mt-1 block text-sm text-slate-500">
+                        {isSuperAdmin &&
                         (form.kind === PRODUCT_KIND.INGREDIENT ||
                           form.costMode !== COST_MODE.RECIPE)
-                      ))
-                  }
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, inStock: e.target.value }))
-                  }
-                />
-                {editingId ? (
-                  <span className="mt-1 block text-[11px] text-slate-500">
-                    {isSuperAdmin &&
-                    (form.kind === PRODUCT_KIND.INGREDIENT ||
-                      form.costMode !== COST_MODE.RECIPE)
-                      ? "Super Admin được sửa tồn hàng nhập."
-                      : "Đổi tồn tại Nhập hàng / POS — không ghi đè khi lưu món."}
-                  </span>
-                ) : (
-                  <span className="mt-1 block text-[11px] text-slate-500">
-                    Tạo món tồn = 0. Nhập hàng tại kho để cộng tồn và trừ quỹ.
-                  </span>
+                          ? "Super Admin được sửa tồn."
+                          : "Đổi tồn tại Nhập hàng / POS."}
+                      </span>
+                    ) : (
+                      <span className="mt-1 block text-sm text-slate-500">
+                        Tạo món tồn = 0 · nhập tại kho.
+                      </span>
+                    )}
+                  </>
                 )}
               </label>
             </div>
 
             {form.kind === PRODUCT_KIND.FINISHED ? (
               <>
-                <label className="mb-3 block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Nhóm sản phẩm (POS)
-                  </span>
+                <label className="block">
+                  <FieldLabel>Nhóm sản phẩm (POS)</FieldLabel>
                   <select
                     className="field-input"
                     value={form.groupId || ""}
@@ -1428,7 +1422,7 @@ function ProductsContent() {
                     ))}
                   </select>
                 </label>
-                <label className="mb-3 flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+                <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
                   <input
                     type="checkbox"
                     checked={form.active}
@@ -1445,7 +1439,7 @@ function ProductsContent() {
             ) : null}
 
             {form.kind === PRODUCT_KIND.FINISHED ? (
-              <label className="mb-3 flex items-center gap-3 rounded-2xl bg-emerald-50 px-3 py-3 ring-1 ring-emerald-100">
+              <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 ring-1 ring-slate-100">
                 <input
                   type="checkbox"
                   checked={form.costMode !== COST_MODE.RECIPE}
@@ -1466,11 +1460,10 @@ function ProductsContent() {
                         : ensureRecipeDraftLines(f.recipe),
                     }));
                   }}
-                  className="h-5 w-5 accent-emerald-700"
+                  className="h-5 w-5 accent-brand-700"
                 />
                 <span className="text-sm font-semibold text-slate-800">
-                  Hàng nhập bán nguyên (AVIA, thùng × chai). Bỏ tick để thêm /
-                  sửa công thức món nấu.
+                  Hàng nhập bán nguyên (AVIA…). Bỏ tick để dùng công thức.
                 </span>
               </label>
             ) : null}
@@ -1487,47 +1480,38 @@ function ProductsContent() {
                     recipe: ensureRecipeDraftLines(f.recipe),
                   }))
                 }
-                className="mb-3 w-full rounded-2xl bg-amber-50 px-3 py-3 text-left text-sm font-bold text-amber-950 ring-1 ring-amber-200"
+                className="w-full rounded-2xl bg-white px-3 py-3 text-left text-sm font-bold text-brand-800 ring-1 ring-brand-100"
               >
-                Thêm / sửa công thức — chọn NL hoặc thành phẩm nhập
+                Thêm / sửa công thức
               </button>
             ) : null}
 
             {form.kind === PRODUCT_KIND.INGREDIENT ||
             (form.kind === PRODUCT_KIND.FINISHED &&
               form.costMode !== COST_MODE.RECIPE) ? (
-              <label className="mb-3 block">
-                <span className="mb-1 block text-sm font-semibold">
-                  Giá nhập / đơn vị
-                </span>
+              <label className="block">
+                <FieldLabel>Giá nhập / đơn vị</FieldLabel>
                 <input
                   type="number"
                   min="0"
                   step="any"
                   required
-                  className="field-input"
+                  className="field-input money"
                   value={form.cost}
                   onChange={(e) => updateBaseUnitField("cost", e.target.value)}
                   placeholder="vd: 2 hoặc 0.5"
                 />
-                <span className="mt-1 block text-[11px] text-slate-500">
-                  {form.kind === PRODUCT_KIND.FINISHED
-                    ? "Giá nhập / 1 chai (hoặc ĐV gốc). Thùng × 24: bật kiện bên dưới."
-                    : "Giá / 1 đơn vị gốc (g, gói, quả). Thùng mì / túi đường: bật nhập kiện bên dưới."}
-                </span>
               </label>
             ) : null}
 
             {form.kind === PRODUCT_KIND.FINISHED ? (
-                <label className="mb-3 block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Giá bán
-                  </span>
+                <label className="block">
+                  <FieldLabel>Giá bán</FieldLabel>
                   <input
                     type="number"
                     min="0"
                     required
-                    className="field-input"
+                    className="field-input money"
                     value={form.price}
                     onChange={(e) => updateBaseUnitField("price", e.target.value)}
                     placeholder="vd: 5000"
@@ -1537,33 +1521,27 @@ function ProductsContent() {
 
             {form.kind === PRODUCT_KIND.FINISHED &&
             form.costMode === COST_MODE.RECIPE ? (
-                <div className="mb-3 space-y-3 rounded-2xl bg-amber-50 p-3 ring-1 ring-amber-100">
-                    <p className="text-sm font-bold text-amber-900">
-                      Công thức mỗi suất
+                <div className="space-y-3 rounded-2xl bg-white p-3 ring-1 ring-slate-200">
+                    <p className="text-sm font-bold text-slate-900">
+                      Công thức mỗi suất · {recipeStockItems.length} hàng kho
                     </p>
-                    <p className="text-xs leading-relaxed text-amber-900/80">
-                      Chọn nguyên liệu hoặc thành phẩm nhập (gói mì, chai…).
-                      Gói mì vừa bán lẻ POS vừa gắn CT: bát mì = 1 gói + nước
-                      sôi; mì 1 trứng = 1 gói + 1 trứng + nước. Đá/nước: Ước
-                      tay.
-                    </p>
-                    <p className="text-[11px] font-semibold text-amber-950">
-                      Kho: {recipeStockItems.length} hàng (NL + thành phẩm)
+                    <p className="hint-line">
+                      Chọn NL/TP từ kho hoặc thêm dòng ước tay (không trừ kho).
                     </p>
                     <input
                       type="search"
-                      className="field-input py-2 text-sm"
+                      className="field-input text-sm"
                       placeholder="Tìm NL / thành phẩm…"
                       value={recipeSearch}
                       onChange={(e) => setRecipeSearch(e.target.value)}
                     />
 
-                    <div className="space-y-2 rounded-xl bg-white/80 p-2.5 ring-1 ring-amber-100">
+                    <div className="space-y-2 rounded-xl bg-slate-50 p-2.5 ring-1 ring-slate-100">
                       {form.recipe.map((line, idx) =>
                         line.virtual ? (
                           <div
                             key={`r-v-${idx}`}
-                            className="space-y-1.5 rounded-xl bg-amber-50/80 p-2 ring-1 ring-amber-100"
+                            className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-slate-200"
                           >
                             <div className="grid grid-cols-[1fr_4.5rem_2.5rem] gap-2">
                               <input
@@ -1609,7 +1587,7 @@ function ProductsContent() {
                                     recipe: f.recipe.filter((_, i) => i !== idx),
                                   }))
                                 }
-                                className="flex h-11 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
+                                className="flex h-12 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
                               >
                                 <X className="h-4 w-4" />
                               </button>
@@ -1633,7 +1611,7 @@ function ProductsContent() {
                                   })
                                 }
                               />
-                              <span className="shrink-0 text-[10px] font-bold text-amber-800">
+                              <span className="shrink-0 text-sm font-bold text-slate-600">
                                 Không trừ kho
                               </span>
                             </div>
@@ -1641,7 +1619,7 @@ function ProductsContent() {
                         ) : (
                           <div
                             key={`r-${idx}`}
-                            className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-amber-100"
+                            className="space-y-1.5 rounded-xl bg-white p-2 ring-1 ring-slate-200"
                           >
                             {(() => {
                               const items = recipeSourceOptions(line.productId);
@@ -1749,7 +1727,7 @@ function ProductsContent() {
                                     recipe: f.recipe.filter((_, i) => i !== idx),
                                   }))
                                 }
-                                className="flex h-11 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
+                                className="flex h-12 items-center justify-center rounded-xl bg-white text-rose-600 ring-1 ring-rose-100"
                               >
                                 <X className="h-4 w-4" />
                               </button>
@@ -1772,7 +1750,7 @@ function ProductsContent() {
                                 ing
                               );
                               return (
-                                <p className="text-[11px] font-semibold text-amber-900/80">
+                                <p className="text-sm font-semibold text-slate-600">
                                   {line.qty || 0} {useUnit} ={" "}
                                   {formatBaseQty(baseQty)} {ing.unit} ·{" "}
                                   {formatCurrency(lineCost)}
@@ -1786,25 +1764,25 @@ function ProductsContent() {
                         <button
                           type="button"
                           onClick={() => addRecipeLine()}
-                          className="touch-btn h-10 w-full gap-1 bg-amber-100 text-xs font-bold text-amber-950"
+                          className="touch-btn h-12 w-full gap-1 bg-brand-700 text-sm font-bold text-white"
                         >
-                          <Plus className="h-3.5 w-3.5" />
+                          <Plus className="h-4 w-4" />
                           Từ kho
                         </button>
                         <button
                           type="button"
                           onClick={() => addRecipeLine({ virtual: true })}
-                          className="touch-btn h-10 w-full gap-1 bg-white text-xs font-bold text-amber-950 ring-1 ring-amber-200"
+                          className="touch-btn h-12 w-full gap-1 bg-white text-sm font-bold text-slate-800 ring-1 ring-slate-200"
                         >
-                          <Plus className="h-3.5 w-3.5" />
+                          <Plus className="h-4 w-4" />
                           Ước tay
                         </button>
                       </div>
                     </div>
 
-                    <div className="space-y-1.5 rounded-xl bg-amber-100/80 px-3 py-2.5 text-sm text-amber-950">
-                      <p className="font-extrabold">Cost / suất</p>
-                      <p className="money text-base font-extrabold">
+                    <div className="space-y-1.5 rounded-xl bg-slate-50 px-3 py-2.5 text-sm text-slate-900 ring-1 ring-slate-100">
+                      <p className="font-bold">Cost / suất</p>
+                      <p className="money text-lg font-bold">
                         {formatCurrency(recipePreview.unitCost)}
                         {form.price ? (
                           <span className="ml-2 font-semibold text-emerald-800">
@@ -1831,7 +1809,7 @@ function ProductsContent() {
             {form.kind === PRODUCT_KIND.INGREDIENT ||
             (form.kind === PRODUCT_KIND.FINISHED &&
               form.costMode !== COST_MODE.RECIPE) ? (
-              <div className="mb-3 space-y-3">
+              <div className="space-y-3">
                 <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3">
                   <input
                     type="checkbox"
@@ -1840,7 +1818,7 @@ function ProductsContent() {
                     className="h-5 w-5 accent-brand-700"
                   />
                   <span className="text-sm font-semibold text-slate-800">
-                    Nhiều đơn vị — bán lẻ &amp; bán kiện (bao/cây, gói/thùng…)
+                    Nhiều đơn vị — bán lẻ &amp; kiện
                   </span>
                 </label>
 
@@ -1848,36 +1826,28 @@ function ProductsContent() {
                   <div className="space-y-2 rounded-2xl bg-slate-50 p-3 ring-1 ring-slate-100">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-bold text-slate-900">
-                        Giá bán / nhập theo từng đơn vị
+                        Giá theo từng đơn vị
                       </p>
                       <button
                         type="button"
                         onClick={addPackagingUnit}
-                        className="touch-btn h-10 shrink-0 bg-white px-3 text-xs font-bold text-slate-700 ring-1 ring-slate-200"
+                        className="touch-btn h-11 shrink-0 bg-white px-3 text-sm font-bold text-slate-700 ring-1 ring-slate-200"
                       >
-                        <Plus className="h-3.5 w-3.5" />
+                        <Plus className="h-4 w-4" />
                         Thêm dòng
                       </button>
                     </div>
-                    <p className="text-[11px] leading-relaxed text-slate-500">
-                      Hệ số 1 = đơn vị gốc tồn (vd bao, gói, chai). Dòng kiện
-                      (cây×10, thùng×24) dùng để nhập và bán nguyên kiện — tick{" "}
-                      <strong>Bán</strong> / <strong>Nhập</strong> từng dòng.
-                      Giá bán lẻ và giá bán kiện nhập riêng.
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
+                    <ChipRow>
                       {PACKAGING_PRESETS.map((p) => (
-                        <button
+                        <FilterChip
                           key={p.id}
-                          type="button"
                           onClick={() => applyPackagingPreset(p.id)}
-                          className="touch-btn h-9 bg-white px-2.5 text-[11px] font-bold text-brand-800 ring-1 ring-brand-200"
                         >
                           {p.label}
-                        </button>
+                        </FilterChip>
                       ))}
-                    </div>
-                    <div className="hidden grid-cols-2 gap-2 text-[10px] font-bold uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[1.4fr_5.5rem_6rem_6rem_4rem_4rem_2.75rem]">
+                    </ChipRow>
+                    <div className="hidden grid-cols-2 gap-2 text-xs font-bold uppercase tracking-wide text-slate-400 sm:grid sm:grid-cols-[1.4fr_5.5rem_6rem_6rem_4rem_4rem_2.75rem]">
                       <span>Tên ĐV</span>
                       <span>Hệ số</span>
                       <span>Giá bán</span>
@@ -1958,7 +1928,7 @@ function ProductsContent() {
                                 }
                                 className="h-4 w-4 accent-brand-700"
                               />
-                              <span className="text-[10px] font-bold text-slate-600 sm:sr-only">
+                              <span className="text-xs font-bold text-slate-600 sm:sr-only">
                                 Bán
                               </span>
                             </label>
@@ -1973,7 +1943,7 @@ function ProductsContent() {
                                 }
                                 className="h-4 w-4 accent-brand-700"
                               />
-                              <span className="text-[10px] font-bold text-slate-600 sm:sr-only">
+                              <span className="text-xs font-bold text-slate-600 sm:sr-only">
                                 Nhập
                               </span>
                             </label>
@@ -1983,7 +1953,7 @@ function ProductsContent() {
                               disabled={isBase}
                               onClick={() => removePackagingUnit(index)}
                               className={cn(
-                                "flex h-11 items-center justify-center rounded-xl ring-1",
+                                "flex h-12 items-center justify-center rounded-xl ring-1",
                                 isBase
                                   ? "bg-slate-100 text-slate-300 ring-slate-200"
                                   : "bg-white text-rose-600 ring-rose-100"
@@ -1999,17 +1969,8 @@ function ProductsContent() {
                 ) : null}
               </div>
             ) : null}
-
-            <button
-              type="submit"
-              disabled={saving}
-              className="touch-btn mt-2 h-14 w-full bg-brand-700 text-white disabled:opacity-50"
-            >
-              {saving ? "Đang lưu..." : "Lưu"}
-            </button>
           </form>
-        </div>
-      ) : null}
+      </BottomSheet>
     </AppShell>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { FieldLabel } from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
@@ -133,20 +134,20 @@ function LoginForm() {
   }
 
   return (
-    <div className="relative flex min-h-dvh flex-col justify-end overflow-hidden bg-brand-800 px-4 pb-10 pt-16">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.45),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.18),transparent_35%)]" />
+    <div className="relative flex min-h-dvh flex-col justify-end overflow-hidden bg-brand-800 px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-16">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(59,130,246,0.4),transparent_48%),radial-gradient(circle_at_85%_8%,rgba(255,255,255,0.14),transparent_36%)]" />
 
       <div className="relative z-10 mx-auto w-full max-w-lg">
         <div className="mb-8 text-white">
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-100">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-blue-100/90">
             Trà Đá App
           </p>
-          <h1 className="mt-2 text-4xl font-extrabold leading-none">
+          <h1 className="mt-2 text-4xl font-extrabold leading-none tracking-tight">
             Cửa nhân viên
           </h1>
-          <p className="mt-3 max-w-sm text-sm text-blue-100">
-            Đăng nhập bằng <strong>tên + mật khẩu</strong>. Bật ghi nhớ nếu muốn
-            máy tự vào lại lần sau.
+          <p className="mt-3 max-w-sm text-sm leading-relaxed text-blue-100/90">
+            Đăng nhập bằng <strong className="text-white">tên + mật khẩu</strong>.
+            Bật ghi nhớ nếu muốn máy tự vào lại lần sau.
           </p>
         </div>
 
@@ -166,12 +167,10 @@ function LoginForm() {
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-[28px] bg-white p-5 shadow-2xl shadow-brand-900/30"
+          className="rounded-[1.75rem] bg-white p-5 shadow-[0_8px_32px_rgb(15_23_42_/_0.22)]"
         >
           <label className="mb-4 block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Tên đăng nhập
-            </span>
+            <FieldLabel>Tên đăng nhập</FieldLabel>
             <input
               type="text"
               name="username"
@@ -194,9 +193,7 @@ function LoginForm() {
           </label>
 
           <label className="mb-4 block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Mật khẩu
-            </span>
+            <FieldLabel>Mật khẩu</FieldLabel>
             <input
               type="password"
               name="password"
@@ -209,7 +206,7 @@ function LoginForm() {
             />
           </label>
 
-          <label className="mb-6 flex items-start gap-3 rounded-2xl bg-slate-50 px-3 py-3">
+          <label className="mb-6 flex min-h-12 items-start gap-3 rounded-2xl bg-slate-50 px-3 py-3 ring-1 ring-slate-100">
             <input
               type="checkbox"
               checked={remember}
@@ -229,7 +226,7 @@ function LoginForm() {
           <button
             type="submit"
             disabled={busy}
-            className="touch-btn h-16 w-full bg-brand-700 text-lg text-white disabled:opacity-60"
+            className="touch-btn h-14 w-full bg-brand-700 text-base font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.18)] disabled:opacity-60"
           >
             {loading ? "Đang vào..." : "Đăng nhập"}
           </button>

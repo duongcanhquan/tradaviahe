@@ -29,6 +29,12 @@ import BankingByDateForm from "@/components/BankingByDateForm";
 import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
+import {
+  ChipRow,
+  EmptyState,
+  FilterChip,
+  SectionHeader,
+} from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
@@ -53,7 +59,7 @@ import {
 } from "@/lib/receipts";
 import { isShopOperatingExpense } from "@/lib/expenses";
 import { roleLabel } from "@/lib/roles";
-import { cn, formatCurrency } from "@/lib/utils";
+import { formatCurrency } from "@/lib/utils";
 
 const REVENUE_PERIODS = [
   { id: "day", label: "Ngày" },
@@ -209,20 +215,6 @@ function DashboardContent() {
     [allTx, selectedRange]
   );
 
-  const goodsByPeriod = useMemo(() => {
-    return {
-      day: sumGoodsIncomeByMethod(
-        filterTxInRange(allTx, ranges.day.from, ranges.day.to)
-      ),
-      week: sumGoodsIncomeByMethod(
-        filterTxInRange(allTx, ranges.week.from, ranges.week.to)
-      ),
-      month: sumGoodsIncomeByMethod(
-        filterTxInRange(allTx, ranges.month.from, ranges.month.to)
-      ),
-    };
-  }, [allTx, ranges]);
-
   const periodTx = useMemo(
     () => filterTxInRange(allTx, selectedRange.from, selectedRange.to),
     [allTx, selectedRange]
@@ -335,52 +327,27 @@ function DashboardContent() {
   }, [products]);
 
   return (
-    <AppShell
-      title="Đối soát"
-      subtitle="Doanh thu nhanh · thao tác phụ bên dưới"
-    >
-      {/* Doanh thu trước — việc mở app mỗi ngày */}
-      <section className="mb-4 space-y-3">
-        <div className="grid grid-cols-3 gap-2">
+    <AppShell title="Đối soát" subtitle="Doanh thu kỳ đang chọn">
+      {/* Hero doanh thu trước */}
+      <section className="mb-6 space-y-3">
+        <ChipRow>
           {REVENUE_PERIODS.map((item) => {
             const active = !customRangeActive && period === item.id;
-            const total = loadingTx ? 0 : goodsByPeriod[item.id].total;
             return (
-              <button
+              <FilterChip
                 key={item.id}
-                type="button"
+                active={active}
                 onClick={() => {
                   setPeriod(item.id);
                   setDateFrom("");
                   setDateTo("");
                 }}
-                className={cn(
-                  "touch-btn min-h-[4.5rem] flex-col gap-1 px-2 py-2.5 text-center",
-                  active
-                    ? "bg-emerald-600 text-white shadow-md"
-                    : "bg-white text-slate-800 ring-1 ring-slate-200"
-                )}
               >
-                <span
-                  className={cn(
-                    "text-xs font-extrabold uppercase tracking-wide",
-                    active ? "text-white/85" : "text-slate-500"
-                  )}
-                >
-                  {item.label}
-                </span>
-                <span
-                  className={cn(
-                    "money text-sm font-extrabold leading-tight sm:text-base",
-                    active ? "text-white" : "text-emerald-700"
-                  )}
-                >
-                  <Money amount={total} />
-                </span>
-              </button>
+                {item.label}
+              </FilterChip>
             );
           })}
-        </div>
+        </ChipRow>
 
         <DateRangeFilter
           dense
@@ -394,26 +361,26 @@ function DashboardContent() {
           }}
         />
 
-        <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-5 text-white shadow-md">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
+        <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-6 text-white shadow-md">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/80">
             {selectedRange.shortLabel}
           </p>
-          <p className="mt-0.5 text-sm font-semibold capitalize text-white/90">
+          <p className="mt-1 text-sm font-medium capitalize text-white/90">
             {selectedRange.label}
           </p>
-          <p className="money mt-2 text-4xl font-extrabold leading-none">
+          <p className="money mt-3 text-4xl font-bold leading-none tracking-tight">
             <Money amount={loadingTx ? 0 : selectedGoods.total} />
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-xl bg-white/15 px-3 py-2">
+          <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-2xl bg-white/15 px-3 py-3">
               <p className="text-white/75">Tiền mặt</p>
-              <p className="money font-extrabold">
+              <p className="money mt-0.5 text-base font-bold">
                 <Money amount={loadingTx ? 0 : selectedGoods.cash} />
               </p>
             </div>
-            <div className="rounded-xl bg-white/15 px-3 py-2">
+            <div className="rounded-2xl bg-white/15 px-3 py-3">
               <p className="text-white/75">Chuyển khoản</p>
-              <p className="money font-extrabold">
+              <p className="money mt-0.5 text-base font-bold">
                 <Money amount={loadingTx ? 0 : selectedGoods.banking} />
               </p>
             </div>
@@ -421,89 +388,9 @@ function DashboardContent() {
         </div>
       </section>
 
-      {/* Lối tắt gọn — 2 cột, không che doanh thu */}
-      <section className="mb-4">
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Thao tác nhanh
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          <Link
-            href="/manager/construction"
-            className="touch-btn h-12 justify-start gap-2 bg-orange-700 px-3 text-sm text-white"
-          >
-            <Building2 className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Mảng xây dựng</span>
-          </Link>
-
-          <Link
-            href="/manager/products"
-            className="touch-btn h-12 justify-start gap-2 bg-amber-600 px-3 text-sm text-white"
-          >
-            <Package className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Món · công thức</span>
-          </Link>
-
-          <Link
-            href="/dashboard/monthly"
-            className="touch-btn h-12 justify-start gap-2 bg-emerald-600 px-3 text-sm text-white"
-          >
-            <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">
-              {canViewDividends ? "Tháng · cổ tức" : "Thu theo tháng"}
-            </span>
-          </Link>
-
-          {canCloseShift ? (
-            <Link
-              href="/manager/inventory"
-              className="touch-btn h-12 justify-start gap-2 bg-slate-900 px-3 text-sm text-white"
-            >
-              <Package className="h-4 w-4 shrink-0" aria-hidden />
-              <span className="truncate">Nhập hàng</span>
-            </Link>
-          ) : null}
-
-          <Link
-            href="/manager/sales"
-            className="touch-btn h-12 justify-start gap-2 bg-emerald-700 px-3 text-sm text-white"
-          >
-            <Receipt className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Món đã bán</span>
-          </Link>
-
-          <Link
-            href="/manager/expenses"
-            className="touch-btn h-12 justify-start gap-2 bg-rose-600 px-3 text-sm text-white"
-          >
-            <Wallet className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">Quỹ cửa hàng</span>
-          </Link>
-
-          <Link
-            href="/dashboard/capital"
-            className="touch-btn h-12 justify-start gap-2 bg-brand-700 px-3 text-sm text-white"
-          >
-            <Landmark className="h-4 w-4 shrink-0" aria-hidden />
-            <span className="truncate">
-              {canViewInvestmentCapital ? "Vốn cổ đông" : "Hàng hóa / TB"}
-            </span>
-          </Link>
-
-          {canViewDividends && canManageSystem ? (
-            <Link
-              href="/dashboard/settings"
-              className="touch-btn h-12 justify-start gap-2 border border-slate-200 bg-white px-3 text-sm text-slate-800"
-            >
-              <Percent className="h-4 w-4 shrink-0 text-brand-700" aria-hidden />
-              <span className="truncate">% Quỹ đối ngoại</span>
-            </Link>
-          ) : null}
-        </div>
-      </section>
-
-      {/* Tổng kết kỳ đang chọn */}
-      <section className="mb-4 space-y-3">
-        <h2 className="section-title">Tổng kết kỳ · {selectedRange.shortLabel}</h2>
+      {/* Tổng kết kỳ */}
+      <section className="mb-6 space-y-3">
+        <SectionHeader title="Tổng kết kỳ" hint={selectedRange.shortLabel} />
 
         <div className="grid grid-cols-2 gap-2">
           <StatCard
@@ -522,14 +409,14 @@ function DashboardContent() {
             tone="danger"
           />
           <StatCard
-            label="Tiền két (thu − chi)"
+            label="Tiền két"
             value={loadingTx ? 0 : periodPnl.cashProfit}
             tone="brand"
           />
         </div>
 
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Lãi theo giá vốn món bán
+        <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Lãi theo giá vốn
         </p>
         <div className="grid grid-cols-2 gap-2">
           <StatCard
@@ -538,7 +425,7 @@ function DashboardContent() {
             tone="danger"
           />
           <StatCard
-            label="Lãi gộp (thu − vốn)"
+            label="Lãi gộp"
             value={loadingTx ? 0 : periodPnl.grossMargin}
             tone="success"
           />
@@ -548,29 +435,19 @@ function DashboardContent() {
             tone="brand"
           />
         </div>
-        <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs leading-relaxed text-slate-600 ring-1 ring-slate-100">
-          <span className="font-semibold text-slate-800">Lãi gộp</span> = doanh
-          thu − giá vốn từng món đã bán (cost / công thức).{" "}
-          <span className="font-semibold text-slate-800">Tiền két</span> chỉ là
-          thu − chi quỹ (không trừ giá vốn). Lãi kinh doanh = lãi gộp − chi vận
-          hành (không trừ tiền nhập hàng — đã nằm trong tồn).
-        </p>
         {!loadingTx && periodPnl.revenue > 0 && periodPnl.cogs === 0 ? (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
-            Giá vốn đang = 0 → lãi gộp trùng doanh thu. Kiểm tra món đã bán đã
-            khai <strong>cost / giá vốn</strong> chưa (Món · công thức). Bill
-            cũ sẽ ước theo cost hiện tại nếu còn dòng món.
+          <p className="alert-soft text-xs">
+            Giá vốn = 0 — kiểm tra cost món (Món · công thức).
           </p>
         ) : null}
         {!loadingTx && periodPnl.cogsEstimated ? (
-          <p className="rounded-xl bg-teal-50 px-3 py-2 text-xs text-teal-950 ring-1 ring-teal-100">
-            Một phần giá vốn đang <strong>ước tính</strong> từ catalog (bill
-            chưa snapshot lúc bán).
+          <p className="rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600 ring-1 ring-slate-100">
+            Một phần giá vốn đang ước từ catalog.
           </p>
         ) : null}
         {periodTotals.fundIn > 0 ? (
-          <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
-            Nạp quỹ trong kỳ:{" "}
+          <p className="rounded-2xl bg-slate-50 px-3 py-2.5 text-xs text-slate-600 ring-1 ring-slate-100">
+            Nạp quỹ:{" "}
             <span className="font-semibold text-emerald-700">
               <Money amount={periodTotals.fundIn} />
             </span>{" "}
@@ -579,173 +456,44 @@ function DashboardContent() {
         ) : null}
       </section>
 
-      {/* Ai bán / nhập tiền trong kỳ */}
-      <section className="mb-4 space-y-3">
-        <h2 className="section-title">
-          Người nhập bán · {selectedRange.shortLabel}
-        </h2>
-        <p className="text-xs text-slate-500">
-          Tổng tiền mỗi nhân viên / quản lý đã ghi thu trong kỳ đang chọn
-        </p>
-        {loadingTx ? (
-          <div className="card-panel h-20 animate-pulse bg-white/80" />
-        ) : salesByActor.length === 0 ? (
-          <div className="card-panel text-sm text-slate-500">
-            Chưa có ai ghi thu trong kỳ này.
-          </div>
-        ) : (
-          salesByActor.map((row) => (
-            <article
-              key={row.key}
-              className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-base font-extrabold text-slate-900">
-                    {(() => {
-                      const label = formatActorLabel({
-                        createdByName: row.name,
-                        createdByUsername: row.username,
-                      });
-                      return label === "—" ? "Không rõ người nhập" : label;
-                    })()}
-                  </p>
-                  <p className="mt-0.5 text-xs font-semibold text-slate-500">
-                    {roleLabel(row.role)}
-                    {" · "}
-                    {row.count} lần ghi
-                  </p>
-                </div>
-                <p className="money shrink-0 text-lg font-extrabold text-emerald-700">
-                  <Money amount={row.total} />
-                </p>
-              </div>
-              <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-900">
-                  <p className="font-semibold text-emerald-700/80">Tiền mặt</p>
-                  <p className="money font-extrabold">
-                    <Money amount={row.cash} />
-                  </p>
-                </div>
-                <div className="rounded-xl bg-brand-50 px-3 py-2 text-brand-900">
-                  <p className="font-semibold text-brand-700/80">Chuyển khoản</p>
-                  <p className="money font-extrabold">
-                    <Money amount={row.banking} />
-                  </p>
-                </div>
-              </div>
-            </article>
-          ))
-        )}
-      </section>
-
-      {canCloseShift ? (
-        <BankingByDateForm className="mb-4" />
-      ) : null}
-
-      {/* Báo cáo tồn kho nhanh theo nhóm */}
-      <section className="mb-4 space-y-3">
-        <div className="flex items-end justify-between gap-2">
-          <h2 className="section-title mb-0">Tồn kho theo nhóm</h2>
-          {canCloseShift ? (
-            <Link
-              href="/manager/inventory"
-              className="text-xs font-bold text-brand-800"
-            >
-              Nhập hàng →
-            </Link>
-          ) : null}
-        </div>
-        <p className="text-xs text-slate-500">
-          Báo cáo nhanh danh mục còn trong kho
-        </p>
-
-        {loadingStock ? (
-          <div className="card-panel h-24 animate-pulse bg-white/80" />
-        ) : (
-          <>
-            <div className="rounded-[1.25rem] bg-slate-900 px-4 py-4 text-white">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/70">
-                Tổng tồn
-              </p>
-              <p className="mt-1 text-3xl font-extrabold leading-none">
-                {stockTotals.qty}
-              </p>
-              <p className="mt-2 text-sm text-white/80">
-                {stockTotals.count} món · Giá trị tồn (giá nhập){" "}
-                <span className="money font-bold text-white">
-                  {formatCurrency(stockTotals.value)}
-                </span>
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {stockByGroup.map((g) => (
-                <article
-                  key={g.id}
-                  className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200"
-                >
-                  <p className="text-xs font-bold text-slate-500">{g.name}</p>
-                  <p className="money mt-1 text-xl font-extrabold text-slate-900">
-                    {g.qty}
-                  </p>
-                  <p className="text-[11px] text-slate-500">
-                    {g.count} món · {formatCurrency(g.value)}
-                  </p>
-                </article>
-              ))}
-            </div>
-
-            {lowStock.length > 0 ? (
-              <div className="rounded-2xl bg-amber-50 px-3 py-3 ring-1 ring-amber-100">
-                <p className="mb-2 text-xs font-extrabold uppercase tracking-wide text-amber-800">
-                  Sắp hết (≤ 5)
-                </p>
-                <ul className="space-y-1.5">
-                  {lowStock.map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex justify-between gap-2 text-sm text-amber-950"
-                    >
-                      <span className="truncate font-semibold">{p.name}</span>
-                      <span className="money shrink-0 font-extrabold">
-                        {Number(p.inStock) || 0}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </>
-        )}
-      </section>
-
+      {/* Thu gần đây */}
       <section className="mb-6 space-y-3">
-        <div className="flex items-end justify-between gap-2">
-          <h2 className="section-title mb-0">
-            Thu gần đây · {selectedRange.shortLabel}
-          </h2>
-          <div className="flex items-center gap-2">
-            <p className="text-xs text-slate-500">
-              {recentIncome.length} giao dịch
-              {recentIncome.length > RECENT_PAGE_SIZE
-                ? ` · ${recentSafePage}/${recentTotalPages}`
-                : ""}
-            </p>
+        <SectionHeader
+          title="Thu gần đây"
+          hint={
+            recentIncome.length
+              ? `${recentIncome.length} giao dịch${
+                  recentIncome.length > RECENT_PAGE_SIZE
+                    ? ` · ${recentSafePage}/${recentTotalPages}`
+                    : ""
+                }`
+              : selectedRange.shortLabel
+          }
+          action={
             <Link
               href="/manager/sales"
-              className="text-xs font-bold text-brand-800"
+              className="min-h-11 inline-flex items-center text-sm font-bold text-brand-800"
             >
-              Sổ theo ngày →
+              Sổ →
             </Link>
-          </div>
-        </div>
+          }
+        />
         {loadingTx ? (
           <div className="card-panel h-20 animate-pulse bg-white/80" />
         ) : recentIncome.length === 0 ? (
-          <div className="card-panel text-sm text-slate-500">
-            Chưa có khoản thu trong kỳ này. Vào Thu tiền → ghi TM hoặc CK.
-          </div>
+          <EmptyState
+            icon={Receipt}
+            title="Chưa có khoản thu"
+            description="Ghi thu tiền mặt hoặc chuyển khoản để thấy ở đây."
+            action={
+              <Link
+                href="/manager/pos"
+                className="touch-btn h-12 w-full bg-emerald-600 text-white"
+              >
+                Vào thu tiền
+              </Link>
+            }
+          />
         ) : (
           <>
             {recentPageRows.map((row) => {
@@ -761,18 +509,18 @@ function DashboardContent() {
               const isCk = row.paymentMethod === "banking";
               const dayLabel = row.businessDate || null;
               return (
-                <article key={row.id} className="card-panel space-y-1 !py-3">
+                <article key={row.id} className="card-panel !py-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-slate-900">
+                      <p className="truncate text-base font-bold text-slate-900">
                         {row.note || row.category || "Thu"}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="mt-0.5 text-sm text-slate-500">
                         {dayLabel ? `Ngày ${dayLabel} · ` : ""}
                         {timeLabel}
                       </p>
                       <p className="mt-1 text-xs font-semibold text-slate-700">
-                        <span className="font-extrabold text-brand-800">
+                        <span className="font-bold text-brand-800">
                           {formatActorLabel(row)}
                         </span>
                         {row.createdByRole
@@ -789,7 +537,7 @@ function DashboardContent() {
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">
-                      <p className="money text-base font-extrabold text-emerald-700">
+                      <p className="money text-lg font-bold text-emerald-700">
                         <Money amount={row.amount} />
                       </p>
                       {canDeleteSales ? (
@@ -797,10 +545,10 @@ function DashboardContent() {
                           type="button"
                           disabled={deletingId === row.id}
                           onClick={() => handleDeleteSale(row)}
-                          className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
+                          className="touch-btn h-11 min-w-[4.5rem] gap-1.5 rounded-2xl bg-rose-50 px-3 text-sm font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-50"
                         >
-                          <Trash2 className="h-3.5 w-3.5" aria-hidden />
-                          {deletingId === row.id ? "Đang xóa…" : "Xóa"}
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                          {deletingId === row.id ? "…" : "Xóa"}
                         </button>
                       ) : null}
                     </div>
@@ -815,7 +563,7 @@ function DashboardContent() {
                   type="button"
                   disabled={recentSafePage <= 1}
                   onClick={() => setRecentPage((p) => Math.max(1, p - 1))}
-                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                  className="touch-btn h-12 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
                 >
                   <ChevronLeft className="h-4 w-4" aria-hidden />
                   Trước
@@ -829,7 +577,7 @@ function DashboardContent() {
                   onClick={() =>
                     setRecentPage((p) => Math.min(recentTotalPages, p + 1))
                   }
-                  className="touch-btn h-11 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
+                  className="touch-btn h-12 flex-1 gap-1 bg-white text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-35"
                 >
                   Sau
                   <ChevronRight className="h-4 w-4" aria-hidden />
@@ -838,6 +586,202 @@ function DashboardContent() {
             ) : null}
           </>
         )}
+      </section>
+
+      {/* Người nhập bán */}
+      <section className="mb-6 space-y-3">
+        <SectionHeader
+          title="Người nhập bán"
+          hint={selectedRange.shortLabel}
+        />
+        {loadingTx ? (
+          <div className="card-panel h-20 animate-pulse bg-white/80" />
+        ) : salesByActor.length === 0 ? (
+          <EmptyState
+            title="Chưa có ai ghi thu"
+            description="Khi có khoản thu trong kỳ, tổng theo người nhập sẽ hiện ở đây."
+          />
+        ) : (
+          salesByActor.map((row) => (
+            <article
+              key={row.key}
+              className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="truncate text-base font-bold text-slate-900">
+                    {(() => {
+                      const label = formatActorLabel({
+                        createdByName: row.name,
+                        createdByUsername: row.username,
+                      });
+                      return label === "—" ? "Không rõ người nhập" : label;
+                    })()}
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-500">
+                    {roleLabel(row.role)}
+                    {" · "}
+                    {row.count} lần ghi
+                  </p>
+                </div>
+                <p className="money shrink-0 text-lg font-bold text-emerald-700">
+                  <Money amount={row.total} />
+                </p>
+              </div>
+              <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
+                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-900">
+                  <p className="font-semibold text-emerald-700/80">Tiền mặt</p>
+                  <p className="money font-bold">
+                    <Money amount={row.cash} />
+                  </p>
+                </div>
+                <div className="rounded-xl bg-brand-50 px-3 py-2 text-brand-900">
+                  <p className="font-semibold text-brand-700/80">Chuyển khoản</p>
+                  <p className="money font-bold">
+                    <Money amount={row.banking} />
+                  </p>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+
+      {canCloseShift ? (
+        <BankingByDateForm className="mb-6" />
+      ) : null}
+
+      {/* Tồn kho */}
+      <section className="mb-6 space-y-3">
+        <SectionHeader
+          title="Tồn kho theo nhóm"
+          action={
+            canCloseShift ? (
+              <Link
+                href="/manager/inventory"
+                className="min-h-11 inline-flex items-center text-sm font-bold text-brand-800"
+              >
+                Nhập hàng →
+              </Link>
+            ) : null
+          }
+        />
+
+        {loadingStock ? (
+          <div className="card-panel h-24 animate-pulse bg-white/80" />
+        ) : (
+          <>
+            <div className="rounded-[1.25rem] bg-slate-900 px-4 py-4 text-white">
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/70">
+                Tổng tồn
+              </p>
+              <p className="mt-1 text-3xl font-bold leading-none">
+                {stockTotals.qty}
+              </p>
+              <p className="mt-2 text-sm text-white/80">
+                {stockTotals.count} món ·{" "}
+                <span className="money font-bold text-white">
+                  {formatCurrency(stockTotals.value)}
+                </span>
+              </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              {stockByGroup.map((g) => (
+                <article
+                  key={g.id}
+                  className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200"
+                >
+                  <p className="text-xs font-bold text-slate-500">{g.name}</p>
+                  <p className="money mt-1 text-xl font-bold text-slate-900">
+                    {g.qty}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    {g.count} món · {formatCurrency(g.value)}
+                  </p>
+                </article>
+              ))}
+            </div>
+
+            {lowStock.length > 0 ? (
+              <div className="alert-soft">
+                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">
+                  Sắp hết (≤ 5)
+                </p>
+                <ul className="space-y-1.5">
+                  {lowStock.map((p) => (
+                    <li
+                      key={p.id}
+                      className="flex justify-between gap-2 text-sm text-amber-950"
+                    >
+                      <span className="truncate font-semibold">{p.name}</span>
+                      <span className="money shrink-0 font-bold">
+                        {Number(p.inStock) || 0}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </>
+        )}
+      </section>
+
+      {/* Lối tắt — demoted dưới nội dung chính */}
+      <section className="mb-6">
+        <SectionHeader title="Thao tác nhanh" />
+        <div className="grid grid-cols-2 gap-2">
+          {[
+            {
+              href: "/manager/construction",
+              icon: Building2,
+              label: "Xây dựng",
+            },
+            { href: "/manager/products", icon: Package, label: "Món · CT" },
+            {
+              href: "/dashboard/monthly",
+              icon: CalendarDays,
+              label: canViewDividends ? "Tháng · cổ tức" : "Theo tháng",
+            },
+            canCloseShift
+              ? {
+                  href: "/manager/inventory",
+                  icon: Package,
+                  label: "Nhập hàng",
+                }
+              : null,
+            { href: "/manager/sales", icon: Receipt, label: "Món đã bán" },
+            { href: "/manager/expenses", icon: Wallet, label: "Quỹ CH" },
+            {
+              href: "/dashboard/capital",
+              icon: Landmark,
+              label: canViewInvestmentCapital ? "Vốn cổ đông" : "Hàng / TB",
+            },
+            canViewDividends && canManageSystem
+              ? {
+                  href: "/dashboard/settings",
+                  icon: Percent,
+                  label: "% Quỹ ĐN",
+                }
+              : null,
+          ]
+            .filter(Boolean)
+            .map((item) => {
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href + item.label}
+                  href={item.href}
+                  className="touch-btn h-12 justify-start gap-2 border border-slate-200 bg-white px-3 text-sm text-slate-800"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
+                    <Icon className="h-4 w-4" aria-hidden />
+                  </span>
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+        </div>
       </section>
     </AppShell>
   );

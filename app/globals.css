@@ -1,26 +1,50 @@
-@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Trà Đá App — mobile-app-ui-design
+  60/30/10 · 8pt grid · soft tinted shadows · thumb zone
+  Brand: deep blue (trust). Semantic only: emerald=in, rose=out, amber=alert.
+*/
 :root {
-  --background: #f1f5f9;
+  --background: #f4f6f9;
   --foreground: #0f172a;
   --surface: #ffffff;
   --muted: #64748b;
   --border: #e2e8f0;
-  --brand-50: #eff6ff;
-  --brand-100: #dbeafe;
+
+  --brand-50: #eef4ff;
+  --brand-100: #d9e6ff;
   --brand-600: #2563eb;
-  --brand-700: #1e40af;
+  --brand-700: #1d4ed8;
   --brand-800: #1e3a8a;
+
   --success: #059669;
-  --danger: #dc2626;
+  --danger: #e11d48;
   --warning: #d97706;
-  --radius-card: 1.25rem;
+
+  --radius-sm: 0.75rem;
+  --radius-md: 1rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.5rem;
+  --radius-card: var(--radius-lg);
+
+  --shadow-sm: 0 1px 2px rgb(29 78 216 / 0.04), 0 4px 12px rgb(15 23 42 / 0.04);
+  --shadow-md: 0 2px 4px rgb(29 78 216 / 0.05), 0 12px 28px rgb(15 23 42 / 0.06);
+  --shadow-lg: 0 4px 8px rgb(29 78 216 / 0.06), 0 20px 40px rgb(15 23 42 / 0.08);
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-lg: 1.25rem;
+
   --nav-height: 4.5rem;
   --header-offset: 4.5rem;
+  --space-page: 1rem;
+  --touch-min: 2.75rem;
 }
 
 * {
@@ -53,16 +77,15 @@ body {
 
 body {
   color: var(--foreground);
-  background:
-    radial-gradient(120% 80% at 0% 0%, #dbeafe 0%, transparent 55%),
-    radial-gradient(90% 60% at 100% 0%, #e2e8f0 0%, transparent 45%),
-    var(--background);
+  background: var(--background);
   font-family: "Be Vietnam Pro", system-ui, sans-serif;
-  font-size: 16px;
+  font-size: var(--text-base);
+  font-weight: 400;
   line-height: 1.5;
   min-height: 100dvh;
   touch-action: manipulation;
   padding-top: env(safe-area-inset-top, 0px);
+  -webkit-font-smoothing: antialiased;
 }
 
 :focus-visible {
@@ -80,22 +103,37 @@ body {
   }
 
   .pb-nav {
-    padding-bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px) + 1rem);
+    padding-bottom: calc(
+      var(--nav-height) + env(safe-area-inset-bottom, 0px) + 1rem
+    );
   }
 
   .money {
     font-variant-numeric: tabular-nums;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.015em;
+    font-weight: 700;
   }
 
   .touch-btn {
-    @apply inline-flex min-h-12 min-w-12 cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 text-base font-semibold transition duration-200 ease-out active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50;
+    @apply inline-flex min-h-[var(--touch-min)] min-w-[var(--touch-min)] cursor-pointer items-center justify-center gap-2 rounded-2xl px-4 text-base font-bold transition duration-200 ease-out active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  .text-secondary {
+    color: color-mix(in srgb, var(--foreground) 70%, transparent);
+  }
+
+  .text-tertiary {
+    color: color-mix(in srgb, var(--foreground) 55%, transparent);
   }
 }
 
 @layer components {
   .card-panel {
-    @apply rounded-[1.25rem] border border-slate-200/90 bg-white p-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.04)];
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 1rem;
+    box-shadow: var(--shadow-sm);
   }
 
   .field-input {
@@ -107,11 +145,36 @@ body {
   }
 
   .chip {
-    @apply inline-flex min-h-8 items-center rounded-full px-2.5 py-1 text-xs font-semibold;
+    @apply inline-flex min-h-8 items-center rounded-full px-2.5 py-1 text-xs font-bold;
   }
 
   .sticky-action-bar {
     @apply fixed inset-x-0 z-40 border-t border-slate-200/90 bg-white/95 px-4 pt-3 backdrop-blur-md;
     bottom: calc(var(--nav-height) + env(safe-area-inset-bottom, 0px));
+    box-shadow: var(--shadow-md);
+  }
+
+  .btn-primary {
+    @apply touch-btn w-full bg-brand-700 text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.18)] hover:bg-brand-800;
+  }
+
+  .btn-secondary {
+    @apply touch-btn w-full bg-brand-50 text-brand-800 ring-1 ring-brand-700/10;
+  }
+
+  .btn-danger {
+    @apply touch-btn w-full bg-rose-600 text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.14)];
+  }
+
+  .page-stack {
+    @apply space-y-4;
+  }
+
+  .hint-line {
+    @apply text-sm leading-snug text-slate-500;
+  }
+
+  .alert-soft {
+    @apply rounded-2xl bg-amber-50 px-4 py-3 text-sm leading-snug text-amber-950 ring-1 ring-amber-100;
   }
 }

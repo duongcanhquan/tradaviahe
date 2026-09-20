@@ -210,7 +210,7 @@ export function SharedQrFab() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Mở QR chuyển khoản"
-        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] right-4 z-[55] flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-brand-700 text-white shadow-lg shadow-brand-900/30 transition duration-200 active:scale-95"
+        className="fixed bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] right-4 z-[55] flex h-14 w-14 cursor-pointer items-center justify-center rounded-full bg-brand-700 text-white shadow-[0_4px_16px_rgb(30_64_175_/_0.35)] transition duration-200 active:scale-95"
       >
         <QrCode className="h-7 w-7" aria-hidden />
       </button>

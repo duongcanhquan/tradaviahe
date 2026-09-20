@@ -44,14 +44,14 @@ export function ToastProvider({ children }) {
               key={toast.id}
               role="status"
               className={cn(
-                "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-white shadow-lg transition duration-200",
+                "pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl px-4 py-3.5 text-sm font-semibold text-white shadow-[0_8px_28px_rgb(15_23_42_/_0.18)] transition duration-200",
                 toast.type === "success" && "bg-emerald-600",
                 toast.type === "error" && "bg-red-600",
                 toast.type === "info" && "bg-brand-700"
               )}
             >
               <Icon className="mt-0.5 h-5 w-5 shrink-0" aria-hidden />
-              <span>{toast.message}</span>
+              <span className="leading-snug">{toast.message}</span>
             </div>
           );
         })}

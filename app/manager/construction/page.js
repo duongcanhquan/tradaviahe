@@ -14,12 +14,18 @@ import {
   Plus,
   Trash2,
   Wallet,
-  X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
+import {
+  BottomSheet,
+  ChipRow,
+  EmptyState,
+  FieldLabel,
+  FilterChip,
+} from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
@@ -450,71 +456,82 @@ function ConstructionContent() {
     to_shop: "Chuyển quỹ XD → quỹ quán",
   };
 
+  const closeFundForm = () => {
+    setMode(null);
+    resetFundForm();
+  };
+
   return (
     <AppShell
       title="Mảng xây dựng"
       subtitle="Tách biệt · không lẫn bán hàng trà đá"
     >
-      <p className="mb-3 rounded-xl bg-teal-50 px-3 py-2 text-xs leading-relaxed text-teal-950 ring-1 ring-teal-100">
-        Thu <strong>TM</strong> → quỹ xây dựng · Thu <strong>CK</strong> → số
-        dư vốn CĐT. Quỹ có thể nhận chuyển từ vốn hoặc quỹ cửa hàng.
+      <div className="space-y-4">
+      <p className="text-sm leading-snug text-slate-500">
+        Thu TM → quỹ XD · Thu CK → vốn CĐT · có thể nhận từ vốn / quỹ quán.
       </p>
 
-      <div className="mb-4 grid grid-cols-3 gap-1.5">
+      <ChipRow>
         {TABS.map((t) => (
-          <button
+          <FilterChip
             key={t.id}
-            type="button"
+            active={tab === t.id}
             onClick={() => setTab(t.id)}
-            className={cn(
-              "touch-btn h-11 text-xs font-bold sm:text-sm",
-              tab === t.id
-                ? "bg-teal-700 text-white"
-                : "bg-white text-slate-700 ring-1 ring-slate-200"
-            )}
           >
             {t.label}
-          </button>
+          </FilterChip>
         ))}
-      </div>
+      </ChipRow>
 
       {tab === "overview" ? (
-        <section className="mb-6 space-y-3">
+        <section className="space-y-4">
           <StatCard
             label="Số dư quỹ xây dựng"
             value={loadingTx ? 0 : fundSummary.balance}
             tone={fundSummary.balance >= 0 ? "brand" : "danger"}
           />
           <div className="grid grid-cols-2 gap-2">
-            <StatCard
-              label="Thu TM (quỹ XD)"
-              value={loadingTx ? 0 : fundSummary.cashService}
-              tone="success"
-            />
-            <StatCard
-              label="Thu CK (vào vốn)"
-              value={loadingTx ? 0 : incomeAll.banking}
-              tone="brand"
-            />
-            <StatCard
-              label="Đã nạp / chuyển vào"
-              value={loadingTx ? 0 : fundSummary.fundIn}
-              tone="success"
-            />
-            <StatCard
-              label="Đã chi XD"
-              value={loadingTx ? 0 : fundSummary.expense}
-              tone="danger"
-            />
+            <div className="card-panel !p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Thu TM
+              </p>
+              <p className="money mt-1 text-sm font-bold text-emerald-700">
+                <Money amount={loadingTx ? 0 : fundSummary.cashService} />
+              </p>
+            </div>
+            <div className="card-panel !p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Thu CK
+              </p>
+              <p className="money mt-1 text-sm font-bold text-brand-800">
+                <Money amount={loadingTx ? 0 : incomeAll.banking} />
+              </p>
+            </div>
+            <div className="card-panel !p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Đã nạp
+              </p>
+              <p className="money mt-1 text-sm font-bold text-emerald-700">
+                <Money amount={loadingTx ? 0 : fundSummary.fundIn} />
+              </p>
+            </div>
+            <div className="card-panel !p-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Đã chi
+              </p>
+              <p className="money mt-1 text-sm font-bold text-rose-700">
+                <Money amount={loadingTx ? 0 : fundSummary.expense} />
+              </p>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={() => setTab("fund")}
-              className="touch-btn h-14 flex-col gap-0.5 bg-teal-700 text-white"
+              className="touch-btn h-14 flex-col gap-0.5 bg-brand-700 text-white"
             >
               <Wallet className="h-4 w-4" />
-              <span className="text-sm font-extrabold">Quỹ xây dựng</span>
+              <span className="text-sm font-bold">Quỹ xây dựng</span>
             </button>
             <button
               type="button"
@@ -522,30 +539,30 @@ function ConstructionContent() {
               className="touch-btn h-14 flex-col gap-0.5 bg-slate-900 text-white"
             >
               <Building2 className="h-4 w-4" />
-              <span className="text-sm font-extrabold">
+              <span className="text-sm font-bold">
                 Hạng mục · {jobsSummary.activeCount} đang
               </span>
             </button>
           </div>
-          <div className="rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
+          <div className="card-panel">
             <p className="text-xs font-semibold text-slate-500">
               Tổng hợp hạng mục
             </p>
             <p className="mt-1 text-sm text-slate-800">
               {jobsSummary.count} việc · HĐ{" "}
-              <span className="font-extrabold">
+              <span className="font-bold">
                 <Money amount={jobsSummary.contractTotal} />
               </span>
               {" · "}
               Lãi ước{" "}
-              <span className="font-extrabold text-emerald-700">
+              <span className="font-bold text-emerald-700">
                 <Money amount={jobsSummary.expectedProfitTotal} />
               </span>
             </p>
           </div>
           <Link
             href="/manager/expenses"
-            className="block text-center text-xs font-bold text-brand-800 underline"
+            className="touch-btn h-11 w-full justify-center text-sm font-bold text-brand-800 ring-1 ring-slate-200"
           >
             ← Quỹ cửa hàng (trà đá)
           </Link>
@@ -553,7 +570,7 @@ function ConstructionContent() {
       ) : null}
 
       {tab === "fund" ? (
-        <section className="mb-8 space-y-3">
+        <section className="space-y-4">
           <StatCard
             label="Số dư quỹ xây dựng"
             value={loadingTx ? 0 : fundSummary.balance}
@@ -576,11 +593,10 @@ function ConstructionContent() {
                   }
                   onClick={() => {
                     resetFundForm();
-                    setMode((m) => (m === b.id ? null : b.id));
+                    setMode(b.id);
                   }}
                   className={cn(
                     "touch-btn h-12 text-xs font-bold text-white disabled:opacity-40",
-                    mode === b.id ? "ring-2 ring-offset-1 ring-teal-400" : "",
                     b.cls
                   )}
                 >
@@ -591,9 +607,9 @@ function ConstructionContent() {
                 type="button"
                 onClick={() => {
                   resetFundForm();
-                  setMode((m) => (m === "fund_in" ? null : "fund_in"));
+                  setMode("fund_in");
                 }}
-                className="touch-btn h-12 bg-teal-600 text-xs font-bold text-white"
+                className="touch-btn h-12 bg-brand-700 text-xs font-bold text-white"
               >
                 Nạp tay
               </button>
@@ -601,7 +617,7 @@ function ConstructionContent() {
                 type="button"
                 onClick={() => {
                   resetFundForm();
-                  setMode((m) => (m === "to_shop" ? null : "to_shop"));
+                  setMode("to_shop");
                 }}
                 className="touch-btn h-12 gap-1 bg-white text-xs font-bold text-slate-800 ring-1 ring-slate-200"
               >
@@ -609,97 +625,6 @@ function ConstructionContent() {
                 XD → quán
               </button>
             </div>
-          ) : null}
-
-          {mode && canManageShop ? (
-            <form
-              onSubmit={handleFundSave}
-              className="card-panel space-y-3 border-teal-100"
-            >
-              <div className="flex items-center justify-between">
-                <h2 className="section-title mb-0 text-teal-950">
-                  {modeTitle[mode]}
-                </h2>
-                <button
-                  type="button"
-                  onClick={() => setMode(null)}
-                  className="rounded-lg p-2 text-slate-500"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              {mode === "income" ? (
-                <label className="block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Hình thức
-                  </span>
-                  <select
-                    className="field-input"
-                    value={payMethod}
-                    onChange={(e) => setPayMethod(e.target.value)}
-                  >
-                    <option value="cash">Tiền mặt → quỹ XD</option>
-                    <option value="banking">Chuyển khoản → vốn CĐT</option>
-                  </select>
-                </label>
-              ) : null}
-              {mode === "expense" ? (
-                <label className="block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Hạng mục chi
-                  </span>
-                  <select
-                    className="field-input"
-                    value={expenseCat}
-                    onChange={(e) => setExpenseCat(e.target.value)}
-                  >
-                    {CONSTRUCTION_EXPENSE_CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : null}
-              <label className="block">
-                <span className="mb-1 block text-sm font-semibold">Số tiền</span>
-                <input
-                  type="number"
-                  min="1"
-                  required
-                  className="field-input money"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-sm font-semibold">Ngày</span>
-                <input
-                  type="date"
-                  className="field-input"
-                  value={dateInput}
-                  max={todayInputValue()}
-                  onChange={(e) => setDateInput(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block text-sm font-semibold">Ghi chú</span>
-                <input
-                  className="field-input"
-                  value={note}
-                  onChange={(e) => setNote(e.target.value)}
-                  placeholder="Note…"
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={saving}
-                className="touch-btn h-12 w-full bg-teal-700 text-white disabled:opacity-50"
-              >
-                {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : "Lưu"}
-              </button>
-            </form>
           ) : null}
 
           <DateRangeFilter
@@ -741,64 +666,57 @@ function ConstructionContent() {
                   </p>
                   <p className="col-span-2">
                     Kỳ · {formatRangeLabel(dateFrom, dateTo)} · biến động quỹ:{" "}
-                    <span className="font-extrabold">
+                    <span className="font-bold">
                       <Money amount={periodFund.net} />
                     </span>
                   </p>
                 </div>
               ) : (
-                <p className="text-[11px] text-slate-500">
+                <p className="text-sm text-slate-500">
                   Chọn khoảng ngày để tổng kết kỳ mảng XD.
                 </p>
               )
             }
           />
 
-          <div className="flex gap-1 overflow-x-auto pb-1">
+          <ChipRow>
             {[
               { id: "all", label: "Tất cả" },
               { id: "income", label: "Thu" },
               { id: "fund_in", label: "Nạp" },
               { id: "expense", label: "Chi" },
             ].map((f) => (
-              <button
+              <FilterChip
                 key={f.id}
-                type="button"
+                active={fundFilter === f.id}
                 onClick={() => setFundFilter(f.id)}
-                className={cn(
-                  "shrink-0 rounded-full px-3 py-1 text-[11px] font-bold",
-                  fundFilter === f.id
-                    ? "bg-teal-800 text-white"
-                    : "bg-slate-100 text-slate-600"
-                )}
               >
                 {f.label}
-              </button>
+              </FilterChip>
             ))}
-          </div>
+          </ChipRow>
 
           {loadingTx ? (
             <div className="card-panel flex h-20 items-center justify-center">
-              <Loader2 className="h-5 w-5 animate-spin" />
+              <Loader2 className="h-5 w-5 animate-spin text-brand-700" />
             </div>
           ) : pageRows.length === 0 ? (
-            <div className="card-panel text-sm text-slate-500">
-              Chưa có giao dịch.
-            </div>
+            <EmptyState
+              icon={Wallet}
+              title="Chưa có giao dịch"
+              description="Ghi thu, chi hoặc nạp quỹ để bắt đầu sổ XD."
+            />
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="space-y-2">
               {pageRows.map((row) => {
                 const income = isConstructionServiceIncome(row);
                 const fundIn = isConstructionFundIn(row);
                 const isCk = row.paymentMethod === "banking";
                 return (
-                  <li
-                    key={row.id}
-                    className="rounded-xl bg-white px-3 py-2.5 ring-1 ring-slate-200"
-                  >
+                  <li key={row.id} className="card-panel !py-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase text-slate-500">
+                        <p className="text-xs font-bold uppercase text-slate-500">
                           {income
                             ? isCk
                               ? "Thu CK → vốn"
@@ -809,7 +727,7 @@ function ConstructionContent() {
                         </p>
                         <p
                           className={cn(
-                            "money text-base font-extrabold",
+                            "money text-base font-bold",
                             row.type === "expense"
                               ? "text-rose-700"
                               : "text-emerald-700"
@@ -819,11 +737,11 @@ function ConstructionContent() {
                           <Money amount={row.amount} />
                         </p>
                         {row.note ? (
-                          <p className="truncate text-xs text-slate-600">
+                          <p className="truncate text-sm text-slate-600">
                             {row.note}
                           </p>
                         ) : null}
-                        <p className="text-[11px] text-slate-400">
+                        <p className="text-sm text-slate-400">
                           {formatTxTime(row)} · {formatActorLabel(row)}
                         </p>
                       </div>
@@ -832,9 +750,9 @@ function ConstructionContent() {
                           type="button"
                           disabled={deletingId === row.id}
                           onClick={() => handleDeleteTx(row)}
-                          className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-50 text-slate-500 ring-1 ring-slate-200"
+                          className="touch-btn h-11 w-11 shrink-0 rounded-2xl bg-slate-50 p-0 text-slate-500 ring-1 ring-slate-200"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       ) : null}
                     </div>
@@ -850,18 +768,18 @@ function ConstructionContent() {
                 type="button"
                 disabled={safePage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
-                className="touch-btn h-10 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
+                className="touch-btn h-11 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
               >
                 <ChevronLeft className="h-4 w-4" /> Trước
               </button>
-              <span className="self-center text-xs text-slate-500">
+              <span className="self-center text-sm text-slate-500">
                 {safePage}/{totalPages}
               </span>
               <button
                 type="button"
                 disabled={safePage >= totalPages}
                 onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                className="touch-btn h-10 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
+                className="touch-btn h-11 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
               >
                 Sau <ChevronRight className="h-4 w-4" />
               </button>
@@ -871,212 +789,18 @@ function ConstructionContent() {
       ) : null}
 
       {tab === "jobs" ? (
-        <section className="mb-8 space-y-3">
+        <section className="space-y-4">
           {canManageShop ? (
             <button
               type="button"
-              onClick={() => (jobOpen ? setJobOpen(false) : openNewJob())}
-              className={cn(
-                "touch-btn h-12 w-full gap-2 text-sm font-bold text-white",
-                jobOpen ? "bg-slate-800" : "bg-teal-700"
-              )}
+              onClick={openNewJob}
+              className="touch-btn h-12 w-full gap-2 bg-brand-700 text-sm font-bold text-white"
             >
-              {jobOpen ? (
-                <>
-                  <X className="h-4 w-4" /> Đóng form
-                </>
-              ) : (
-                <>
-                  <Plus className="h-4 w-4" /> Thêm hạng mục / việc
-                </>
-              )}
+              <Plus className="h-4 w-4" /> Thêm hạng mục / việc
             </button>
           ) : null}
 
-          {jobOpen && canManageShop ? (
-            <form onSubmit={handleSaveJob} className="card-panel space-y-2.5">
-              <h2 className="section-title">
-                {editingJobId ? "Sửa hạng mục" : "Hạng mục mới"}
-              </h2>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold">Tên việc</span>
-                <input
-                  className="field-input"
-                  required
-                  value={jobForm.title}
-                  onChange={(e) =>
-                    setJobForm((f) => ({ ...f, title: e.target.value }))
-                  }
-                  placeholder="VD: Xây nhà anh A · Thuê NC công trình B"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Hạng mục
-                  </span>
-                  <select
-                    className="field-input"
-                    value={jobForm.category}
-                    onChange={(e) =>
-                      setJobForm((f) => ({ ...f, category: e.target.value }))
-                    }
-                  >
-                    {CONSTRUCTION_JOB_CATEGORIES.map((c) => (
-                      <option key={c.value} value={c.value}>
-                        {c.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Trạng thái
-                  </span>
-                  <select
-                    className="field-input"
-                    value={jobForm.status}
-                    onChange={(e) =>
-                      setJobForm((f) => ({ ...f, status: e.target.value }))
-                    }
-                  >
-                    {Object.entries(JOB_STATUS_LABEL).map(([k, v]) => (
-                      <option key={k} value={k}>
-                        {v}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold">
-                  Chủ đầu tư (khách / bên A)
-                </span>
-                <input
-                  className="field-input"
-                  value={jobForm.clientName}
-                  onChange={(e) =>
-                    setJobForm((f) => ({ ...f, clientName: e.target.value }))
-                  }
-                  placeholder="Tên khách"
-                />
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Số tiền HĐ
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    className="field-input money"
-                    value={jobForm.contractAmount}
-                    onChange={(e) =>
-                      setJobForm((f) => ({
-                        ...f,
-                        contractAmount: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Lãi ước
-                  </span>
-                  <input
-                    type="number"
-                    className="field-input money"
-                    value={jobForm.expectedProfit}
-                    onChange={(e) =>
-                      setJobForm((f) => ({
-                        ...f,
-                        expectedProfit: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Lãi thực
-                  </span>
-                  <input
-                    type="number"
-                    className="field-input money"
-                    value={jobForm.actualProfit}
-                    onChange={(e) =>
-                      setJobForm((f) => ({
-                        ...f,
-                        actualProfit: e.target.value,
-                      }))
-                    }
-                    placeholder="Khi quyết toán"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Số ngày
-                  </span>
-                  <input
-                    type="number"
-                    min="0"
-                    className="field-input"
-                    value={jobForm.durationDays}
-                    onChange={(e) =>
-                      setJobForm((f) => ({
-                        ...f,
-                        durationDays: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Từ ngày
-                  </span>
-                  <input
-                    type="date"
-                    className="field-input"
-                    value={jobForm.startDate}
-                    onChange={(e) =>
-                      setJobForm((f) => ({ ...f, startDate: e.target.value }))
-                    }
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs font-semibold">
-                    Đến ngày
-                  </span>
-                  <input
-                    type="date"
-                    className="field-input"
-                    value={jobForm.endDate}
-                    onChange={(e) =>
-                      setJobForm((f) => ({ ...f, endDate: e.target.value }))
-                    }
-                  />
-                </label>
-              </div>
-              <label className="block">
-                <span className="mb-1 block text-xs font-semibold">Ghi chú</span>
-                <textarea
-                  className="field-input min-h-[4rem]"
-                  value={jobForm.note}
-                  onChange={(e) =>
-                    setJobForm((f) => ({ ...f, note: e.target.value }))
-                  }
-                />
-              </label>
-              <button
-                type="submit"
-                disabled={savingJob}
-                className="touch-btn h-12 w-full bg-teal-700 text-white disabled:opacity-50"
-              >
-                {savingJob ? "Đang lưu…" : "Lưu hạng mục"}
-              </button>
-            </form>
-          ) : null}
-
-          <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+          <div className="card-panel !py-3 text-sm text-slate-600">
             {jobsSummary.count} việc
             {jobs.length > PAGE_SIZE
               ? ` · trang ${jobSafePage}/${jobTotalPages}`
@@ -1088,9 +812,22 @@ function ConstructionContent() {
           {loadingJobs ? (
             <div className="card-panel h-20 animate-pulse" />
           ) : jobs.length === 0 ? (
-            <div className="card-panel text-sm text-slate-500">
-              Chưa có hạng mục. Thêm việc để theo dõi CĐT, tiền, lãi, số ngày.
-            </div>
+            <EmptyState
+              icon={Building2}
+              title="Chưa có hạng mục"
+              description="Thêm việc để theo dõi CĐT, tiền, lãi, số ngày."
+              action={
+                canManageShop ? (
+                  <button
+                    type="button"
+                    onClick={openNewJob}
+                    className="touch-btn h-11 w-full bg-brand-700 text-sm font-bold text-white"
+                  >
+                    <Plus className="h-4 w-4" /> Thêm hạng mục
+                  </button>
+                ) : null
+              }
+            />
           ) : (
             <>
               {jobPageRows.map((job) => (
@@ -1100,14 +837,14 @@ function ConstructionContent() {
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-extrabold text-slate-900">{job.title}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-bold text-slate-900">{job.title}</p>
+                    <p className="text-sm text-slate-500">
                       {constructionJobCategoryLabel(job.category)}
                       {" · "}
                       {JOB_STATUS_LABEL[job.status] || job.status}
                     </p>
                     {job.clientName ? (
-                      <p className="mt-0.5 text-xs font-semibold text-teal-800">
+                      <p className="mt-0.5 text-sm font-semibold text-brand-800">
                         CĐT: {job.clientName}
                       </p>
                     ) : null}
@@ -1117,21 +854,21 @@ function ConstructionContent() {
                       <button
                         type="button"
                         onClick={() => openEditJob(job)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-slate-100"
+                        className="touch-btn h-11 w-11 rounded-2xl bg-slate-100 p-0"
                       >
-                        <Pencil className="h-3.5 w-3.5" />
+                        <Pencil className="h-4 w-4" />
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteJob(job)}
-                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 text-rose-600"
+                        className="touch-btn h-11 w-11 rounded-2xl bg-rose-50 p-0 text-rose-600"
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </button>
                     </div>
                   ) : null}
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="grid grid-cols-3 gap-2 text-sm">
                   <div>
                     <p className="text-slate-400">Tiền HĐ</p>
                     <p className="money font-bold">
@@ -1150,12 +887,12 @@ function ConstructionContent() {
                   </div>
                 </div>
                 {(job.startDate || job.endDate) && (
-                  <p className="text-[11px] text-slate-500">
+                  <p className="text-sm text-slate-500">
                     Thời gian: {job.startDate || "?"} → {job.endDate || "?"}
                   </p>
                 )}
                 {job.note ? (
-                  <p className="text-xs text-slate-600">{job.note}</p>
+                  <p className="text-sm text-slate-600">{job.note}</p>
                 ) : null}
               </article>
               ))}
@@ -1166,11 +903,11 @@ function ConstructionContent() {
                     type="button"
                     disabled={jobSafePage <= 1}
                     onClick={() => setJobPage((p) => Math.max(1, p - 1))}
-                    className="touch-btn h-10 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
+                    className="touch-btn h-11 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
                   >
                     <ChevronLeft className="h-4 w-4" /> Trước
                   </button>
-                  <span className="self-center text-xs text-slate-500">
+                  <span className="self-center text-sm text-slate-500">
                     {jobSafePage}/{jobTotalPages}
                   </span>
                   <button
@@ -1179,7 +916,7 @@ function ConstructionContent() {
                     onClick={() =>
                       setJobPage((p) => Math.min(jobTotalPages, p + 1))
                     }
-                    className="touch-btn h-10 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
+                    className="touch-btn h-11 flex-1 bg-white text-sm ring-1 ring-slate-200 disabled:opacity-35"
                   >
                     Sau <ChevronRight className="h-4 w-4" />
                   </button>
@@ -1189,6 +926,283 @@ function ConstructionContent() {
           )}
         </section>
       ) : null}
+      </div>
+
+      <BottomSheet
+        open={canManageShop && Boolean(mode)}
+        onClose={closeFundForm}
+        title={modeTitle[mode] || "Giao dịch quỹ"}
+        labelledBy="construction-fund-sheet"
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={closeFundForm}
+              className="touch-btn h-12 flex-1 border border-slate-200 bg-white text-slate-700"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              form="construction-fund-form"
+              disabled={saving}
+              className="touch-btn h-12 flex-[1.4] bg-brand-700 text-white disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : "Lưu"}
+            </button>
+          </div>
+        }
+      >
+        <form
+          id="construction-fund-form"
+          onSubmit={handleFundSave}
+          className="space-y-4"
+        >
+          {mode === "income" ? (
+            <label className="block">
+              <FieldLabel>Hình thức</FieldLabel>
+              <select
+                className="field-input"
+                value={payMethod}
+                onChange={(e) => setPayMethod(e.target.value)}
+              >
+                <option value="cash">Tiền mặt → quỹ XD</option>
+                <option value="banking">Chuyển khoản → vốn CĐT</option>
+              </select>
+            </label>
+          ) : null}
+          {mode === "expense" ? (
+            <label className="block">
+              <FieldLabel>Hạng mục chi</FieldLabel>
+              <select
+                className="field-input"
+                value={expenseCat}
+                onChange={(e) => setExpenseCat(e.target.value)}
+              >
+                {CONSTRUCTION_EXPENSE_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          <label className="block">
+            <FieldLabel>Số tiền</FieldLabel>
+            <input
+              type="number"
+              min="1"
+              required
+              className="field-input money"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
+          <label className="block">
+            <FieldLabel>Ngày</FieldLabel>
+            <input
+              type="date"
+              className="field-input"
+              value={dateInput}
+              max={todayInputValue()}
+              onChange={(e) => setDateInput(e.target.value)}
+              required
+            />
+          </label>
+          <label className="block">
+            <FieldLabel optional>Ghi chú</FieldLabel>
+            <input
+              className="field-input"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Note…"
+            />
+          </label>
+        </form>
+      </BottomSheet>
+
+      <BottomSheet
+        open={canManageShop && jobOpen}
+        onClose={() => setJobOpen(false)}
+        title={editingJobId ? "Sửa hạng mục" : "Hạng mục mới"}
+        labelledBy="construction-job-sheet"
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setJobOpen(false)}
+              className="touch-btn h-12 flex-1 border border-slate-200 bg-white text-slate-700"
+            >
+              Hủy
+            </button>
+            <button
+              type="submit"
+              form="construction-job-form"
+              disabled={savingJob}
+              className="touch-btn h-12 flex-[1.4] bg-brand-700 text-white disabled:opacity-50"
+            >
+              {savingJob ? "Đang lưu…" : "Lưu hạng mục"}
+            </button>
+          </div>
+        }
+      >
+        <form
+          id="construction-job-form"
+          onSubmit={handleSaveJob}
+          className="space-y-4"
+        >
+          <label className="block">
+            <FieldLabel>Tên việc</FieldLabel>
+            <input
+              className="field-input"
+              required
+              value={jobForm.title}
+              onChange={(e) =>
+                setJobForm((f) => ({ ...f, title: e.target.value }))
+              }
+              placeholder="VD: Xây nhà anh A · Thuê NC công trình B"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <FieldLabel>Hạng mục</FieldLabel>
+              <select
+                className="field-input"
+                value={jobForm.category}
+                onChange={(e) =>
+                  setJobForm((f) => ({ ...f, category: e.target.value }))
+                }
+              >
+                {CONSTRUCTION_JOB_CATEGORIES.map((c) => (
+                  <option key={c.value} value={c.value}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <FieldLabel>Trạng thái</FieldLabel>
+              <select
+                className="field-input"
+                value={jobForm.status}
+                onChange={(e) =>
+                  setJobForm((f) => ({ ...f, status: e.target.value }))
+                }
+              >
+                {Object.entries(JOB_STATUS_LABEL).map(([k, v]) => (
+                  <option key={k} value={k}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <FieldLabel optional>Chủ đầu tư</FieldLabel>
+            <input
+              className="field-input"
+              value={jobForm.clientName}
+              onChange={(e) =>
+                setJobForm((f) => ({ ...f, clientName: e.target.value }))
+              }
+              placeholder="Tên khách"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <FieldLabel>Số tiền HĐ</FieldLabel>
+              <input
+                type="number"
+                min="0"
+                className="field-input money"
+                value={jobForm.contractAmount}
+                onChange={(e) =>
+                  setJobForm((f) => ({
+                    ...f,
+                    contractAmount: e.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="block">
+              <FieldLabel>Lãi ước</FieldLabel>
+              <input
+                type="number"
+                className="field-input money"
+                value={jobForm.expectedProfit}
+                onChange={(e) =>
+                  setJobForm((f) => ({
+                    ...f,
+                    expectedProfit: e.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="block">
+              <FieldLabel optional>Lãi thực</FieldLabel>
+              <input
+                type="number"
+                className="field-input money"
+                value={jobForm.actualProfit}
+                onChange={(e) =>
+                  setJobForm((f) => ({
+                    ...f,
+                    actualProfit: e.target.value,
+                  }))
+                }
+                placeholder="Khi quyết toán"
+              />
+            </label>
+            <label className="block">
+              <FieldLabel optional>Số ngày</FieldLabel>
+              <input
+                type="number"
+                min="0"
+                className="field-input"
+                value={jobForm.durationDays}
+                onChange={(e) =>
+                  setJobForm((f) => ({
+                    ...f,
+                    durationDays: e.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label className="block">
+              <FieldLabel>Từ ngày</FieldLabel>
+              <input
+                type="date"
+                className="field-input"
+                value={jobForm.startDate}
+                onChange={(e) =>
+                  setJobForm((f) => ({ ...f, startDate: e.target.value }))
+                }
+              />
+            </label>
+            <label className="block">
+              <FieldLabel optional>Đến ngày</FieldLabel>
+              <input
+                type="date"
+                className="field-input"
+                value={jobForm.endDate}
+                onChange={(e) =>
+                  setJobForm((f) => ({ ...f, endDate: e.target.value }))
+                }
+              />
+            </label>
+          </div>
+          <label className="block">
+            <FieldLabel optional>Ghi chú</FieldLabel>
+            <textarea
+              className="field-input min-h-[4rem]"
+              value={jobForm.note}
+              onChange={(e) =>
+                setJobForm((f) => ({ ...f, note: e.target.value }))
+              }
+            />
+          </label>
+        </form>
+      </BottomSheet>
     </AppShell>
   );
 }

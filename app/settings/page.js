@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { doc, setDoc } from "firebase/firestore";
-import Link from "next/link";
 import {
   Building2,
   KeyRound,
@@ -18,11 +17,74 @@ import {
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { SharedQrSheet } from "@/components/SharedQr";
+import { FieldLabel, SectionHeader, SettingsRow } from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { db } from "@/lib/firebase";
 import { seedDefaultCatalog } from "@/lib/products";
 import { displayRoleLabel } from "@/lib/roles";
+
+function PasswordForm({
+  currentPassword,
+  setCurrentPassword,
+  newPassword,
+  setNewPassword,
+  confirmPassword,
+  setConfirmPassword,
+  changingPass,
+  onSubmit,
+  showLabels = true,
+}) {
+  return (
+    <form onSubmit={onSubmit} className="space-y-3">
+      <label className="block">
+        {showLabels ? <FieldLabel>Mật khẩu hiện tại</FieldLabel> : null}
+        <input
+          type="password"
+          required
+          autoComplete="current-password"
+          className="field-input"
+          value={currentPassword}
+          onChange={(e) => setCurrentPassword(e.target.value)}
+          placeholder={showLabels ? "••••••••" : "Mật khẩu hiện tại"}
+        />
+      </label>
+      <label className="block">
+        {showLabels ? <FieldLabel>Mật khẩu mới</FieldLabel> : null}
+        <input
+          type="password"
+          required
+          minLength={6}
+          autoComplete="new-password"
+          className="field-input"
+          value={newPassword}
+          onChange={(e) => setNewPassword(e.target.value)}
+          placeholder={showLabels ? "Tối thiểu 6 ký tự" : "Mật khẩu mới (≥6)"}
+        />
+      </label>
+      <label className="block">
+        {showLabels ? <FieldLabel>Xác nhận mật khẩu mới</FieldLabel> : null}
+        <input
+          type="password"
+          required
+          minLength={6}
+          autoComplete="new-password"
+          className="field-input"
+          value={confirmPassword}
+          onChange={(e) => setConfirmPassword(e.target.value)}
+          placeholder={showLabels ? "Nhập lại mật khẩu mới" : "Nhập lại mật khẩu"}
+        />
+      </label>
+      <button
+        type="submit"
+        disabled={changingPass}
+        className="btn-primary h-14 disabled:opacity-50"
+      >
+        {changingPass ? "Đang đổi..." : "Lưu mật khẩu"}
+      </button>
+    </form>
+  );
+}
 
 function SettingsContent() {
   const {
@@ -112,7 +174,6 @@ function SettingsContent() {
         username,
         name: profile?.name || username || "Người dùng",
       };
-      // Không tự gán role cao hơn — giữ role hiện có nếu đã có
       if (profile?.role) payload.role = profile.role;
       await setDoc(doc(db, "users", user.uid), payload, { merge: true });
       showToast("Đã đồng bộ hồ sơ users", "success");
@@ -122,69 +183,43 @@ function SettingsContent() {
     }
   };
 
+  const passwordProps = {
+    currentPassword,
+    setCurrentPassword,
+    newPassword,
+    setNewPassword,
+    confirmPassword,
+    setConfirmPassword,
+    changingPass,
+    onSubmit: handleChangePassword,
+  };
+
   if (isEmployee) {
     return (
       <AppShell title="Tài khoản" subtitle="Nhân viên" employeeMode>
-        <section className="card-panel mb-4 space-y-1 text-center">
-          <p className="text-xl font-extrabold text-slate-900">
+        <section className="mb-6 rounded-[1.25rem] bg-white px-5 py-6 text-center ring-1 ring-slate-200">
+          <p className="text-xl font-bold text-slate-900">
             {profile?.name || "—"}
           </p>
-          <p className="text-sm text-slate-500">
+          <p className="mt-1 text-sm text-slate-500">
             @{profile?.username || "—"} · Nhân viên
           </p>
         </section>
 
-        <section className="card-panel mb-4 space-y-3">
+        <section className="card-panel mb-6 space-y-4">
           <div className="flex items-center gap-2">
             <KeyRound className="h-5 w-5 text-brand-700" aria-hidden />
             <h2 className="section-title">Đổi mật khẩu</h2>
           </div>
-          <form onSubmit={handleChangePassword} className="space-y-3">
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              className="field-input"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="Mật khẩu hiện tại"
-            />
-            <input
-              type="password"
-              required
-              minLength={6}
-              autoComplete="new-password"
-              className="field-input"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Mật khẩu mới (≥6 ký tự)"
-            />
-            <input
-              type="password"
-              required
-              minLength={6}
-              autoComplete="new-password"
-              className="field-input"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Nhập lại mật khẩu mới"
-            />
-            <button
-              type="submit"
-              disabled={changingPass}
-              className="touch-btn h-14 w-full bg-slate-900 text-white"
-            >
-              {changingPass ? "Đang đổi..." : "Lưu mật khẩu"}
-            </button>
-          </form>
+          <PasswordForm {...passwordProps} showLabels={false} />
         </section>
 
         <button
           type="button"
           onClick={handleLogout}
-          className="touch-btn h-16 w-full gap-2 border-2 border-slate-200 bg-white text-base font-bold text-slate-800"
+          className="touch-btn h-14 w-full gap-2 border-2 border-slate-200 bg-white text-base font-bold text-slate-800"
         >
-          <LogOut className="h-6 w-6" />
+          <LogOut className="h-5 w-5" aria-hidden />
           Đăng xuất
         </button>
       </AppShell>
@@ -193,188 +228,106 @@ function SettingsContent() {
 
   return (
     <AppShell title="Cài đặt" subtitle="Tài khoản & tiện ích">
-      <section className="card-panel mb-4 space-y-2">
+      <section className="mb-6 rounded-[1.25rem] bg-white px-5 py-5 ring-1 ring-slate-200">
         <p className="text-sm text-slate-500">Đang đăng nhập</p>
-        <p className="text-lg font-bold">{profile?.name || "—"}</p>
-        <p className="text-sm text-slate-600">
+        <p className="mt-1 text-xl font-bold text-slate-900">
+          {profile?.name || "—"}
+        </p>
+        <p className="mt-0.5 text-sm text-slate-600">
           @{profile?.username || profile?.email?.split("@")[0] || "—"}
         </p>
-        <p className="inline-flex rounded-full bg-brand-50 px-3 py-1 text-xs font-semibold text-brand-800">
-          Vai trò: {displayRoleLabel(profile?.role)}
+        <p className="mt-3 inline-flex rounded-2xl bg-brand-50 px-3 py-1.5 text-xs font-semibold text-brand-800">
+          {displayRoleLabel(profile?.role)}
         </p>
       </section>
 
-      <section className="card-panel mb-4 space-y-3">
+      <section className="card-panel mb-6 space-y-4">
         <div className="flex items-center gap-2">
           <KeyRound className="h-5 w-5 text-brand-700" aria-hidden />
           <h2 className="section-title">Đổi mật khẩu</h2>
         </div>
-        <form onSubmit={handleChangePassword} className="space-y-3">
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Mật khẩu hiện tại
-            </span>
-            <input
-              type="password"
-              required
-              autoComplete="current-password"
-              className="field-input"
-              value={currentPassword}
-              onChange={(e) => setCurrentPassword(e.target.value)}
-              placeholder="••••••••"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Mật khẩu mới
-            </span>
-            <input
-              type="password"
-              required
-              minLength={6}
-              autoComplete="new-password"
-              className="field-input"
-              value={newPassword}
-              onChange={(e) => setNewPassword(e.target.value)}
-              placeholder="Tối thiểu 6 ký tự"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Xác nhận mật khẩu mới
-            </span>
-            <input
-              type="password"
-              required
-              minLength={6}
-              autoComplete="new-password"
-              className="field-input"
-              value={confirmPassword}
-              onChange={(e) => setConfirmPassword(e.target.value)}
-              placeholder="Nhập lại mật khẩu mới"
-            />
-          </label>
-          <button
-            type="submit"
-            disabled={changingPass}
-            className="touch-btn h-14 w-full bg-slate-900 text-white"
-          >
-            {changingPass ? "Đang đổi..." : "Lưu mật khẩu mới"}
-          </button>
-        </form>
+        <PasswordForm {...passwordProps} />
       </section>
 
-      {canOperateShop ? (
-        <button
-          type="button"
-          onClick={() => setShowQr(true)}
-          className="touch-btn mb-4 h-14 w-full bg-brand-700 text-white"
-        >
-          <QrCode className="h-5 w-5" aria-hidden />
-          QR tài khoản chung — đưa khách quét
-        </button>
-      ) : null}
+      <section className="mb-6 space-y-2">
+        <SectionHeader title="Truy cập nhanh" />
+        {canOperateShop ? (
+          <SettingsRow
+            icon={QrCode}
+            title="QR tài khoản chung"
+            onClick={() => setShowQr(true)}
+          />
+        ) : null}
 
-      {canManageUsers ? (
-        <Link
-          href="/admin/users"
-          className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-brand-700 px-5 text-white"
-        >
-          <span className="flex items-center gap-2">
-            <UserCog className="h-5 w-5" />
-            Người dùng · Admin
-          </span>
-          <span className="text-sm text-white/80">Mở →</span>
-        </Link>
-      ) : canManageEmployees ? (
-        <Link
-          href="/admin/users"
-          className="touch-btn mb-4 h-14 w-full justify-between gap-2 bg-emerald-700 px-5 text-white"
-        >
-          <span className="flex items-center gap-2">
-            <UserCog className="h-5 w-5" />
-            Nhân viên
-          </span>
-          <span className="text-sm text-white/80">Mở →</span>
-        </Link>
-      ) : null}
+        {canManageUsers ? (
+          <SettingsRow
+            href="/admin/users"
+            icon={UserCog}
+            title="Người dùng · Admin"
+          />
+        ) : canManageEmployees ? (
+          <SettingsRow href="/admin/users" icon={UserCog} title="Nhân viên" />
+        ) : null}
 
-      <section className="card-panel mb-4 space-y-3">
-        <h2 className="font-bold">Hồ sơ Firestore</h2>
-        <p className="text-sm text-slate-500">
-          Document <code>users/{user?.uid}</code> dùng role:{" "}
-          <code>superadmin</code>, <code>manager</code>, <code>employee</code>,
-          hoặc <code>investor</code>.
-        </p>
+        {canManageShop ? (
+          <>
+            <SettingsRow
+              href="/manager/construction"
+              icon={Building2}
+              title="Mảng xây dựng"
+            />
+            <SettingsRow
+              href="/manager/products"
+              icon={Package}
+              title="Món · công thức"
+            />
+            <SettingsRow
+              href="/manager/expenses"
+              icon={Wallet}
+              title="Quỹ cửa hàng"
+            />
+            <SettingsRow
+              href="/manager/inventory"
+              icon={Package}
+              title="Nhập hàng · tồn kho"
+            />
+            <SettingsRow
+              href="/admin/products"
+              icon={Package}
+              title="Setup nhóm SP"
+            />
+          </>
+        ) : null}
+      </section>
+
+      <section className="card-panel mb-6 space-y-3">
+        <SectionHeader title="Hồ sơ" hint="Đồng bộ document users" />
         <button
           type="button"
           onClick={ensureUserProfile}
-          className="touch-btn h-12 w-full gap-2 bg-slate-900 text-white"
+          className="btn-primary h-14"
         >
-          <UserPlus className="h-5 w-5" />
+          <UserPlus className="h-5 w-5" aria-hidden />
           Đồng bộ hồ sơ hiện tại
         </button>
       </section>
 
       {canManageShop ? (
-        <>
-          <Link
-            href="/manager/construction"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-orange-700 text-white"
+        <section className="card-panel mb-6 space-y-3">
+          <SectionHeader
+            title="Dữ liệu mẫu"
+            hint="Chỉ khi chưa có sản phẩm"
+          />
+          <button
+            type="button"
+            disabled={seeding}
+            onClick={seedProducts}
+            className="btn-primary h-14 disabled:opacity-50"
           >
-            <Building2 className="h-5 w-5" />
-            Mảng xây dựng · quỹ & hạng mục
-          </Link>
-
-          <Link
-            href="/manager/products"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-amber-600 text-white"
-          >
-            <Package className="h-5 w-5" />
-            Món · công thức
-          </Link>
-
-          <Link
-            href="/manager/expenses"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-rose-600 text-white"
-          >
-            <Wallet className="h-5 w-5" />
-            Quỹ cửa hàng · nạp & chi
-          </Link>
-
-          <Link
-            href="/manager/inventory"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-slate-900 text-white"
-          >
-            <Package className="h-5 w-5" />
-            Nhập hàng · tồn kho
-          </Link>
-
-          <Link
-            href="/admin/products"
-            className="touch-btn mb-4 h-14 w-full gap-2 bg-emerald-700 text-white"
-          >
-            <Package className="h-5 w-5" />
-            Setup nhóm SP (Admin)
-          </Link>
-
-          <section className="card-panel mb-4 space-y-3">
-            <h2 className="font-bold">Dữ liệu mẫu</h2>
-            <button
-              type="button"
-              disabled={seeding}
-              onClick={seedProducts}
-              className="touch-btn h-12 w-full gap-2 bg-brand-700 text-white disabled:opacity-50"
-            >
-              <PackagePlus className="h-5 w-5" />
-              {seeding ? "Đang seed..." : "Seed NL + Trà đá (công thức)"}
-            </button>
-            <p className="text-xs text-slate-500">
-              Tạo nguyên liệu (trà, đường, ly…) và thành phẩm có giá bán + cost
-              (công thức hoặc nhập tay). Chỉ khi chưa có sản phẩm.
-            </p>
-          </section>
-        </>
+            <PackagePlus className="h-5 w-5" aria-hidden />
+            {seeding ? "Đang seed..." : "Seed NL + Trà đá"}
+          </button>
+        </section>
       ) : null}
 
       <button
@@ -382,7 +335,7 @@ function SettingsContent() {
         onClick={handleLogout}
         className="touch-btn h-14 w-full gap-2 border border-slate-200 bg-white text-slate-800"
       >
-        <LogOut className="h-5 w-5" />
+        <LogOut className="h-5 w-5" aria-hidden />
         Đăng xuất
       </button>
 

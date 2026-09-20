@@ -13,6 +13,7 @@ import {
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { SharedQrSheet } from "@/components/SharedQr";
+import { FieldLabel } from "@/components/ui/MobileUI";
 import { useToast } from "@/components/Toast";
 import { DEFAULT_BANK } from "@/lib/bank";
 import {
@@ -102,10 +103,10 @@ function FundSettingsContent() {
   };
 
   return (
-    <AppShell title="Cấu hình" subtitle="Quỹ đối ngoại · QR chung">
+    <AppShell title="Cấu hình" subtitle="Quỹ đối ngoại · QR">
       <Link
         href="/dashboard/monthly"
-        className="mb-4 inline-flex min-h-12 items-center gap-2 text-sm font-semibold text-brand-700"
+        className="touch-btn mb-6 h-12 w-full justify-start gap-2 bg-white px-4 text-sm font-semibold text-brand-800 ring-1 ring-slate-200"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden />
         Về tổng kết tháng
@@ -114,26 +115,26 @@ function FundSettingsContent() {
       <button
         type="button"
         onClick={() => setPreviewQr(true)}
-        className="touch-btn mb-4 h-14 w-full bg-brand-700 text-white"
+        className="btn-primary mb-6 h-14"
       >
         <QrCode className="h-5 w-5" aria-hidden />
         Xem QR tài khoản chung
       </button>
 
-      <section className="card-panel mb-4 space-y-4">
+      <section className="card-panel mb-6 space-y-4">
         <div className="flex items-center gap-2">
           <Building2 className="h-5 w-5 text-brand-700" aria-hidden />
-          <h2 className="section-title">Tài khoản QR chung</h2>
+          <div className="min-w-0">
+            <h2 className="section-title">Tài khoản QR chung</h2>
+            <p className="mt-0.5 text-sm text-slate-500">
+              Khách quét nhận tiền nhanh
+            </p>
+          </div>
         </div>
-        <p className="text-sm text-slate-500">
-          Dùng cho nút QR nổi trên điện thoại — khách quét nhận tiền nhanh.
-        </p>
 
         <form onSubmit={handleSaveBank} className="space-y-3">
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Ngân hàng
-            </span>
+            <FieldLabel>Ngân hàng</FieldLabel>
             <input
               className="field-input"
               value={bank.bankName}
@@ -145,9 +146,7 @@ function FundSettingsContent() {
             />
           </label>
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Mã BIN ngân hàng (VietQR)
-            </span>
+            <FieldLabel>Mã BIN (VietQR)</FieldLabel>
             <input
               className="field-input"
               value={bank.bankBin}
@@ -158,14 +157,12 @@ function FundSettingsContent() {
               placeholder="970436"
               required
             />
-            <p className="mt-1 text-[11px] text-slate-400">
-              VD: Vietcombank = 970436, MB = 970422, Techcombank = 970407
+            <p className="mt-1.5 text-xs text-slate-400">
+              VCB 970436 · MB 970422 · TCB 970407
             </p>
           </label>
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Số tài khoản
-            </span>
+            <FieldLabel>Số tài khoản</FieldLabel>
             <input
               className="field-input"
               inputMode="numeric"
@@ -179,9 +176,7 @@ function FundSettingsContent() {
             />
           </label>
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Tên chủ tài khoản
-            </span>
+            <FieldLabel>Tên chủ tài khoản</FieldLabel>
             <input
               className="field-input"
               value={bank.accountName}
@@ -196,7 +191,7 @@ function FundSettingsContent() {
           <button
             type="submit"
             disabled={savingBank || loading}
-            className="touch-btn h-14 w-full bg-slate-900 text-white"
+            className="btn-primary h-14 disabled:opacity-50"
           >
             {savingBank ? (
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -211,20 +206,18 @@ function FundSettingsContent() {
       <section className="card-panel space-y-4">
         <div className="flex items-center gap-2">
           <Percent className="h-5 w-5 text-brand-700" aria-hidden />
-          <h2 className="section-title">Tỷ lệ trích lập</h2>
+          <div className="min-w-0">
+            <h2 className="section-title">Tỷ lệ trích lập</h2>
+            <p className="mt-0.5 text-sm leading-snug text-slate-500">
+              Trích {percent || 0}% lợi nhuận gộp vào Quỹ đối ngoại trước chia
+              cổ tức
+            </p>
+          </div>
         </div>
-
-        <p className="text-sm text-slate-500">
-          Mỗi tháng, nếu có lợi nhuận gộp dương, hệ thống trích{" "}
-          <strong>{percent || 0}%</strong> vào Quỹ đối ngoại trước khi chia cổ
-          tức cho cổ đông.
-        </p>
 
         <form onSubmit={handleSaveFund} className="space-y-3">
           <label className="block">
-            <span className="mb-2 block text-sm font-semibold text-slate-700">
-              Phần trăm (%) trích lập Quỹ đối ngoại / Tháng
-            </span>
+            <FieldLabel>% Quỹ đối ngoại / tháng</FieldLabel>
             <input
               type="number"
               inputMode="decimal"
@@ -243,7 +236,7 @@ function FundSettingsContent() {
           <button
             type="submit"
             disabled={savingFund || loading}
-            className="touch-btn h-14 w-full bg-brand-700 text-white"
+            className="btn-primary h-14 disabled:opacity-50"
           >
             {savingFund ? (
               <Loader2 className="h-5 w-5 animate-spin" />

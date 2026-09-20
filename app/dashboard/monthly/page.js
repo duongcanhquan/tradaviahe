@@ -7,7 +7,6 @@ import {
   Banknote,
   CalendarDays,
   Loader2,
-  Percent,
   Settings2,
   Trash2,
   Wallet,
@@ -15,7 +14,15 @@ import {
 import AppShell from "@/components/AppShell";
 import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { Money } from "@/components/StatusBadges";
+import { Money, StatCard } from "@/components/StatusBadges";
+import {
+  BottomSheet,
+  ChipRow,
+  EmptyState,
+  FieldLabel,
+  FilterChip,
+  SectionHeader,
+} from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
@@ -98,6 +105,7 @@ function MonthlyContent() {
   const [receiptAmount, setReceiptAmount] = useState("");
   const [receiptMethod, setReceiptMethod] = useState("banking");
   const [receiptNote, setReceiptNote] = useState("");
+  const [receiptSheetOpen, setReceiptSheetOpen] = useState(false);
 
   const { year, monthIndex } = useMemo(
     () => parseMonthInput(monthValue),
@@ -276,6 +284,7 @@ function MonthlyContent() {
       });
       setReceiptAmount("");
       setReceiptNote("");
+      setReceiptSheetOpen(false);
       showToast("Đã ghi tiền nhận", "success");
     } catch (error) {
       console.error(error);
@@ -305,12 +314,15 @@ function MonthlyContent() {
           : `Quản lý · chỉ tổng thu món · ${monthLabel}`
       }
     >
-      <section className="card-panel mb-4 space-y-3">
+      <div className="space-y-4">
+      <section className="card-panel space-y-4">
         <label className="block">
-          <span className="mb-2 flex items-center gap-2 text-sm font-semibold text-slate-700">
-            <CalendarDays className="h-4 w-4 text-brand-700" aria-hidden />
-            Chọn tháng / năm
-          </span>
+          <FieldLabel>
+            <span className="inline-flex items-center gap-2">
+              <CalendarDays className="h-4 w-4 text-brand-700" aria-hidden />
+              Chọn tháng / năm
+            </span>
+          </FieldLabel>
           <input
             type="month"
             className="field-input"
@@ -331,12 +343,11 @@ function MonthlyContent() {
             setDateTo(bounds.to);
           }}
           summary={
-            <p className="text-[11px] text-slate-600">
-              Tổng kết theo:{" "}
+            <p className="text-sm text-slate-600">
+              Kỳ ·{" "}
               <span className="font-semibold">
                 {formatRangeLabel(dateFrom, dateTo)}
               </span>
-              . Đổi tháng sẽ reset khoảng ngày.
             </p>
           }
         />
@@ -347,7 +358,7 @@ function MonthlyContent() {
             className="touch-btn h-12 w-full gap-2 border border-slate-200 bg-slate-50 text-slate-800"
           >
             <Settings2 className="h-5 w-5" aria-hidden />
-            Cấu hình % quỹ đối ngoại (trước chia lãi)
+            Cấu hình % quỹ đối ngoại
           </Link>
         ) : null}
       </section>
@@ -358,195 +369,169 @@ function MonthlyContent() {
           Đang tải...
         </div>
       ) : !canViewDividends ? (
-        /* —— Quản lý: chỉ thu hàng hóa —— */
-        <section className="space-y-3">
-          <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-6 text-white shadow-md">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
-              Tổng thu hàng hóa · {formatRangeLabel(dateFrom, dateTo)}
-            </p>
-            <p className="money mt-2 text-4xl font-extrabold leading-none">
-              <Money amount={goodsIncome.total} />
-            </p>
-            <p className="mt-3 text-sm text-white/85">
-              Chỉ doanh thu bán món — không gồm cổ tức / chia lãi
-            </p>
-          </div>
+        <section className="space-y-4">
+          <StatCard
+            label={`Tổng thu hàng hóa · ${formatRangeLabel(dateFrom, dateTo)}`}
+            value={goodsIncome.total}
+            tone="success"
+          />
 
-          <div className="grid grid-cols-2 gap-2">
-            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+            <div className="grid grid-cols-2 gap-2">
+            <div className="card-panel !p-3">
               <p className="text-xs font-semibold text-slate-500">Tiền mặt</p>
-              <p className="money mt-1 text-xl font-extrabold text-slate-900">
+              <p className="money mt-1 text-lg font-bold text-slate-900">
                 <Money amount={goodsIncome.cash} />
               </p>
             </div>
-            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+            <div className="card-panel !p-3">
               <p className="text-xs font-semibold text-slate-500">Chuyển khoản</p>
-              <p className="money mt-1 text-xl font-extrabold text-brand-800">
+              <p className="money mt-1 text-lg font-bold text-brand-800">
                 <Money amount={goodsIncome.banking} />
               </p>
             </div>
-            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+            <div className="card-panel !p-3">
               <p className="text-xs font-semibold text-slate-500">Chi quỹ</p>
-              <p className="money mt-1 text-xl font-extrabold text-rose-700">
+              <p className="money mt-1 text-lg font-bold text-rose-700">
                 <Money amount={periodExpense} />
               </p>
             </div>
-            <div className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200">
+            <div className="card-panel !p-3">
               <p className="text-xs font-semibold text-slate-500">Thu − chi</p>
-              <p className="money mt-1 text-xl font-extrabold text-emerald-700">
+              <p className="money mt-1 text-lg font-bold text-emerald-700">
                 <Money amount={goodsIncome.total - periodExpense} />
               </p>
             </div>
           </div>
 
-          <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-100">
-            Cổ tức, chia lãi và vốn góp chỉ Cổ đông / Super Admin xem và cập nhật.
+          <p className="text-sm leading-snug text-slate-500">
+            Cổ tức / chia lãi / vốn góp chỉ Cổ đông & Super Admin xem.
           </p>
         </section>
       ) : (
-        /* —— Cổ đông / SA —— */
         <>
-          <section className="card-panel mb-4 space-y-3">
-            <h2 className="section-title">Kết quả kinh doanh</h2>
-            <p className="text-xs text-slate-500">
-              Kỳ · {formatRangeLabel(dateFrom, dateTo)}
-            </p>
+          <section className="space-y-4">
+            <SectionHeader
+              title="Kết quả kinh doanh"
+              hint={`Kỳ · ${formatRangeLabel(dateFrom, dateTo)}`}
+            />
+
+            <StatCard
+              label="Lợi nhuận gộp"
+              value={report.grossProfit}
+              tone={report.isLoss ? "danger" : "brand"}
+            />
+            {report.isLoss ? (
+              <p className="alert-soft font-semibold">
+                Tháng này lỗ, không chia
+              </p>
+            ) : null}
 
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-xl bg-emerald-50 px-3 py-2">
-                <p className="text-xs text-emerald-800">Thu TM</p>
-                <p className="money font-extrabold text-emerald-700">
+              <div className="card-panel !p-3">
+                <p className="text-xs text-slate-500">Thu TM</p>
+                <p className="money font-bold text-emerald-700">
                   <Money amount={goodsIncome.cash} />
                 </p>
               </div>
-              <div className="rounded-xl bg-brand-50 px-3 py-2">
-                <p className="text-xs text-brand-800">Thu CK</p>
-                <p className="money font-extrabold text-brand-800">
+              <div className="card-panel !p-3">
+                <p className="text-xs text-slate-500">Thu CK</p>
+                <p className="money font-bold text-brand-800">
                   <Money amount={goodsIncome.banking} />
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-emerald-50 px-4 py-3">
-              <span className="text-sm font-medium text-emerald-800">
+            <div className="card-panel flex items-center justify-between gap-3 !py-3">
+              <span className="text-sm font-medium text-slate-700">
                 Doanh thu bán hàng
               </span>
-              <span className="money text-lg font-extrabold text-emerald-700">
+              <span className="money text-lg font-bold text-emerald-700">
                 <Money amount={report.totalRevenue} />
               </span>
             </div>
 
-            <div className="flex items-center justify-between gap-3 rounded-2xl bg-rose-50 px-4 py-3">
-              <span className="text-sm font-medium text-rose-800">
+            <div className="card-panel flex items-center justify-between gap-3 !py-3">
+              <span className="text-sm font-medium text-slate-700">
                 Chi quỹ cửa hàng
               </span>
-              <span className="money text-lg font-extrabold text-rose-700">
+              <span className="money text-lg font-bold text-rose-700">
                 <Money amount={report.totalExpenses} />
               </span>
             </div>
 
-            <div
-              className={cn(
-                "rounded-[1.25rem] px-4 py-5 text-white shadow-md",
-                report.isLoss
-                  ? "bg-gradient-to-br from-rose-600 to-rose-700"
-                  : "bg-gradient-to-br from-brand-700 to-brand-800"
-              )}
-            >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/75">
-                Lợi nhuận gộp
-              </p>
-              <p className="money mt-2 text-3xl font-extrabold leading-none">
-                <Money amount={report.grossProfit} />
-              </p>
-              {report.isLoss ? (
-                <p className="mt-3 text-sm font-semibold text-white/90">
-                  Tháng này lỗ, không chia
-                </p>
-              ) : null}
-            </div>
-
             <div className="card-panel space-y-3">
               <h3 className="section-title mb-0">
-                Tham khảo · Lãi kinh doanh (chưa chia cổ tức)
+                Tham khảo · Lãi kinh doanh
               </h3>
               <div className="grid grid-cols-3 gap-2 text-sm">
-                <div className="rounded-2xl bg-rose-50 px-3 py-3">
-                  <p className="text-xs text-rose-700/80">Giá vốn</p>
-                  <p className="money mt-1 text-lg font-extrabold text-rose-700">
+                <div className="card-panel !p-3">
+                  <p className="text-xs text-slate-500">Giá vốn</p>
+                  <p className="money mt-1 text-lg font-bold text-rose-700">
                     <Money amount={shopPnl.cogs} />
                   </p>
                 </div>
-                <div className="rounded-2xl bg-emerald-50 px-3 py-3">
-                  <p className="text-xs text-emerald-800">Lãi gộp (thu − vốn)</p>
-                  <p className="money mt-1 text-lg font-extrabold text-emerald-700">
+                <div className="card-panel !p-3">
+                  <p className="text-xs text-slate-500">Lãi gộp</p>
+                  <p className="money mt-1 text-lg font-bold text-emerald-700">
                     <Money amount={shopPnl.grossMargin} />
                   </p>
                 </div>
-                <div className="rounded-2xl bg-brand-50 px-3 py-3">
-                  <p className="text-xs text-brand-800">Lãi kinh doanh</p>
-                  <p className="money mt-1 text-lg font-extrabold text-brand-800">
+                <div className="card-panel !p-3">
+                  <p className="text-xs text-slate-500">Lãi KD</p>
+                  <p className="money mt-1 text-lg font-bold text-brand-800">
                     <Money amount={shopPnl.operatingProfit} />
                   </p>
                 </div>
               </div>
-              <p className="text-xs text-slate-500">
-                Lãi gộp = doanh thu − giá vốn món bán. Cổ tức phía dưới vẫn theo
-                Thu − chi (Lens 1), chưa đổi.
+              <p className="text-sm text-slate-500">
+                Cổ tức dưới đây vẫn theo Thu − chi (Lens 1).
               </p>
             </div>
           </section>
 
-          <section className="card-panel mb-4 space-y-3">
-            <div className="flex items-center gap-2">
-              <Percent className="h-5 w-5 text-brand-700" aria-hidden />
-              <h2 className="section-title">Quỹ đối ngoại & dự phòng</h2>
-            </div>
+          <section className="card-panel space-y-4">
+            <SectionHeader title="Quỹ đối ngoại & dự phòng" />
 
             <div className="grid grid-cols-2 gap-2 text-sm">
-              <div className="rounded-2xl bg-slate-50 px-3 py-3">
+              <div className="card-panel !p-3">
                 <p className="text-xs text-slate-500">Tỷ lệ trích lập</p>
-                <p className="money mt-1 text-xl font-extrabold text-slate-900">
+                <p className="money mt-1 text-xl font-bold text-slate-900">
                   {report.relationFundPercent}%
                 </p>
               </div>
-              <div className="rounded-2xl bg-amber-50 px-3 py-3">
-                <p className="text-xs text-amber-700/80">Trích vào quỹ</p>
-                <p className="money mt-1 text-lg font-extrabold text-amber-800">
+              <div className="card-panel !p-3">
+                <p className="text-xs text-slate-500">Trích vào quỹ</p>
+                <p className="money mt-1 text-lg font-bold text-slate-900">
                   <Money amount={report.relationsFund} />
                 </p>
               </div>
             </div>
 
-            <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-4 py-5 text-white shadow-md">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80">
-                Lợi nhuận ròng phân bổ
-              </p>
-              <p className="money mt-2 text-4xl font-extrabold leading-none">
-                <Money amount={report.netProfit} />
-              </p>
-              <p className="mt-2 text-xs text-white/80">
-                Số tiền thật để chia cổ tức
-              </p>
-            </div>
+            <StatCard
+              label="Lợi nhuận ròng phân bổ"
+              value={report.netProfit}
+              tone={report.isLoss ? "danger" : "success"}
+            />
+            <p className="hint-line -mt-2">
+              Số tiền thật để chia cổ tức
+            </p>
           </section>
 
-          <section className="mb-6 space-y-3">
-            <div className="flex items-center gap-2">
-              <Wallet className="h-5 w-5 text-brand-700" aria-hidden />
-              <h2 className="section-title">Bảng chia cổ tức</h2>
-            </div>
+          <section className="space-y-4">
+            <SectionHeader title="Bảng chia cổ tức" />
 
             {report.isLoss ? (
-              <div className="card-panel border-rose-100 bg-rose-50 text-center text-sm font-semibold text-rose-700">
+              <div className="alert-soft text-center font-semibold">
                 Tháng này lỗ, không chia
               </div>
             ) : null}
 
             {report.investorShares.length === 0 ? (
-              <div className="card-panel text-sm text-slate-500">
-                Chưa có dữ liệu tiền đầu tư. Vào mục Vốn để khai báo trước.
-              </div>
+              <EmptyState
+                icon={Wallet}
+                title="Chưa có dữ liệu vốn"
+                description="Vào mục Vốn để khai báo trước khi chia."
+              />
             ) : (
               report.investorShares.map((row) => (
                 <article key={row.name} className="card-panel space-y-2">
@@ -555,8 +540,8 @@ function MonthlyContent() {
                       <p className="truncate font-bold text-slate-900">
                         {row.name}
                       </p>
-                      <p className="text-xs text-slate-500">
-                        Tỷ lệ sở hữu:{" "}
+                      <p className="text-sm text-slate-500">
+                        Sở hữu{" "}
                         <strong>{row.ownershipPercent.toFixed(1)}%</strong>
                         {" · "}
                         Vốn: <Money amount={row.capital} />
@@ -564,7 +549,7 @@ function MonthlyContent() {
                     </div>
                     <p
                       className={cn(
-                        "money shrink-0 text-lg font-extrabold",
+                        "money shrink-0 text-lg font-bold",
                         report.isLoss ? "text-rose-600" : "text-emerald-700"
                       )}
                     >
@@ -576,144 +561,76 @@ function MonthlyContent() {
             )}
           </section>
 
-          {/* Tiền cổ đông đã nhận — TM hoặc CK vào tài khoản */}
           {canManageShareholderReceipts ? (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Banknote className="h-5 w-5 text-emerald-700" aria-hidden />
-                <h2 className="section-title">Tiền cổ đông đã nhận</h2>
-              </div>
-              <p className="text-sm text-slate-500">
-                Khách trả tiền mặt hoặc chuyển khoản — cổ đông cập nhật số đã
-                nhận vào tay / tài khoản theo tháng.
-              </p>
-
-              <form
-                onSubmit={handleAddReceipt}
-                className="card-panel space-y-3"
-              >
-                <label className="block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Cổ đông
-                  </span>
-                  {investorNames.length ? (
-                    <select
-                      className="field-input"
-                      value={receiptName}
-                      onChange={(e) => setReceiptName(e.target.value)}
-                      required
-                    >
-                      {investorNames.map((name) => (
-                        <option key={name} value={name}>
-                          {name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <input
-                      className="field-input"
-                      value={receiptName}
-                      onChange={(e) => setReceiptName(e.target.value)}
-                      placeholder="Tên cổ đông"
-                      required
-                    />
-                  )}
-                </label>
-
-                <label className="block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Số tiền nhận
-                  </span>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    className="field-input"
-                    value={receiptAmount}
-                    onChange={(e) => setReceiptAmount(e.target.value)}
-                    placeholder="vd: 500000"
-                  />
-                </label>
-
-                <div className="grid grid-cols-2 gap-2">
-                  {RECEIPT_METHODS.map((m) => (
-                    <button
-                      key={m.value}
-                      type="button"
-                      onClick={() => setReceiptMethod(m.value)}
-                      className={cn(
-                        "touch-btn h-12 text-sm",
-                        receiptMethod === m.value
-                          ? "bg-emerald-600 text-white"
-                          : "bg-slate-100 text-slate-700"
-                      )}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-
-                <label className="block">
-                  <span className="mb-1 block text-sm font-semibold">
-                    Ghi chú
-                  </span>
-                  <input
-                    className="field-input"
-                    value={receiptNote}
-                    onChange={(e) => setReceiptNote(e.target.value)}
-                    placeholder="vd: CK về STK ACB"
-                  />
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={savingReceipt}
-                  className="touch-btn h-14 w-full bg-brand-700 text-white disabled:opacity-50"
-                >
-                  {savingReceipt ? "Đang lưu..." : "Cập nhật tiền nhận"}
-                </button>
-              </form>
+            <section className="space-y-4">
+              <SectionHeader
+                title="Tiền cổ đông đã nhận"
+                hint="Cập nhật số đã nhận TM / CK theo tháng."
+                action={
+                  <button
+                    type="button"
+                    onClick={() => setReceiptSheetOpen(true)}
+                    className="touch-btn h-11 gap-1 bg-brand-700 px-3 text-sm font-bold text-white"
+                  >
+                    <Banknote className="h-4 w-4" />
+                    Ghi nhận
+                  </button>
+                }
+              />
 
               <div className="grid grid-cols-3 gap-2 text-sm">
-                <div className="rounded-2xl bg-slate-50 px-3 py-3">
-                  <p className="text-[11px] text-slate-500">Tổng nhận</p>
-                  <p className="money font-extrabold">
+                <div className="card-panel !p-3">
+                  <p className="text-xs text-slate-500">Tổng nhận</p>
+                  <p className="money font-bold">
                     <Money amount={receiptSummary.total} />
                   </p>
                 </div>
-                <div className="rounded-2xl bg-emerald-50 px-3 py-3">
-                  <p className="text-[11px] text-emerald-700/80">Tiền mặt</p>
-                  <p className="money font-extrabold text-emerald-800">
+                <div className="card-panel !p-3">
+                  <p className="text-xs text-emerald-700/80">Tiền mặt</p>
+                  <p className="money font-bold text-emerald-800">
                     <Money amount={receiptSummary.cash} />
                   </p>
                 </div>
-                <div className="rounded-2xl bg-brand-50 px-3 py-3">
-                  <p className="text-[11px] text-brand-700/80">Tài khoản</p>
-                  <p className="money font-extrabold text-brand-800">
+                <div className="card-panel !p-3">
+                  <p className="text-xs text-brand-700/80">Tài khoản</p>
+                  <p className="money font-bold text-brand-800">
                     <Money amount={receiptSummary.banking} />
                   </p>
                 </div>
               </div>
 
               {loadingReceipts ? (
-                <p className="text-center text-sm text-slate-400">Đang tải...</p>
+                <div className="card-panel flex h-20 items-center justify-center">
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-700" />
+                </div>
               ) : receipts.length === 0 ? (
-                <p className="text-center text-sm text-slate-500">
-                  Chưa có dòng nhận tháng này
-                </p>
+                <EmptyState
+                  icon={Banknote}
+                  title="Chưa có dòng nhận"
+                  description="Ghi số tiền cổ đông đã nhận trong tháng này."
+                  action={
+                    <button
+                      type="button"
+                      onClick={() => setReceiptSheetOpen(true)}
+                      className="touch-btn h-11 w-full bg-brand-700 text-sm font-bold text-white"
+                    >
+                      Ghi tiền nhận
+                    </button>
+                  }
+                />
               ) : (
                 receipts.map((row) => {
                   const ms = row.timestamp?.toMillis?.() || 0;
                   return (
                     <div
                       key={row.id}
-                      className="flex items-center justify-between gap-2 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200"
+                      className="card-panel flex items-center justify-between gap-2 !py-3"
                     >
                       <div className="min-w-0">
                         <p className="truncate font-bold text-slate-900">
                           {row.investorName}
                         </p>
-                        <p className="text-xs text-slate-500">
+                        <p className="text-sm text-slate-500">
                           {row.method === "banking"
                             ? "Chuyển khoản / TK"
                             : "Tiền mặt"}
@@ -729,14 +646,14 @@ function MonthlyContent() {
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-2">
-                        <p className="money font-extrabold text-emerald-700">
+                        <p className="money font-bold text-emerald-700">
                           {formatCurrency(row.amount)}
                         </p>
                         <button
                           type="button"
                           aria-label="Xóa"
                           onClick={() => handleDeleteReceipt(row.id)}
-                          className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-50 text-rose-700"
+                          className="touch-btn h-11 w-11 rounded-2xl bg-rose-50 p-0 text-rose-700"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -749,6 +666,106 @@ function MonthlyContent() {
           ) : null}
         </>
       )}
+      </div>
+
+      {canManageShareholderReceipts ? (
+        <BottomSheet
+          open={receiptSheetOpen}
+          onClose={() => setReceiptSheetOpen(false)}
+          title="Ghi tiền cổ đông nhận"
+          subtitle={`Tháng ${monthLabel}`}
+          labelledBy="monthly-receipt-sheet"
+          footer={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setReceiptSheetOpen(false)}
+                className="touch-btn h-12 flex-1 border border-slate-200 bg-white text-slate-700"
+              >
+                Hủy
+              </button>
+              <button
+                type="submit"
+                form="monthly-receipt-form"
+                disabled={savingReceipt}
+                className="touch-btn h-12 flex-[1.4] bg-brand-700 text-white disabled:opacity-50"
+              >
+                {savingReceipt ? "Đang lưu..." : "Cập nhật"}
+              </button>
+            </div>
+          }
+        >
+          <form
+            id="monthly-receipt-form"
+            onSubmit={handleAddReceipt}
+            className="space-y-4"
+          >
+            <label className="block">
+              <FieldLabel>Cổ đông</FieldLabel>
+              {investorNames.length ? (
+                <select
+                  className="field-input"
+                  value={receiptName}
+                  onChange={(e) => setReceiptName(e.target.value)}
+                  required
+                >
+                  {investorNames.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  className="field-input"
+                  value={receiptName}
+                  onChange={(e) => setReceiptName(e.target.value)}
+                  placeholder="Tên cổ đông"
+                  required
+                />
+              )}
+            </label>
+
+            <label className="block">
+              <FieldLabel>Số tiền nhận</FieldLabel>
+              <input
+                type="number"
+                min="1"
+                required
+                className="field-input"
+                value={receiptAmount}
+                onChange={(e) => setReceiptAmount(e.target.value)}
+                placeholder="vd: 500000"
+              />
+            </label>
+
+            <div>
+              <FieldLabel>Hình thức</FieldLabel>
+              <ChipRow>
+                {RECEIPT_METHODS.map((m) => (
+                  <FilterChip
+                    key={m.value}
+                    active={receiptMethod === m.value}
+                    onClick={() => setReceiptMethod(m.value)}
+                  >
+                    {m.label}
+                  </FilterChip>
+                ))}
+              </ChipRow>
+            </div>
+
+            <label className="block">
+              <FieldLabel optional>Ghi chú</FieldLabel>
+              <input
+                className="field-input"
+                value={receiptNote}
+                onChange={(e) => setReceiptNote(e.target.value)}
+                placeholder="vd: CK về STK ACB"
+              />
+            </label>
+          </form>
+        </BottomSheet>
+      ) : null}
     </AppShell>
   );
 }

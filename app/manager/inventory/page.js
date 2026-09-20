@@ -2,24 +2,41 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { format } from "date-fns";
+import { vi } from "date-fns/locale";
 import { doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import {
   ClipboardList,
+  History,
   Loader2,
   Pencil,
   Plus,
   Save,
   Trash2,
-  X,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import { Money, StatCard } from "@/components/StatusBadges";
+import { Money, MetricTile, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
+import {
+  BottomSheet,
+  ChipRow,
+  EmptyState,
+  FieldLabel,
+  FilterChip,
+  SectionHeader,
+} from "@/components/ui/MobileUI";
 import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
+import {
+  fundSourceLabel,
+  listProductReceiveHistory,
+  paymentMethodLabel,
+  summarizeProductReceiveHistory,
+} from "@/lib/inventoryReceiveHistory";
 import { subscribeCollection } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
+import { subscribeShareholderCapital } from "@/lib/shareholderCapital";
 import {
   buildIngredientPackUnits,
   defaultIngredientPackHint,
@@ -41,6 +58,7 @@ import {
   recomputeRecipeCosts,
   subscribeProducts,
   updateProduct,
+  zeroRecipeProductStocks,
 } from "@/lib/products";
 import { isInventoryReceivable, productUsesRecipe } from "@/lib/recipe";
 import { lineStockCostValue, summarizeInventory } from "@/lib/stock";
@@ -111,6 +129,17 @@ function stockLine(product) {
   return `${qty} ${base} ≈ ${formatUnitCount(qty / pack.factor)} ${pack.label}`;
 }
 
+function formatReceiveHistoryTime(row) {
+  if (row?.dateMs) {
+    try {
+      return format(new Date(row.dateMs), "HH:mm · dd/MM/yyyy", { locale: vi });
+    } catch {
+      /* fall through */
+    }
+  }
+  return row?.businessDate || "—";
+}
+
 const emptyForm = (kind = PRODUCT_KIND.INGREDIENT) => {
   const isFin = kind === PRODUCT_KIND.FINISHED;
   const unit = isFin ? "chai" : "g";
@@ -173,6 +202,8 @@ function InventoryContent() {
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
   const [allTx, setAllTx] = useState([]);
+  const [capitalEntries, setCapitalEntries] = useState([]);
+  const [historyProduct, setHistoryProduct] = useState(null);
   const [backfillPay, setBackfillPay] = useState("cash");
   const [backfilling, setBackfilling] = useState(false);
 
@@ -200,9 +231,30 @@ function InventoryContent() {
     return () => unsub();
   }, []);
 
+  useEffect(() => {
+    const unsub = subscribeShareholderCapital(
+      (rows) => setCapitalEntries(rows),
+      () => setCapitalEntries([])
+    );
+    return () => unsub();
+  }, []);
+
   const backfillPreview = useMemo(
     () => previewInventoryFundBackfill(products, allTx),
     [products, allTx]
+  );
+
+  const productReceiveHistory = useMemo(() => {
+    if (!historyProduct?.id) return [];
+    return listProductReceiveHistory(historyProduct.id, {
+      transactions: allTx,
+      capitalEntries,
+    });
+  }, [historyProduct, allTx, capitalEntries]);
+
+  const productReceiveSummary = useMemo(
+    () => summarizeProductReceiveHistory(productReceiveHistory),
+    [productReceiveHistory]
   );
 
   const visible = useMemo(() => {
@@ -267,6 +319,27 @@ function InventoryContent() {
     e.preventDefault();
     if (!form.name.trim()) {
       showToast("Nhập tên hàng", "error");
+      return;
+    }
+    const nameKey = String(form.name || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    const dup = products.find(
+      (p) =>
+        p.active !== false &&
+        String(p.name || "")
+          .trim()
+          .toLowerCase()
+          .replace(/\s+/g, " ") === nameKey
+    );
+    if (dup) {
+      showToast(
+        `Đã có “${dup.name}” trong danh mục — tìm và nhập trên hàng đó, đừng tạo trùng`,
+        "error"
+      );
+      setShowAdd(false);
+      setNameQuery(dup.name);
       return;
     }
     const isFin = form.kind === PRODUCT_KIND.FINISHED;
@@ -691,85 +764,94 @@ function InventoryContent() {
     }
   };
 
+  const handleZeroRecipeStocks = async () => {
+    if (!isSuperAdmin) return;
+    const ghost = products.filter(
+      (p) => productUsesRecipe(p) && (Number(p.inStock) || 0) !== 0
+    );
+    if (!ghost.length) {
+      showToast("Không có món CT nào còn tồn ảo", "info");
+      return;
+    }
+    const ok = window.confirm(
+      `Đưa tồn về 0 cho ${ghost.length} món công thức?\n\n` +
+        ghost
+          .slice(0, 8)
+          .map((p) => `• ${p.name}: ${p.inStock}`)
+          .join("\n") +
+        (ghost.length > 8 ? `\n… (+${ghost.length - 8})` : "") +
+        `\n\nMón nấu không nhập kho — tồn chỉ trừ NL/thành phẩm trong CT.`
+    );
+    if (!ok) return;
+    try {
+      const n = await zeroRecipeProductStocks(products);
+      showToast(`Đã xóa tồn ảo ${n} món công thức`, "success");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Không xóa được tồn ảo", "error");
+    }
+  };
+
   return (
     <AppShell
       title="Nhập hàng"
-      subtitle="Tồn kho · giá nhập · giá trị"
+      subtitle="Chọn hàng có sẵn · cộng tồn · trừ quỹ"
       dense
     >
-      <p className="mb-3 text-xs leading-relaxed text-slate-500">
-        <strong>Nguyên liệu</strong> = đường, mì, trứng.{" "}
-        <strong>Thành phẩm nhập</strong> = AVIA / chai nước… nhập thùng × số
-        chai, bán lẻ POS. Món nấu/pha:{" "}
+      <p className="mb-3 text-sm text-slate-500">
+        Chọn hàng có sẵn rồi nhập SL · món nấu tại{" "}
         <Link
           href="/manager/products"
-          className="font-bold text-brand-800 underline"
+          className="font-semibold text-brand-800 underline"
         >
           Món · giá
         </Link>
-        . Nhập trừ quỹ TM/CK.
+        .
       </p>
 
       {!loading && !backfillPreview.backfillDone && backfillPreview.stockValue > 0 ? (
-        <section className="mb-4 space-y-3 rounded-[1.25rem] bg-amber-50 px-4 py-4 ring-1 ring-amber-200">
-          <div>
-            <p className="text-sm font-extrabold text-amber-950">
-              Bù trừ quỹ cho tồn / nhập cũ
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-amber-900/90">
-              Trước đây nhập hàng chỉ cộng tồn, không trừ quỹ. Không còn sổ từng
-              đơn — hệ thống ước lượng:{" "}
-              <strong>giá trị tồn hiện tại − chi “Nhập hàng” đã ghi</strong>.
-            </p>
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-xl bg-white/80 px-2.5 py-2">
-              <p className="font-semibold text-slate-500">Giá trị tồn</p>
-              <p className="money font-extrabold text-slate-900">
+        <section className="alert-soft mb-4 space-y-3">
+          <p className="text-sm font-bold">
+            Bù trừ quỹ · tồn cũ chưa trừ tiền
+          </p>
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            <MetricTile
+              label="Giá trị tồn"
+              value={
                 <Money amount={backfillPreview.stockValue} />
-              </p>
-            </div>
-            <div className="rounded-xl bg-white/80 px-2.5 py-2">
-              <p className="font-semibold text-slate-500">Đã chi nhập</p>
-              <p className="money font-extrabold text-slate-900">
+              }
+            />
+            <MetricTile
+              label="Đã chi nhập"
+              value={
                 <Money amount={backfillPreview.alreadyCharged} />
-              </p>
-            </div>
-            <div className="rounded-xl bg-rose-100 px-2.5 py-2">
-              <p className="font-semibold text-rose-700">Cần bù trừ</p>
-              <p className="money font-extrabold text-rose-800">
-                <Money amount={backfillPreview.suggested} />
-              </p>
-            </div>
+              }
+            />
+            <MetricTile
+              label="Cần bù trừ"
+              value={
+                <span className="text-rose-700">
+                  <Money amount={backfillPreview.suggested} />
+                </span>
+              }
+            />
           </div>
           {backfillPreview.suggested > 0 ? (
             <>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
+              <ChipRow>
+                <FilterChip
+                  active={backfillPay === "cash"}
                   onClick={() => setBackfillPay("cash")}
-                  className={cn(
-                    "touch-btn h-10 text-xs font-extrabold",
-                    backfillPay === "cash"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
                 >
                   Tiền mặt
-                </button>
-                <button
-                  type="button"
+                </FilterChip>
+                <FilterChip
+                  active={backfillPay === "banking"}
                   onClick={() => setBackfillPay("banking")}
-                  className={cn(
-                    "touch-btn h-10 text-xs font-extrabold",
-                    backfillPay === "banking"
-                      ? "bg-brand-700 text-white"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
                 >
                   Chuyển khoản
-                </button>
-              </div>
+                </FilterChip>
+              </ChipRow>
               <button
                 type="button"
                 disabled={backfilling}
@@ -785,17 +867,35 @@ function InventoryContent() {
               </button>
             </>
           ) : (
-            <p className="text-xs font-semibold text-emerald-800">
-              Đã ghi đủ chi nhập hàng so với giá trị tồn — không cần bù.
+            <p className="text-sm font-semibold text-emerald-800">
+              Đã ghi đủ — không cần bù.
             </p>
           )}
         </section>
       ) : null}
 
       {backfillPreview.backfillDone ? (
-        <p className="mb-4 rounded-2xl bg-emerald-50 px-3 py-2.5 text-xs font-semibold text-emerald-900 ring-1 ring-emerald-100">
-          Đã bù trừ tồn/nhập cũ vào quỹ. Lần nhập mới sẽ tự trừ khi chọn TM/CK.
+        <p className="mb-4 text-sm font-semibold text-emerald-800">
+          Đã bù trừ tồn cũ. Lần nhập mới tự trừ quỹ.
         </p>
+      ) : null}
+
+      {isSuperAdmin &&
+      products.some(
+        (p) => productUsesRecipe(p) && (Number(p.inStock) || 0) !== 0
+      ) ? (
+        <section className="card-panel mb-4 space-y-2">
+          <p className="text-sm font-bold text-slate-900">
+            Tồn ảo món CT — đưa về 0
+          </p>
+          <button
+            type="button"
+            onClick={handleZeroRecipeStocks}
+            className="touch-btn h-12 w-full bg-brand-700 text-sm font-bold text-white"
+          >
+            Đưa tồn món CT về 0
+          </button>
+        </section>
       ) : null}
 
       <section className="mb-4 grid grid-cols-1 gap-2">
@@ -809,40 +909,42 @@ function InventoryContent() {
           tone="brand"
         />
         <div className="grid grid-cols-3 gap-2">
-          <div className="rounded-2xl bg-slate-800 px-3 py-3 text-white shadow-md">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
-              Số món
-            </p>
-            <p className="mt-1 text-2xl font-extrabold leading-none">
-              {loading ? "—" : inventorySummary.skuCount}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-emerald-700 px-3 py-3 text-white shadow-md">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
-              Tổng SL tồn
-            </p>
-            <p className="mt-1 text-2xl font-extrabold leading-none">
-              {loading ? "—" : inventorySummary.totalQty}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-rose-700 px-3 py-3 text-white shadow-md">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-white/70">
-              Sắp hết ≤5
-            </p>
-            <p className="mt-1 text-2xl font-extrabold leading-none">
-              {loading ? "—" : inventorySummary.lowStockCount}
-            </p>
-          </div>
+          <MetricTile
+            label="Số món"
+            value={loading ? "—" : inventorySummary.skuCount}
+          />
+          <MetricTile
+            label="Tổng SL tồn"
+            value={loading ? "—" : inventorySummary.totalQty}
+          />
+          <MetricTile
+            label="Sắp hết ≤5"
+            value={
+              loading ? (
+                "—"
+              ) : (
+                <span
+                  className={
+                    inventorySummary.lowStockCount > 0
+                      ? "text-amber-800"
+                      : undefined
+                  }
+                >
+                  {inventorySummary.lowStockCount}
+                </span>
+              )
+            }
+          />
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="card-panel !p-3">
+            <p className="text-xs font-semibold text-slate-500">
               Nguyên liệu
             </p>
-            <p className="mt-1 text-sm font-extrabold text-slate-900">
+            <p className="mt-1 text-sm font-bold text-slate-900">
               SL {loading ? "—" : inventorySummary.ingredientQty}
             </p>
-            <p className="money mt-0.5 text-xs font-bold text-amber-800">
+            <p className="money mt-0.5 text-xs font-bold text-slate-700">
               {loading ? (
                 "—"
               ) : (
@@ -850,14 +952,14 @@ function InventoryContent() {
               )}
             </p>
           </div>
-          <div className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+          <div className="card-panel !p-3">
+            <p className="text-xs font-semibold text-slate-500">
               Thành phẩm
             </p>
-            <p className="mt-1 text-sm font-extrabold text-slate-900">
+            <p className="mt-1 text-sm font-bold text-slate-900">
               SL {loading ? "—" : inventorySummary.finishedQty}
             </p>
-            <p className="money mt-0.5 text-xs font-bold text-amber-800">
+            <p className="money mt-0.5 text-xs font-bold text-slate-700">
               Nhập{" "}
               {loading ? (
                 "—"
@@ -866,7 +968,7 @@ function InventoryContent() {
               )}
             </p>
             {inventorySummary.finishedSellValue > 0 ? (
-              <p className="money mt-0.5 text-[11px] text-slate-500">
+              <p className="money mt-0.5 text-xs text-slate-500">
                 Bán ước tính{" "}
                 <Money amount={inventorySummary.finishedSellValue} />
               </p>
@@ -874,9 +976,9 @@ function InventoryContent() {
           </div>
         </div>
         {filter !== "all" && !loading ? (
-          <p className="rounded-2xl bg-slate-50 px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-100">
+          <p className="hint-line">
             Toàn kho (không lọc):{" "}
-            <span className="font-semibold">
+            <span className="font-semibold text-slate-700">
               {allInventorySummary.skuCount} món
             </span>
             {" · "}
@@ -892,62 +994,62 @@ function InventoryContent() {
       <button
         type="button"
         onClick={() => {
-          setShowAdd((v) => !v);
-          if (!showAdd) {
-            setForm(
-              emptyForm(
-                filter === "finished"
-                  ? PRODUCT_KIND.FINISHED
-                  : PRODUCT_KIND.INGREDIENT
-              )
-            );
-          }
+          setShowAdd(true);
+          setForm(
+            emptyForm(
+              filter === "finished"
+                ? PRODUCT_KIND.FINISHED
+                : PRODUCT_KIND.INGREDIENT
+            )
+          );
         }}
-        className={cn(
-          "touch-btn mb-4 h-14 w-full gap-2 text-sm font-bold",
-          showAdd ? "bg-slate-800 text-white" : "bg-emerald-600 text-white"
-        )}
+        className="touch-btn mb-3 h-12 w-full gap-2 bg-white text-sm font-bold text-slate-700 ring-1 ring-slate-200"
       >
-        {showAdd ? (
-          <>
-            <X className="h-5 w-5" aria-hidden />
-            Đóng form thêm
-          </>
-        ) : (
-          <>
-            <Plus className="h-5 w-5" aria-hidden />
-            Thêm hàng kho
-          </>
-        )}
+        <Plus className="h-4 w-4" aria-hidden />
+        Thêm hàng kho mới
       </button>
 
-      {showAdd ? (
-        <section className="card-panel mb-4 space-y-3 border-emerald-100 bg-gradient-to-b from-emerald-50/80 to-white">
-          <h2 className="section-title text-emerald-950">
-            {form.kind === PRODUCT_KIND.FINISHED
-              ? "Thêm thành phẩm nhập"
-              : "Thêm nguyên liệu kho"}
-          </h2>
-          <p className="text-xs leading-relaxed text-slate-500">
-            Thành phẩm = hàng mua sẵn (AVIA, thùng × 24 chai). Nguyên liệu =
-            đường/mì trừ qua công thức. Món nấu:{" "}
-            <Link
-              href="/manager/products"
-              className="font-bold text-brand-800 underline"
-            >
-              Món · giá
-            </Link>
-            .
-          </p>
-          <form onSubmit={handleAdd} className="space-y-3">
-            <div className="grid grid-cols-2 gap-2">
+      <BottomSheet
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        title={
+          form.kind === PRODUCT_KIND.FINISHED
+            ? "Thêm thành phẩm nhập"
+            : "Thêm nguyên liệu kho"
+        }
+        subtitle="Chỉ tạo khi chưa có trong danh mục"
+        labelledBy="inventory-add-sheet"
+        footer={
+          <button
+            type="submit"
+            form="inventory-add-form"
+            disabled={savingAdd}
+            className="touch-btn h-14 w-full gap-2 bg-brand-700 text-white"
+          >
+            {savingAdd ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Save className="h-5 w-5" aria-hidden />
+            )}
+            {savingAdd
+              ? "Đang lưu..."
+              : (Number(form.receiveQty) || 0) > 0
+                ? "Lưu + nhập hàng + trừ quỹ"
+                : form.kind === PRODUCT_KIND.FINISHED
+                  ? "Lưu thành phẩm (tồn 0)"
+                  : "Lưu nguyên liệu (tồn 0)"}
+          </button>
+        }
+      >
+          <form id="inventory-add-form" onSubmit={handleAdd} className="space-y-3">
+            <ChipRow>
               {[
                 { id: PRODUCT_KIND.INGREDIENT, label: "Nguyên liệu" },
                 { id: PRODUCT_KIND.FINISHED, label: "Thành phẩm nhập" },
               ].map((k) => (
-                <button
+                <FilterChip
                   key={k.id}
-                  type="button"
+                  active={form.kind === k.id}
                   onClick={() => {
                     const next = emptyForm(k.id);
                     setForm((f) => ({
@@ -958,21 +1060,13 @@ function InventoryContent() {
                       price: f.price,
                     }));
                   }}
-                  className={cn(
-                    "touch-btn h-11 text-xs font-extrabold",
-                    form.kind === k.id
-                      ? "bg-emerald-800 text-white"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
                 >
                   {k.label}
-                </button>
+                </FilterChip>
               ))}
-            </div>
+            </ChipRow>
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Tên
-              </span>
+              <FieldLabel>Tên</FieldLabel>
               <input
                 className="field-input"
                 value={form.name}
@@ -989,9 +1083,7 @@ function InventoryContent() {
             </label>
 
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Đơn vị gốc (tồn / bán lẻ)
-              </span>
+              <FieldLabel>Đơn vị gốc (tồn / bán lẻ)</FieldLabel>
               <select
                 className="field-input"
                 value={form.unit}
@@ -1013,15 +1105,12 @@ function InventoryContent() {
                   </option>
                 ))}
               </select>
-              <p className="mt-1 text-xs text-slate-500">
-                Trứng, chanh… chọn <strong>quả</strong> (kiện gợi ý: vỉ × 10).
-              </p>
             </label>
 
-            <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-emerald-100">
+            <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 ring-1 ring-slate-200">
               <input
                 type="checkbox"
-                className="h-5 w-5 accent-emerald-700"
+                className="h-5 w-5 accent-brand-700"
                 checked={form.packEnabled}
                 onChange={(e) => {
                   const on = e.target.checked;
@@ -1042,17 +1131,15 @@ function InventoryContent() {
               />
               <span className="text-sm font-semibold text-slate-800">
                 {form.kind === PRODUCT_KIND.FINISHED
-                  ? "Nhập theo thùng (vd AVIA 1 thùng = 24 chai)"
-                  : "Nhập theo kiện (thùng mì × 30 gói, cây thuốc × 10 bao)"}
+                  ? "Nhập theo thùng"
+                  : "Nhập theo kiện"}
               </span>
             </label>
 
             {form.packEnabled ? (
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                    Tên kiện
-                  </span>
+                  <FieldLabel>Tên kiện</FieldLabel>
                   <input
                     className="field-input"
                     value={form.packLabel}
@@ -1063,9 +1150,9 @@ function InventoryContent() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                    1 {form.packLabel || "kiện"} = ? số lẻ ({form.unit})
-                  </span>
+                  <FieldLabel>
+                    1 {form.packLabel || "kiện"} = ? ({form.unit})
+                  </FieldLabel>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -1081,16 +1168,12 @@ function InventoryContent() {
               </div>
             ) : null}
 
-            <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-semibold leading-snug text-slate-600 ring-1 ring-slate-100">
-              Có thể tạo tên hàng trước (tồn 0), hoặc nhập số lượng ngay bên dưới
-              để cộng tồn + trừ quỹ trong một lần.
-            </p>
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <FieldLabel>
                 {form.packEnabled
-                  ? `Giá / ${form.packLabel || "kiện"} (trừ quỹ)`
-                  : "Giá nhập / ĐV (trừ quỹ)"}
-              </span>
+                  ? `Giá / ${form.packLabel || "kiện"}`
+                  : "Giá nhập / ĐV"}
+              </FieldLabel>
               <input
                 type="number"
                 inputMode="decimal"
@@ -1106,9 +1189,7 @@ function InventoryContent() {
             </label>
 
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Số lượng nhập lần đầu (tuỳ chọn)
-              </span>
+              <FieldLabel optional>Số lượng nhập lần đầu</FieldLabel>
               <input
                 type="number"
                 inputMode="numeric"
@@ -1127,80 +1208,56 @@ function InventoryContent() {
             </label>
 
             <div className="space-y-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100">
-              <p className="text-sm font-extrabold text-rose-950">
+              <p className="text-sm font-bold text-rose-950">
                 Trừ tiền từ đâu?
               </p>
               {canChooseInventoryFundSource ? (
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
+                <ChipRow>
+                  <FilterChip
+                    active={(form.fundSource || "shop") === "shop"}
                     onClick={() =>
                       setForm((f) => ({ ...f, fundSource: "shop" }))
                     }
-                    className={cn(
-                      "touch-btn h-11 text-xs font-extrabold",
-                      (form.fundSource || "shop") === "shop"
-                        ? "bg-rose-700 text-white"
-                        : "bg-white text-slate-700 ring-1 ring-slate-200"
-                    )}
                   >
                     Quỹ cửa hàng
-                  </button>
-                  <button
-                    type="button"
+                  </FilterChip>
+                  <FilterChip
+                    active={form.fundSource === "capital"}
                     onClick={() =>
                       setForm((f) => ({ ...f, fundSource: "capital" }))
                     }
-                    className={cn(
-                      "touch-btn h-11 text-xs font-extrabold",
-                      form.fundSource === "capital"
-                        ? "bg-amber-700 text-white"
-                        : "bg-white text-slate-700 ring-1 ring-slate-200"
-                    )}
                   >
                     Quỹ đầu tư
-                  </button>
-                </div>
+                  </FilterChip>
+                </ChipRow>
               ) : (
-                <p className="text-xs font-semibold text-rose-900">
+                <p className="text-sm font-semibold text-rose-900">
                   Quản lý chỉ trừ quỹ cửa hàng.
                 </p>
               )}
-              <p className="text-[11px] font-bold uppercase tracking-wide text-rose-800/80">
+              <p className="text-sm font-semibold text-rose-800/80">
                 Hình thức thanh toán
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
+              <ChipRow>
+                <FilterChip
+                  active={(form.payMethod || "cash") === "cash"}
                   onClick={() =>
                     setForm((f) => ({ ...f, payMethod: "cash" }))
                   }
-                  className={cn(
-                    "touch-btn h-10 text-xs font-extrabold",
-                    (form.payMethod || "cash") === "cash"
-                      ? "bg-emerald-600 text-white"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
                 >
                   Tiền mặt
-                </button>
-                <button
-                  type="button"
+                </FilterChip>
+                <FilterChip
+                  active={form.payMethod === "banking"}
                   onClick={() =>
                     setForm((f) => ({ ...f, payMethod: "banking" }))
                   }
-                  className={cn(
-                    "touch-btn h-10 text-xs font-extrabold",
-                    form.payMethod === "banking"
-                      ? "bg-brand-700 text-white"
-                      : "bg-white text-slate-700 ring-1 ring-slate-200"
-                  )}
                 >
                   Chuyển khoản
-                </button>
-              </div>
+                </FilterChip>
+              </ChipRow>
               {(Number(form.receiveQty) || 0) > 0 ? (
-                <p className="text-xs font-bold text-rose-800">
+                <p className="text-sm font-bold text-rose-800">
                   Lưu sẽ cộng tồn và trừ{" "}
                   {canChooseInventoryFundSource &&
                   form.fundSource === "capital"
@@ -1215,17 +1272,15 @@ function InventoryContent() {
                   />
                 </p>
               ) : (
-                <p className="text-[11px] font-semibold text-rose-900/80">
-                  Để trống số lượng = chỉ tạo tên hàng (tồn 0), chưa trừ tiền.
+                <p className="text-sm text-rose-900/80">
+                  Để trống SL = chỉ tạo tên (tồn 0).
                 </p>
               )}
             </div>
 
             {form.kind === PRODUCT_KIND.FINISHED ? (
               <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                  Giá bán / {form.unit || "chai"} (POS)
-                </span>
+                <FieldLabel>Giá bán / {form.unit || "chai"} (POS)</FieldLabel>
                 <input
                   type="number"
                   inputMode="decimal"
@@ -1241,60 +1296,37 @@ function InventoryContent() {
                 />
               </label>
             ) : null}
-
-            <button
-              type="submit"
-              disabled={savingAdd}
-              className="touch-btn h-14 w-full gap-2 bg-emerald-700 text-white"
-            >
-              {savingAdd ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Save className="h-5 w-5" aria-hidden />
-              )}
-              {savingAdd
-                ? "Đang lưu..."
-                : (Number(form.receiveQty) || 0) > 0
-                  ? "Lưu + nhập hàng + trừ quỹ"
-                  : form.kind === PRODUCT_KIND.FINISHED
-                    ? "Lưu thành phẩm (tồn 0)"
-                    : "Lưu nguyên liệu (tồn 0)"}
-            </button>
           </form>
-        </section>
-      ) : null}
+      </BottomSheet>
 
-      {editing ? (
-        <div
-          className="fixed inset-0 z-[60] flex items-end bg-slate-950/50 sm:items-center sm:justify-center sm:p-4"
-          role="dialog"
-          aria-modal="true"
-          onClick={() => setEditing(null)}
-        >
-        <section
-          className="max-h-[92dvh] w-full max-w-lg overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <h2 className="section-title text-amber-950">
-              {editing.kind === PRODUCT_KIND.FINISHED
-                ? "Sửa thành phẩm nhập"
-                : "Sửa nguyên liệu"}
-            </h2>
-            <button
-              type="button"
-              aria-label="Đóng"
-              onClick={() => setEditing(null)}
-              className="touch-btn h-12 w-12 bg-slate-100 p-0"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-          <form onSubmit={handleSaveEdit} className="space-y-3">
+      <BottomSheet
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        title={
+          editing?.kind === PRODUCT_KIND.FINISHED
+            ? "Sửa thành phẩm nhập"
+            : "Sửa nguyên liệu"
+        }
+        labelledBy="inventory-edit-sheet"
+        footer={
+          <button
+            type="submit"
+            form="inventory-edit-form"
+            disabled={savingEdit}
+            className="touch-btn h-14 w-full gap-2 bg-brand-700 text-white"
+          >
+            {savingEdit ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <Save className="h-5 w-5" aria-hidden />
+            )}
+            {savingEdit ? "Đang lưu..." : "Lưu"}
+          </button>
+        }
+      >
+          <form id="inventory-edit-form" onSubmit={handleSaveEdit} className="space-y-3">
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Tên
-              </span>
+              <FieldLabel>Tên</FieldLabel>
               <input
                 className="field-input"
                 value={editForm.name}
@@ -1305,9 +1337,7 @@ function InventoryContent() {
               />
             </label>
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                Đơn vị gốc (tồn / CT)
-              </span>
+              <FieldLabel>Đơn vị gốc (tồn / CT)</FieldLabel>
               <select
                 className="field-input"
                 value={editForm.unit}
@@ -1330,10 +1360,10 @@ function InventoryContent() {
                 ))}
               </select>
             </label>
-            <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-amber-100">
+            <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 ring-1 ring-slate-200">
               <input
                 type="checkbox"
-                className="h-5 w-5 accent-amber-700"
+                className="h-5 w-5 accent-brand-700"
                 checked={editForm.packEnabled}
                 onChange={(e) => {
                   const on = e.target.checked;
@@ -1353,17 +1383,15 @@ function InventoryContent() {
                 }}
               />
               <span className="text-sm font-semibold text-slate-800">
-                {editing.kind === PRODUCT_KIND.FINISHED
-                  ? "Nhập theo thùng (vd 1 thùng = 24 chai)"
-                  : "Nhập theo kiện (thùng × gói, cây thuốc × bao)"}
+                {editing?.kind === PRODUCT_KIND.FINISHED
+                  ? "Nhập theo thùng"
+                  : "Nhập theo kiện"}
               </span>
             </label>
             {editForm.packEnabled ? (
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-                    Tên kiện
-                  </span>
+                  <FieldLabel>Tên kiện</FieldLabel>
                   <input
                     className="field-input"
                     value={editForm.packLabel}
@@ -1374,9 +1402,9 @@ function InventoryContent() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                  <FieldLabel>
                     1 {editForm.packLabel || "kiện"} = ? {editForm.unit}
-                  </span>
+                  </FieldLabel>
                   <input
                     type="number"
                     inputMode="numeric"
@@ -1395,9 +1423,9 @@ function InventoryContent() {
               </div>
             ) : null}
             <label className="block">
-              <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+              <FieldLabel>
                 Giá nhập / {editForm.unit || "đơn vị gốc"}
-              </span>
+              </FieldLabel>
               <input
                 type="number"
                 inputMode="decimal"
@@ -1410,11 +1438,11 @@ function InventoryContent() {
                 }
               />
             </label>
-            {editing.kind === PRODUCT_KIND.FINISHED ? (
+            {editing?.kind === PRODUCT_KIND.FINISHED ? (
               <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                <FieldLabel>
                   Giá bán / {editForm.unit || "chai"} (POS)
-                </span>
+                </FieldLabel>
                 <input
                   type="number"
                   inputMode="decimal"
@@ -1430,13 +1458,13 @@ function InventoryContent() {
             ) : null}
             {isSuperAdmin ? (
               <label className="block">
-                <span className="mb-1.5 block text-sm font-semibold text-slate-700">
+                <FieldLabel>
                   Tồn kho (theo {editForm.unit || "gốc"}
                   {editForm.packEnabled
                     ? `, không phải ${editForm.packLabel || "kiện"}`
                     : ""}
                   )
-                </span>
+                </FieldLabel>
                 <input
                   type="number"
                   min="0"
@@ -1449,49 +1477,27 @@ function InventoryContent() {
                 />
               </label>
             ) : null}
-            <button
-              type="submit"
-              disabled={savingEdit}
-              className="touch-btn h-14 w-full gap-2 bg-amber-700 text-white"
-            >
-              {savingEdit ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <Save className="h-5 w-5" aria-hidden />
-              )}
-              {savingEdit ? "Đang lưu..." : "Lưu"}
-            </button>
           </form>
-        </section>
-        </div>
-      ) : null}
+      </BottomSheet>
 
-      <div className="mb-3 flex gap-1.5 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <ChipRow className="mb-3">
         {[
           { id: "all", label: "Tất cả" },
           { id: "ingredient", label: "Nguyên liệu" },
           { id: "finished", label: "Thành phẩm nhập" },
         ].map((f) => (
-          <button
+          <FilterChip
             key={f.id}
-            type="button"
+            active={filter === f.id}
             onClick={() => setFilter(f.id)}
-            className={cn(
-              "touch-btn h-9 shrink-0 px-3 text-xs font-extrabold",
-              filter === f.id
-                ? "bg-slate-900 text-white"
-                : "bg-white text-slate-700 ring-1 ring-slate-200"
-            )}
           >
             {f.label}
-          </button>
+          </FilterChip>
         ))}
-      </div>
+      </ChipRow>
 
       <label className="mb-3 block">
-        <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-          Chọn / tìm tên hàng
-        </span>
+        <FieldLabel>Chọn / tìm tên hàng</FieldLabel>
         <input
           type="search"
           className="field-input"
@@ -1512,8 +1518,8 @@ function InventoryContent() {
           className={cn(
             "touch-btn mb-4 h-12 w-full gap-2 text-sm font-bold",
             stocktakeOn
-              ? "bg-amber-800 text-white"
-              : "bg-white text-slate-800 ring-1 ring-amber-200"
+              ? "bg-brand-700 text-white"
+              : "bg-white text-slate-800 ring-1 ring-slate-200"
           )}
         >
           <ClipboardList className="h-4 w-4" aria-hidden />
@@ -1523,39 +1529,49 @@ function InventoryContent() {
 
       {stocktakeOn ? (
         <section className="mb-8 space-y-3">
-          <div className="rounded-2xl bg-amber-50 px-3 py-3 text-xs leading-relaxed text-amber-950 ring-1 ring-amber-100">
-            Đếm thực tế theo <strong>đơn vị gốc</strong> (gói, g, quả, bao,
-            chai). Để trống = bỏ qua. Nhập 0 = hết hàng. Lưu chỉ ghi món lệch —{" "}
-            <strong>không trừ quỹ</strong>.
-          </div>
-          <div className="grid grid-cols-3 gap-2 text-xs">
-            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200">
-              <p className="font-semibold text-slate-500">Đã đếm</p>
-              <p className="text-lg font-extrabold">{stocktakeSummary.counted}</p>
-            </div>
-            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200">
-              <p className="font-semibold text-slate-500">Món lệch</p>
-              <p className="text-lg font-extrabold text-amber-800">
-                {stocktakeSummary.mismatch}
-              </p>
-            </div>
-            <div className="rounded-2xl bg-white px-3 py-2 ring-1 ring-slate-200">
-              <p className="font-semibold text-slate-500">Giá trị lệch</p>
-              <p
-                className={cn(
-                  "money text-lg font-extrabold",
-                  stocktakeSummary.netValue < 0
-                    ? "text-rose-700"
-                    : stocktakeSummary.netValue > 0
-                      ? "text-emerald-700"
-                      : "text-slate-900"
-                )}
-              >
+          <p className="hint-line">
+            Đếm theo đơn vị gốc · để trống = bỏ qua · lưu không trừ quỹ.
+          </p>
+          {stocktakeSummary.mismatch > 0 ? (
+            <p className="alert-soft">
+              {stocktakeSummary.mismatch} món lệch ·{" "}
+              <span className="money font-bold">
                 <Money amount={stocktakeSummary.netValue} />
-              </p>
-            </div>
+              </span>
+            </p>
+          ) : null}
+          <div className="grid grid-cols-3 gap-2 text-sm">
+            <MetricTile label="Đã đếm" value={stocktakeSummary.counted} />
+            <MetricTile
+              label="Món lệch"
+              value={
+                <span
+                  className={
+                    stocktakeSummary.mismatch > 0 ? "text-amber-800" : undefined
+                  }
+                >
+                  {stocktakeSummary.mismatch}
+                </span>
+              }
+            />
+            <MetricTile
+              label="Giá trị lệch"
+              value={
+                <span
+                  className={
+                    stocktakeSummary.netValue < 0
+                      ? "text-rose-700"
+                      : stocktakeSummary.netValue > 0
+                        ? "text-emerald-700"
+                        : undefined
+                  }
+                >
+                  <Money amount={stocktakeSummary.netValue} />
+                </span>
+              }
+            />
           </div>
-          <p className="text-[11px] font-semibold text-slate-600">
+          <p className="text-sm font-semibold text-slate-600">
             Thừa {formatUnitCount(stocktakeSummary.surplusQty)} ·{" "}
             <Money amount={stocktakeSummary.surplusValue} />
             {" · Thiếu "}
@@ -1565,7 +1581,7 @@ function InventoryContent() {
           <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
             <input
               type="checkbox"
-              className="h-5 w-5 accent-amber-700"
+              className="h-5 w-5 accent-brand-700"
               checked={onlyMismatch}
               onChange={(e) => setOnlyMismatch(e.target.checked)}
             />
@@ -1576,9 +1592,11 @@ function InventoryContent() {
           {loading ? (
             <div className="card-panel h-24 animate-pulse bg-white/80" />
           ) : stocktakeRows.length === 0 ? (
-            <div className="card-panel text-sm text-slate-500">
-              Chưa có hàng để kiểm (món công thức không đếm tồn).
-            </div>
+            <EmptyState
+              icon={ClipboardList}
+              title="Chưa có hàng để kiểm"
+              description="Món công thức không đếm tồn."
+            />
           ) : (
             stocktakeRows.map((line) => {
               const product = products.find((p) => p.id === line.productId);
@@ -1588,10 +1606,10 @@ function InventoryContent() {
                 <article key={line.productId} className="card-panel space-y-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <p className="font-extrabold text-slate-900">
+                      <p className="text-base font-bold text-slate-900">
                         {product.name}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-sm text-slate-500">
                         Sổ:{" "}
                         <span className="font-bold text-slate-800">
                           {stockLine(product)}
@@ -1603,7 +1621,7 @@ function InventoryContent() {
                     {delta != null && delta !== 0 ? (
                       <p
                         className={cn(
-                          "shrink-0 text-sm font-extrabold",
+                          "shrink-0 text-sm font-bold",
                           delta > 0 ? "text-emerald-700" : "text-rose-700"
                         )}
                       >
@@ -1613,9 +1631,7 @@ function InventoryContent() {
                     ) : null}
                   </div>
                   <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Thực tế ({line.unit})
-                    </span>
+                    <FieldLabel>Thực tế ({line.unit})</FieldLabel>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -1633,7 +1649,7 @@ function InventoryContent() {
                     />
                   </label>
                   {delta != null && delta !== 0 ? (
-                    <p className="text-[11px] font-semibold text-slate-600">
+                    <p className="text-sm font-semibold text-slate-600">
                       Lệch {delta > 0 ? "thừa" : "thiếu"} · giá trị{" "}
                       <Money amount={line.value} />
                     </p>
@@ -1643,9 +1659,7 @@ function InventoryContent() {
             })
           )}
           <label className="block">
-            <span className="mb-1.5 block text-sm font-semibold text-slate-700">
-              Ghi chú (tuỳ chọn)
-            </span>
+            <FieldLabel optional>Ghi chú</FieldLabel>
             <input
               className="field-input"
               value={stocktakeNote}
@@ -1657,7 +1671,7 @@ function InventoryContent() {
             type="button"
             disabled={savingTake || stocktakeSummary.mismatch === 0}
             onClick={handleStocktake}
-            className="touch-btn h-14 w-full gap-2 bg-amber-700 text-sm text-white disabled:opacity-50"
+            className="touch-btn h-14 w-full gap-2 bg-brand-700 text-sm text-white disabled:opacity-50"
           >
             {savingTake ? (
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -1672,14 +1686,35 @@ function InventoryContent() {
           </button>
         </section>
       ) : (
-      <section className="mb-8 space-y-2">
-        <h2 className="section-title">Nhập thêm vào món có sẵn</h2>
+      <section className="mb-8 space-y-3">
+        <SectionHeader title="Nhập thêm vào món có sẵn" />
         {loading ? (
           <div className="card-panel h-24 animate-pulse bg-white/80" />
         ) : visible.length === 0 ? (
-          <div className="card-panel text-sm text-slate-500">
-            Chưa có hàng. Bấm &quot;Thêm hàng kho&quot; ở trên.
-          </div>
+          <EmptyState
+            icon={Plus}
+            title="Chưa có hàng trong bộ lọc"
+            description="Đổi lọc / tìm tên, hoặc thêm hàng kho mới."
+            action={
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAdd(true);
+                  setForm(
+                    emptyForm(
+                      filter === "finished"
+                        ? PRODUCT_KIND.FINISHED
+                        : PRODUCT_KIND.INGREDIENT
+                    )
+                  );
+                }}
+                className="touch-btn h-12 w-full gap-2 bg-brand-700 text-white"
+              >
+                <Plus className="h-4 w-4" aria-hidden />
+                Thêm hàng kho mới
+              </button>
+            }
+          />
         ) : (
           visible.map((product) => {
             const d = drafts[product.id] || {};
@@ -1712,10 +1747,14 @@ function InventoryContent() {
               <article key={product.id} className="card-panel space-y-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-extrabold text-slate-900">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryProduct(product)}
+                      className="text-left text-lg font-bold text-slate-900 underline decoration-slate-300 underline-offset-2 hover:text-brand-800 hover:decoration-brand-400"
+                    >
                       {product.name}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
+                    </button>
+                    <p className="mt-0.5 text-sm text-slate-500">
                       {isIng
                         ? "Nguyên liệu"
                         : isRecipeFinished(product)
@@ -1726,7 +1765,7 @@ function InventoryContent() {
                         {stockLine(product)}
                       </span>
                     </p>
-                    <p className="mt-1 text-xs font-semibold text-amber-800">
+                    <p className="mt-1 text-sm font-semibold text-slate-700">
                       Giá vốn BQ: <Money amount={product.cost} />
                       {!isIng ? (
                         <>
@@ -1735,13 +1774,20 @@ function InventoryContent() {
                         </>
                       ) : null}
                     </p>
-                    <p className="mt-1 text-sm font-extrabold text-brand-800">
-                      Giá trị tồn:{" "}
+                    <p className="money mt-1 text-base font-bold text-brand-800">
                       <Money amount={lineStockCostValue(product)} />
                     </p>
                   </div>
                 </div>
                 <div className="relative z-10 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setHistoryProduct(product)}
+                      className="touch-btn h-12 flex-1 bg-slate-50 text-sm font-bold text-slate-800 ring-1 ring-slate-200"
+                    >
+                      <History className="h-4 w-4" aria-hidden />
+                      Lịch sử
+                    </button>
                     {canManageProducts ? (
                       <button
                         type="button"
@@ -1750,7 +1796,7 @@ function InventoryContent() {
                           e.stopPropagation();
                           openEditProduct(product);
                         }}
-                        className="touch-btn h-11 flex-1 bg-slate-100 text-sm font-extrabold text-slate-800"
+                        className="touch-btn h-12 flex-1 bg-slate-100 text-sm font-bold text-slate-800"
                       >
                         <Pencil className="h-4 w-4" aria-hidden />
                         Sửa
@@ -1766,7 +1812,7 @@ function InventoryContent() {
                           e.stopPropagation();
                           handleDeleteProduct(product);
                         }}
-                        className="touch-btn h-11 w-14 bg-rose-50 p-0 text-rose-700 disabled:opacity-50"
+                        className="touch-btn h-12 w-14 bg-rose-50 p-0 text-rose-700 disabled:opacity-50"
                       >
                         {deletingId === product.id ? (
                           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1779,9 +1825,7 @@ function InventoryContent() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Đơn vị nhập (bao / cây / thùng…)
-                    </span>
+                    <FieldLabel>Đơn vị nhập</FieldLabel>
                     <select
                       className="field-input"
                       value={d.unitId || selectedUnit?.id || ""}
@@ -1807,9 +1851,7 @@ function InventoryContent() {
                     </select>
                   </label>
                   <label className="block">
-                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                      Số {selectedUnit?.label || "đv"}
-                    </span>
+                    <FieldLabel>Số {selectedUnit?.label || "đv"}</FieldLabel>
                     <input
                       type="number"
                       inputMode="numeric"
@@ -1824,10 +1866,10 @@ function InventoryContent() {
                   </label>
                   {isPackUnit ? (
                     <label className="block col-span-2">
-                      <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
-                        1 {selectedUnit?.label || "thùng"} = ? số lẻ (
+                      <FieldLabel>
+                        1 {selectedUnit?.label || "thùng"} = ? (
                         {packaging.baseUnit})
-                      </span>
+                      </FieldLabel>
                       <input
                         type="number"
                         inputMode="numeric"
@@ -1843,16 +1885,12 @@ function InventoryContent() {
                           setDraft(product.id, { packFactor: e.target.value })
                         }
                       />
-                      <span className="mt-1 block text-[11px] text-slate-500">
-                        Gói/chai là đơn vị nhỏ nhất: bán lẻ hoặc gắn công thức
-                        món khác.
-                      </span>
                     </label>
                   ) : null}
                   <label className="block col-span-2">
-                    <span className="mb-1 block text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                    <FieldLabel>
                       Giá / {selectedUnit?.label || "đv"}
-                    </span>
+                    </FieldLabel>
                     <input
                       type="number"
                       inputMode="decimal"
@@ -1891,7 +1929,7 @@ function InventoryContent() {
                         return null;
                       }
                       return (
-                        <p className="mt-1 text-[11px] font-semibold leading-snug text-emerald-800">
+                        <p className="mt-1 text-sm font-semibold leading-snug text-emerald-800">
                           {qty} {selectedUnit.label}
                           {packFactor > 1
                             ? ` × ${packFactor} ${packaging.baseUnit}`
@@ -1907,12 +1945,6 @@ function InventoryContent() {
                               {" · Giá vốn BQ "}
                               {formatCurrency(preview.baseUnitCost)}/
                               {packaging.baseUnit}
-                              {" (còn "}
-                              {preview.priorQty} ×{" "}
-                              {formatCurrency(preview.priorCost)}
-                              {" + nhập "}
-                              {formatCurrency(preview.purchaseBaseUnitCost)}
-                              {"/)"}
                             </>
                           ) : (
                             <>
@@ -1928,81 +1960,56 @@ function InventoryContent() {
                 </div>
 
                 <div className="space-y-2 rounded-2xl bg-rose-50 p-3 ring-1 ring-rose-100">
-                  <p className="text-sm font-extrabold text-rose-950">
+                  <p className="text-sm font-bold text-rose-950">
                     Trừ tiền từ đâu?
                   </p>
                   {canChooseInventoryFundSource ? (
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
+                    <ChipRow>
+                      <FilterChip
+                        active={(d.fundSource || "shop") === "shop"}
                         onClick={() =>
                           setDraft(product.id, { fundSource: "shop" })
                         }
-                        className={cn(
-                          "touch-btn h-11 text-xs font-extrabold",
-                          (d.fundSource || "shop") === "shop"
-                            ? "bg-rose-700 text-white"
-                            : "bg-white text-slate-700 ring-1 ring-slate-200"
-                        )}
                       >
                         Quỹ cửa hàng
-                      </button>
-                      <button
-                        type="button"
+                      </FilterChip>
+                      <FilterChip
+                        active={d.fundSource === "capital"}
                         onClick={() =>
                           setDraft(product.id, { fundSource: "capital" })
                         }
-                        className={cn(
-                          "touch-btn h-11 text-xs font-extrabold",
-                          d.fundSource === "capital"
-                            ? "bg-amber-700 text-white"
-                            : "bg-white text-slate-700 ring-1 ring-slate-200"
-                        )}
                       >
                         Quỹ đầu tư
-                      </button>
-                    </div>
+                      </FilterChip>
+                    </ChipRow>
                   ) : (
-                    <p className="text-xs font-semibold text-rose-900">
-                      Tài khoản Quản lý chỉ trừ quỹ cửa hàng. Super Admin /
-                      Chủ ĐT mới chọn được quỹ đầu tư.
+                    <p className="text-sm font-semibold text-rose-900">
+                      Quản lý chỉ trừ quỹ cửa hàng.
                     </p>
                   )}
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-rose-800/80">
+                  <p className="text-sm font-semibold text-rose-800/80">
                     Hình thức thanh toán
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
+                  <ChipRow>
+                    <FilterChip
+                      active={(d.payMethod || "cash") === "cash"}
                       onClick={() =>
                         setDraft(product.id, { payMethod: "cash" })
                       }
-                      className={cn(
-                        "touch-btn h-10 text-xs font-extrabold",
-                        (d.payMethod || "cash") === "cash"
-                          ? "bg-emerald-600 text-white"
-                          : "bg-white text-slate-700 ring-1 ring-slate-200"
-                      )}
                     >
                       Tiền mặt
-                    </button>
-                    <button
-                      type="button"
+                    </FilterChip>
+                    <FilterChip
+                      active={d.payMethod === "banking"}
                       onClick={() =>
                         setDraft(product.id, { payMethod: "banking" })
                       }
-                      className={cn(
-                        "touch-btn h-10 text-xs font-extrabold",
-                        d.payMethod === "banking"
-                          ? "bg-brand-700 text-white"
-                          : "bg-white text-slate-700 ring-1 ring-slate-200"
-                      )}
                     >
                       Chuyển khoản
-                    </button>
-                  </div>
+                    </FilterChip>
+                  </ChipRow>
                   {Number(d.addQty) > 0 ? (
-                    <p className="text-xs font-bold text-rose-800">
+                    <p className="text-sm font-bold text-rose-800">
                       Nhập {Number(d.addQty) || 0}{" "}
                       {selectedUnit?.label || product.unit || "đv"}
                       {packFactor > 1
@@ -2022,9 +2029,8 @@ function InventoryContent() {
                       />
                     </p>
                   ) : (
-                    <p className="text-[11px] font-semibold text-rose-900/80">
-                      Nhập số lượng ở trên rồi bấm Lưu — hệ thống trừ quỹ đã
-                      chọn.
+                    <p className="text-sm text-rose-900/80">
+                      Nhập SL rồi bấm Lưu — trừ quỹ đã chọn.
                     </p>
                   )}
                 </div>
@@ -2033,7 +2039,7 @@ function InventoryContent() {
                   type="button"
                   disabled={busy}
                   onClick={() => handleReceive(product)}
-                  className="relative z-10 touch-btn h-12 w-full gap-2 bg-brand-700 text-sm text-white disabled:opacity-50"
+                  className="relative z-10 touch-btn h-14 w-full gap-2 bg-brand-700 text-sm text-white disabled:opacity-50"
                 >
                   {busy ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -2052,6 +2058,79 @@ function InventoryContent() {
         )}
       </section>
       )}
+
+      <BottomSheet
+        open={Boolean(historyProduct)}
+        onClose={() => setHistoryProduct(null)}
+        title="Lịch sử nhập"
+        subtitle={
+          historyProduct
+            ? `${historyProduct.name} · ${productReceiveSummary.count} lần · ${formatCurrency(productReceiveSummary.totalAmount)}`
+            : null
+        }
+        labelledBy="receive-history-title"
+      >
+            {productReceiveHistory.length === 0 ? (
+              <EmptyState
+                icon={History}
+                title="Chưa có lần nhập"
+                description="Chưa ghi nhận nhập hàng cho món này."
+              />
+            ) : (
+              <ul className="space-y-2">
+                {productReceiveHistory.map((row) => (
+                  <li
+                    key={`${row.fundSource}-${row.id}`}
+                    className="rounded-2xl bg-slate-50 px-3 py-3 ring-1 ring-slate-200"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-500">
+                          {formatReceiveHistoryTime(row)}
+                        </p>
+                        <p className="mt-0.5 text-sm font-bold text-slate-900">
+                          +{formatUnitCount(row.receiveQty)} {row.unit}
+                          {row.unitReceivePrice > 0 ? (
+                            <span className="font-semibold text-slate-600">
+                              {" · "}
+                              <Money amount={row.unitReceivePrice} />/{row.unit}
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="money mt-1 text-lg font-bold text-rose-800">
+                          <Money amount={row.amount} />
+                        </p>
+                      </div>
+                      <span
+                        className={cn(
+                          "shrink-0 rounded-lg px-2 py-1 text-xs font-bold uppercase tracking-wide",
+                          row.fundSource === "capital"
+                            ? "bg-brand-50 text-brand-800"
+                            : "bg-emerald-50 text-emerald-800"
+                        )}
+                      >
+                        {fundSourceLabel(row.fundSource)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">
+                      <span className="font-bold text-slate-800">
+                        {row.actorLabel}
+                      </span>
+                      {" · "}
+                      {paymentMethodLabel(row.paymentMethod)}
+                      {row.qtyBefore != null && row.qtyAfter != null ? (
+                        <>
+                          {" · Tồn "}
+                          {formatUnitCount(row.qtyBefore)} →{" "}
+                          {formatUnitCount(row.qtyAfter)}
+                        </>
+                      ) : null}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            )}
+      </BottomSheet>
     </AppShell>
   );
 }

@@ -2,9 +2,10 @@
 
 import { cn, todayInputValue } from "@/lib/utils";
 import { formatRangeLabel, hasDateRange } from "@/lib/dateRange";
+import { FieldLabel } from "@/components/ui/MobileUI";
 
 /**
- * Bộ lọc Từ ngày → Đến ngày + chỗ tổng kết kỳ (children / summary).
+ * Bộ lọc Từ ngày → Đến ngày + chỗ tổng kết kỳ.
  */
 export default function DateRangeFilter({
   dateFrom = "",
@@ -23,41 +24,35 @@ export default function DateRangeFilter({
     <div
       className={cn(
         "rounded-2xl bg-white ring-1 ring-slate-200",
-        dense ? "space-y-2 p-2.5" : "space-y-2.5 p-3",
+        dense ? "space-y-2 p-3" : "space-y-3 p-4",
         className
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Lọc theo ngày
-        </p>
+        <p className="text-sm font-bold text-slate-800">Lọc theo ngày</p>
         {active ? (
-          <p className="text-[11px] font-medium text-slate-500">
+          <p className="text-xs font-bold text-slate-500">
             {formatRangeLabel(dateFrom, dateTo)}
           </p>
         ) : null}
       </div>
 
-      <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-1.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
         <label className="block min-w-0">
-          <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Từ ngày
-          </span>
+          <FieldLabel>Từ ngày</FieldLabel>
           <input
             type="date"
-            className={cn("field-input text-sm", dense && "!h-10 !py-1.5")}
+            className={cn("field-input", dense && "!h-12")}
             value={dateFrom}
             max={dateTo || today}
             onChange={(e) => onFromChange?.(e.target.value)}
           />
         </label>
         <label className="block min-w-0">
-          <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-            Đến ngày
-          </span>
+          <FieldLabel>Đến ngày</FieldLabel>
           <input
             type="date"
-            className={cn("field-input text-sm", dense && "!h-10 !py-1.5")}
+            className={cn("field-input", dense && "!h-12")}
             value={dateTo}
             min={dateFrom || undefined}
             max={today}
@@ -68,22 +63,16 @@ export default function DateRangeFilter({
           <button
             type="button"
             onClick={() => onClear?.()}
-            className={cn(
-              "touch-btn shrink-0 rounded-xl bg-slate-100 px-2.5 text-xs font-semibold text-slate-700",
-              dense ? "h-10" : "h-11"
-            )}
+            className="touch-btn h-12 shrink-0 rounded-2xl bg-slate-100 px-4 text-sm font-bold text-slate-700 sm:h-14"
           >
-            Xóa
+            Xóa lọc
           </button>
-        ) : (
-          <span
-            className={cn("shrink-0", dense ? "h-10 w-10" : "h-11 w-10")}
-            aria-hidden
-          />
-        )}
+        ) : null}
       </div>
 
-      {summary ? <div className="border-t border-slate-100 pt-2">{summary}</div> : null}
+      {summary ? (
+        <div className="border-t border-slate-100 pt-3">{summary}</div>
+      ) : null}
     </div>
   );
 }
