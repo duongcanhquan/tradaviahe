@@ -252,14 +252,32 @@ function ExpensesContent() {
   const handleDelete = async (row) => {
     if (!canDeleteShopFundEntry || !row?.id) return;
     const label = isFundIn(row) ? "nạp quỹ" : "khoản chi";
+    const linked =
+      row.capitalEntryId ||
+      row.transferGroupId ||
+      row.source === "capital_to_shop" ||
+      String(row.source || "").startsWith("transfer_");
     const ok = window.confirm(
-      `Xóa ${label} · ${formatCurrency(row.amount)}?\nTiền sẽ về lại quỹ ngay. Không xóa được phiếu nhập hàng.`
+      `Xóa ${label} · ${formatCurrency(row.amount)}?\n` +
+        (linked
+          ? "Khoản này gắn vốn / chuyển quỹ — sẽ xóa cả cặp liên quan để sổ khớp.\n"
+          : "Tiền sẽ về lại quỹ ngay.\n") +
+        "Không xóa được phiếu nhập hàng."
     );
     if (!ok) return;
     setDeletingId(row.id);
     try {
-      await deleteShopFundEntry(row.id, role);
-      showToast("Đã xóa — quỹ đã cập nhật", "success");
+      const result = await deleteShopFundEntry(row.id, role);
+      if (result?.cascaded === "capital") {
+        showToast("Đã xóa nạp quỹ + chi tiêu vốn liên quan", "success");
+      } else if (result?.cascaded === "transfer_group") {
+        showToast(
+          `Đã xóa cặp chuyển quỹ (${result.deletedTx || 0} giao dịch)`,
+          "success"
+        );
+      } else {
+        showToast("Đã xóa — quỹ đã cập nhật", "success");
+      }
     } catch (error) {
       console.error(error);
       showToast(error?.message || "Xóa thất bại", "error");
