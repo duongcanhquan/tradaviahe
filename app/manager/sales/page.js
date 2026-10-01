@@ -35,7 +35,7 @@ import {
   hasDateRange,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeTransactionsBetween } from "@/lib/liveCollection";
 import { isGoodsIncome } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
 import {
@@ -100,14 +100,21 @@ function SalesLogContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
+    const from = dateFrom || todayInputValue();
+    const to = dateTo || from;
+    const startMs = new Date(`${from}T00:00:00`).getTime();
+    const endMs = new Date(`${to}T23:59:59.999`).getTime();
+    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return undefined;
     setLoading(true);
-    const unsub = subscribeCollection(
-      "transactions",
+    const unsub = subscribeTransactionsBetween(
+      startMs,
+      endMs,
       (list) => {
-        const rows = list
-          .filter(isGoodsIncome)
-          .sort((a, b) => txTimeMs(b) - txTimeMs(a));
-        setAllTx(rows);
+        setAllTx(
+          list
+            .filter(isGoodsIncome)
+            .sort((a, b) => txTimeMs(b) - txTimeMs(a))
+        );
         setLoading(false);
       },
       (error) => {
@@ -117,10 +124,11 @@ function SalesLogContent() {
           "error"
         );
         setLoading(false);
-      }
+      },
+      2000
     );
     return () => unsub();
-  }, [showToast]);
+  }, [dateFrom, dateTo, showToast]);
 
   const ranged = useMemo(
     () => filterRowsByDateRange(allTx, dateFrom, dateTo),

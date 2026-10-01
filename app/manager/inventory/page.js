@@ -34,7 +34,7 @@ import {
   paymentMethodLabel,
   summarizeProductReceiveHistory,
 } from "@/lib/inventoryReceiveHistory";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeWhere } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
 import { subscribeShareholderCapital } from "@/lib/shareholderCapital";
 import {
@@ -201,7 +201,8 @@ function InventoryContent() {
   /** per product: { addQty, cost, payMethod, fundSource } */
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
-  const [allTx, setAllTx] = useState([]);
+  const [fundTx, setFundTx] = useState([]);
+  const [historyTx, setHistoryTx] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
   const [historyProduct, setHistoryProduct] = useState(null);
   const [backfillPay, setBackfillPay] = useState("cash");
@@ -223,34 +224,52 @@ function InventoryContent() {
   }, [showToast]);
 
   useEffect(() => {
-    const unsub = subscribeCollection(
+    const unsub = subscribeWhere(
       "transactions",
-      (rows) => setAllTx(rows),
-      () => setAllTx([])
+      "type",
+      "expense",
+      (rows) => setFundTx(rows),
+      () => setFundTx([])
     );
     return () => unsub();
   }, []);
 
   useEffect(() => {
-    const unsub = subscribeShareholderCapital(
+    const productId = historyProduct?.id;
+    if (!productId) {
+      setHistoryTx([]);
+      setCapitalEntries([]);
+      return undefined;
+    }
+    const unsubTx = subscribeWhere(
+      "transactions",
+      "productId",
+      productId,
+      (rows) => setHistoryTx(rows),
+      () => setHistoryTx([])
+    );
+    const unsubCap = subscribeShareholderCapital(
       (rows) => setCapitalEntries(rows),
       () => setCapitalEntries([])
     );
-    return () => unsub();
-  }, []);
+    return () => {
+      unsubTx();
+      unsubCap();
+    };
+  }, [historyProduct?.id]);
 
   const backfillPreview = useMemo(
-    () => previewInventoryFundBackfill(products, allTx),
-    [products, allTx]
+    () => previewInventoryFundBackfill(products, fundTx),
+    [products, fundTx]
   );
 
   const productReceiveHistory = useMemo(() => {
     if (!historyProduct?.id) return [];
     return listProductReceiveHistory(historyProduct.id, {
-      transactions: allTx,
+      transactions: historyTx,
       capitalEntries,
     });
-  }, [historyProduct, allTx, capitalEntries]);
+  }, [historyProduct, historyTx, capitalEntries]);
 
   const productReceiveSummary = useMemo(
     () => summarizeProductReceiveHistory(productReceiveHistory),
@@ -747,7 +766,7 @@ function InventoryContent() {
     try {
       const result = await backfillInventoryFundFromStock({
         products,
-        transactions: allTx,
+        transactions: fundTx,
         paymentMethod: backfillPay,
         user,
         profile,

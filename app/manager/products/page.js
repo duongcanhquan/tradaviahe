@@ -54,6 +54,7 @@ import {
   migrateRecipeQty,
   productUsesRecipe,
   recipeLineCost,
+  resolveLineBaseQty,
 } from "@/lib/recipe";
 import { normalizeProductUnits } from "@/lib/packaging";
 import {
@@ -61,7 +62,7 @@ import {
   buildRetailPackPreset,
   defaultIngredientPackHint,
 } from "@/lib/packaging";
-import { formatBaseQty, toIngredientBaseQty, usageUnitsForIngredient } from "@/lib/units";
+import { formatBaseQty, usageUnitsForIngredient } from "@/lib/units";
 import { cn, formatCurrency } from "@/lib/utils";
 
 function makeUnitId(label) {
@@ -1178,9 +1179,10 @@ function ProductsContent() {
                         }
                         const ing = byId[line.productId];
                         const useUnit = line.unitId || ing?.unit || "";
-                        const baseQty = ing
-                          ? toIngredientBaseQty(ing, line.qty, useUnit)
-                          : Number(line.baseQty) || Number(line.qty) || 0;
+                        const baseQty = resolveLineBaseQty(
+                          { ...line, unitId: useUnit },
+                          ing
+                        );
                         return (
                           <li
                             key={`${row.id}-${line.productId}-${line.qty}-${lineIdx}`}
@@ -1736,10 +1738,9 @@ function ProductsContent() {
                               const ing = byId[line.productId];
                               if (!ing) return null;
                               const useUnit = line.unitId || ing.unit;
-                              const baseQty = toIngredientBaseQty(
-                                ing,
-                                line.qty,
-                                useUnit
+                              const baseQty = resolveLineBaseQty(
+                                { ...line, qty: Number(line.qty) || 0, unitId: useUnit },
+                                ing
                               );
                               const lineCost = recipeLineCost(
                                 {

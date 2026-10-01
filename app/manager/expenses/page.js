@@ -56,7 +56,7 @@ import {
   updateShopFundEntry,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeWhere } from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { cn, formatCurrency, todayInputValue, dateKeyToInputValue } from "@/lib/utils";
 
@@ -117,27 +117,68 @@ function ExpensesContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeCollection(
-      "transactions",
-      (list) => {
-        setAllTx(list);
-        const fundRows = list
-          .filter(isShopFundEntry)
-          .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
-        setRows(fundRows);
-        setCashSalesTotal(sumGoodsIncomeByMethod(list).cash);
-        setLoading(false);
-      },
-      (error) => {
-        console.error(error);
-        showToast(
-          firestoreErrorMessage(error, "Không tải được sổ quỹ"),
-          "error"
-        );
-        setLoading(false);
+    let fundIns = null;
+    let expenses = null;
+    let cashRows = null;
+
+    const publish = () => {
+      if (!fundIns || !expenses || !cashRows) return;
+      const byId = new Map();
+      for (const row of [...fundIns, ...expenses, ...cashRows]) {
+        if (row?.id) byId.set(row.id, row);
       }
+      const list = [...byId.values()];
+      setAllTx(list);
+      const fundRows = list
+        .filter(isShopFundEntry)
+        .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
+      setRows(fundRows);
+      setCashSalesTotal(sumGoodsIncomeByMethod(list).cash);
+      setLoading(false);
+    };
+
+    const onError = (error) => {
+      console.error(error);
+      showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
+      setLoading(false);
+    };
+
+    const unsubFund = subscribeWhere(
+      "transactions",
+      "type",
+      "fund_in",
+      (rows) => {
+        fundIns = rows;
+        publish();
+      },
+      onError
     );
-    return () => unsub();
+    const unsubExpense = subscribeWhere(
+      "transactions",
+      "type",
+      "expense",
+      (rows) => {
+        expenses = rows;
+        publish();
+      },
+      onError
+    );
+    const unsubCash = subscribeWhere(
+      "transactions",
+      "paymentMethod",
+      "cash",
+      (rows) => {
+        cashRows = rows;
+        publish();
+      },
+      onError
+    );
+
+    return () => {
+      unsubFund();
+      unsubExpense();
+      unsubCash();
+    };
   }, [showToast]);
 
   const summary = useMemo(

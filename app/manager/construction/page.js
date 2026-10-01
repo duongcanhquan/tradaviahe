@@ -62,7 +62,7 @@ import {
   rowBusinessMs,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeWhere } from "@/lib/liveCollection";
 import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
@@ -127,8 +127,10 @@ function ConstructionContent() {
   const [savingJob, setSavingJob] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeCollection(
+    const unsub = subscribeWhere(
       "transactions",
+      "businessLine",
+      "construction",
       (list) => {
         setAllTx(list);
         setLoadingTx(false);

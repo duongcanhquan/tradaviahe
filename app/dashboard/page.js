@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   startOfMonth,
@@ -44,7 +44,7 @@ import {
   parseRangeBound,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeTransactionsBetween } from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { summarizeShopPnl } from "@/lib/pnl";
 import {
@@ -60,6 +60,14 @@ import {
 import { isShopOperatingExpense } from "@/lib/expenses";
 import { roleLabel } from "@/lib/roles";
 import { formatCurrency } from "@/lib/utils";
+
+/** Món công thức không giữ tồn — không cộng vào giá trị kho. */
+function holdsPhysicalStock(product) {
+  if (!product) return false;
+  if (product.costMode === "recipe") return false;
+  const lines = Array.isArray(product.recipe) ? product.recipe : [];
+  return !lines.some((line) => line && (line.virtual || line.productId));
+}
 
 const REVENUE_PERIODS = [
   { id: "day", label: "Ngày" },
@@ -100,6 +108,7 @@ function DashboardContent() {
   const [dateTo, setDateTo] = useState("");
   const [recentPage, setRecentPage] = useState(1);
   const [deletingId, setDeletingId] = useState(null);
+  const warnedTxCap = useRef(false);
 
   const handleDeleteSale = async (row) => {
     if (!canDeleteSales || !row?.id) return;
@@ -121,22 +130,6 @@ function DashboardContent() {
   };
 
   useEffect(() => {
-    const unsubTx = subscribeCollection(
-      "transactions",
-      (rows) => {
-        setAllTx([...rows].sort((a, b) => txTimeMs(b) - txTimeMs(a)));
-        setLoadingTx(false);
-      },
-      (error) => {
-        console.error(error);
-        showToast(
-          firestoreErrorMessage(error, "Không tải được giao dịch"),
-          "error"
-        );
-        setLoadingTx(false);
-      }
-    );
-
     const unsubProducts = subscribeProducts(
       (list) => {
         setProducts(list.filter(isSellable));
@@ -158,7 +151,6 @@ function DashboardContent() {
     );
 
     return () => {
-      unsubTx();
       unsubProducts();
       unsubGroups();
     };
@@ -206,6 +198,36 @@ function DashboardContent() {
     }
     return ranges[period] || ranges.day;
   }, [customRangeActive, dateFrom, dateTo, ranges, period]);
+
+  useEffect(() => {
+    warnedTxCap.current = false;
+    setLoadingTx(true);
+    const unsubTx = subscribeTransactionsBetween(
+      selectedRange.from,
+      selectedRange.to,
+      (rows) => {
+        setAllTx(rows);
+        setLoadingTx(false);
+        if (rows.length >= 2000 && !warnedTxCap.current) {
+          warnedTxCap.current = true;
+          showToast(
+            "Kỳ này vượt 2000 phiếu. Thu hẹp ngày để số liệu đủ.",
+            "error"
+          );
+        }
+      },
+      (error) => {
+        console.error(error);
+        showToast(
+          firestoreErrorMessage(error, "Không tải được giao dịch"),
+          "error"
+        );
+        setLoadingTx(false);
+      },
+      2000
+    );
+    return () => unsubTx();
+  }, [selectedRange.from, selectedRange.to, showToast]);
 
   const selectedGoods = useMemo(
     () =>
@@ -275,7 +297,9 @@ function DashboardContent() {
   const stockByGroup = useMemo(() => {
     const known = new Set(groups.map((g) => g.id));
     const rows = groups.map((g) => {
-      const items = products.filter((p) => p.groupId === g.id);
+      const items = products.filter(
+        (p) => p.groupId === g.id && holdsPhysicalStock(p)
+      );
       const qty = items.reduce((sum, p) => sum + (Number(p.inStock) || 0), 0);
       const value = items.reduce(
         (sum, p) =>
@@ -291,7 +315,7 @@ function DashboardContent() {
       };
     });
     const otherItems = products.filter(
-      (p) => !p.groupId || !known.has(p.groupId)
+      (p) => (!p.groupId || !known.has(p.groupId)) && holdsPhysicalStock(p)
     );
     if (otherItems.length) {
       rows.push({
@@ -321,7 +345,7 @@ function DashboardContent() {
 
   const lowStock = useMemo(() => {
     return products
-      .filter((p) => (Number(p.inStock) || 0) <= 5)
+      .filter((p) => holdsPhysicalStock(p) && (Number(p.inStock) || 0) <= 5)
       .sort((a, b) => (Number(a.inStock) || 0) - (Number(b.inStock) || 0))
       .slice(0, 8);
   }, [products]);

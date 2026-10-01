@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { format } from "date-fns";
 import {
@@ -29,9 +29,13 @@ import {
   filterRowsByDateRange,
   formatRangeLabel,
   monthInputBounds,
+  parseRangeBound,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeCollection } from "@/lib/liveCollection";
+import {
+  subscribeCollection,
+  subscribeTransactionsBetween,
+} from "@/lib/liveCollection";
 import {
   filterShareholderCapitalEntries,
   subscribeShareholderCapital,
@@ -100,6 +104,7 @@ function MonthlyContent() {
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingReceipts, setLoadingReceipts] = useState(true);
   const [savingReceipt, setSavingReceipt] = useState(false);
+  const warnedTxCap = useRef(false);
 
   const [receiptName, setReceiptName] = useState("");
   const [receiptAmount, setReceiptAmount] = useState("");
@@ -120,21 +125,34 @@ function MonthlyContent() {
   }, [year, monthIndex]);
 
   useEffect(() => {
+    warnedTxCap.current = false;
+    const startMs = parseRangeBound(dateFrom, false);
+    const endMs = parseRangeBound(dateTo, true);
+    if (startMs == null || endMs == null) return undefined;
     setLoadingTx(true);
-    const unsub = subscribeCollection(
-      "transactions",
+    const unsub = subscribeTransactionsBetween(
+      startMs,
+      endMs,
       (list) => {
         setAllTx(list);
         setLoadingTx(false);
+        if (list.length >= 2000 && !warnedTxCap.current) {
+          warnedTxCap.current = true;
+          showToast(
+            "Tháng này vượt 2000 phiếu. Số liệu có thể thiếu.",
+            "error"
+          );
+        }
       },
       (error) => {
         console.error(error);
         showToast(firestoreErrorMessage(error, "Không tải được giao dịch"), "error");
         setLoadingTx(false);
-      }
+      },
+      2000
     );
     return () => unsub();
-  }, [showToast]);
+  }, [dateFrom, dateTo, showToast]);
 
   useEffect(() => {
     const unsub = subscribeProducts(

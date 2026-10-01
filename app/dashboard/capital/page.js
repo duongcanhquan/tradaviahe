@@ -48,7 +48,7 @@ import {
   hasDateRange,
 } from "@/lib/dateRange";
 import { matchesCapitalExpenseSearch } from "@/lib/fundSearch";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeCollection, subscribeWhere } from "@/lib/liveCollection";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
@@ -713,10 +713,11 @@ function CapitalContent() {
       setLoadingBanking(false);
       return undefined;
     }
-    const unsub = subscribeCollection(
+    const unsubBank = subscribeWhere(
       "transactions",
+      "paymentMethod",
+      "banking",
       (list) => {
-        setAllTx(list);
         setBankingIncomeTotal(sumCapitalBankingIncome(list));
         setLoadingBanking(false);
       },
@@ -729,8 +730,23 @@ function CapitalContent() {
         setLoadingBanking(false);
       }
     );
-    return () => unsub();
+    return () => unsubBank();
   }, [canViewInvestmentCapital, showToast]);
+
+  useEffect(() => {
+    if (!canManageShareholderCapital) {
+      setAllTx([]);
+      return undefined;
+    }
+    const unsub = subscribeWhere(
+      "transactions",
+      "type",
+      "fund_in",
+      (list) => setAllTx(list),
+      () => setAllTx([])
+    );
+    return () => unsub();
+  }, [canManageShareholderCapital]);
 
   useEffect(() => {
     const unsub = subscribeCollection(

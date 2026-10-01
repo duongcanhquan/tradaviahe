@@ -33,7 +33,7 @@ import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
 } from "@/lib/productGroups";
-import { subscribeCollection } from "@/lib/liveCollection";
+import { subscribeTransactionsBetween } from "@/lib/liveCollection";
 import {
   comparePosOrder,
   isSellable,
@@ -66,7 +66,7 @@ function getDefaultCartUnitId(product) {
 export default function EmployeeDesk() {
   const { user, profile, role, canDeleteSales, canManageProducts } = useAuth();
   const { showToast } = useToast();
-  const [products, setProducts] = useState([]);
+  const [catalog, setCatalog] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
   const [activeGroupId, setActiveGroupId] = useState("drinks");
   const [cart, setCart] = useState({});
@@ -100,7 +100,7 @@ export default function EmployeeDesk() {
   useEffect(() => {
     const unsub = subscribeProducts(
       (list) => {
-        setProducts(list.filter(isSellable));
+        setCatalog(list);
         setLoading(false);
       },
       (error) => {
@@ -123,12 +123,15 @@ export default function EmployeeDesk() {
   // Chỉ tải lịch sử khi mở — POS lần đầu nhẹ hơn trên điện thoại.
   useEffect(() => {
     if (!showHistory || !user?.uid) return;
-    const today = todayKey();
-    const unsub = subscribeCollection(
-      "transactions",
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    const end = new Date();
+    end.setHours(23, 59, 59, 999);
+    const unsub = subscribeTransactionsBetween(
+      start.getTime(),
+      end.getTime(),
       (list) => {
         let rows = list
-          .filter((t) => (t.businessDate || todayKey()) === today)
           .filter(isGoodsIncome)
           .sort(
             (a, b) =>
@@ -145,7 +148,8 @@ export default function EmployeeDesk() {
         }
         setMyRecent(rows);
       },
-      () => setMyRecent([])
+      () => setMyRecent([]),
+      200
     );
     return () => unsub();
   }, [showHistory, user?.uid, canDeleteSales]);
@@ -200,9 +204,13 @@ export default function EmployeeDesk() {
     });
   };
 
+  const products = useMemo(
+    () => catalog.filter(isSellable),
+    [catalog]
+  );
   const productsById = useMemo(
-    () => Object.fromEntries(products.map((p) => [p.id, p])),
-    [products]
+    () => Object.fromEntries(catalog.map((p) => [p.id, p])),
+    [catalog]
   );
 
   const cartItems = useMemo(() => {
