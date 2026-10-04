@@ -27,7 +27,13 @@ import {
   FilterChip,
   SectionHeader,
 } from "@/components/ui/MobileUI";
-import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
+import {
+  receiveInventoryPaid,
+  previewInventoryFundBackfill,
+  backfillInventoryFundFromStock,
+  fetchInventoryFundExpensesOnce,
+} from "@/lib/expenses";
+import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
   fundSourceLabel,
   listProductReceiveHistory,
@@ -36,7 +42,7 @@ import {
 } from "@/lib/inventoryReceiveHistory";
 import { subscribeWhere } from "@/lib/liveCollection";
 import { db } from "@/lib/firebase";
-import { subscribeShareholderCapital } from "@/lib/shareholderCapital";
+import { CAPITAL_COLLECTION } from "@/lib/shareholderCapital";
 import {
   buildIngredientPackUnits,
   defaultIngredientPackHint,
@@ -201,7 +207,9 @@ function InventoryContent() {
   /** per product: { addQty, cost, payMethod, fundSource } */
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
-  const [fundTx, setFundTx] = useState([]);
+  const [backfillTx, setBackfillTx] = useState([]);
+  const [backfillChecked, setBackfillChecked] = useState(false);
+  const [checkingBackfill, setCheckingBackfill] = useState(false);
   const [historyTx, setHistoryTx] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
   const [historyProduct, setHistoryProduct] = useState(null);
@@ -224,17 +232,6 @@ function InventoryContent() {
   }, [showToast]);
 
   useEffect(() => {
-    const unsub = subscribeWhere(
-      "transactions",
-      "type",
-      "expense",
-      (rows) => setFundTx(rows),
-      () => setFundTx([])
-    );
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
     const productId = historyProduct?.id;
     if (!productId) {
       setHistoryTx([]);
@@ -246,11 +243,16 @@ function InventoryContent() {
       "productId",
       productId,
       (rows) => setHistoryTx(rows),
-      () => setHistoryTx([])
+      () => setHistoryTx([]),
+      { limitCount: 300 }
     );
-    const unsubCap = subscribeShareholderCapital(
+    const unsubCap = subscribeWhere(
+      CAPITAL_COLLECTION,
+      "productId",
+      productId,
       (rows) => setCapitalEntries(rows),
-      () => setCapitalEntries([])
+      () => setCapitalEntries([]),
+      { limitCount: 300 }
     );
     return () => {
       unsubTx();
@@ -259,8 +261,18 @@ function InventoryContent() {
   }, [historyProduct?.id]);
 
   const backfillPreview = useMemo(
-    () => previewInventoryFundBackfill(products, fundTx),
-    [products, fundTx]
+    () =>
+      backfillChecked
+        ? previewInventoryFundBackfill(products, backfillTx)
+        : {
+            lines: [],
+            stockValue: 0,
+            alreadyCharged: 0,
+            suggested: 0,
+            backfillDone: false,
+            lineCount: 0,
+          },
+    [products, backfillTx, backfillChecked]
   );
 
   const productReceiveHistory = useMemo(() => {
@@ -708,7 +720,10 @@ function InventoryContent() {
       });
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Nhập hàng thất bại", "error");
+      showToast(
+        firestoreErrorMessage(error, error?.message || "Nhập hàng thất bại"),
+        "error"
+      );
     } finally {
       setSavingId(null);
     }
@@ -751,7 +766,31 @@ function InventoryContent() {
     }
   };
 
+  const handleCheckBackfill = async () => {
+    setCheckingBackfill(true);
+    try {
+      const rows = await fetchInventoryFundExpensesOnce({ limitCount: 800 });
+      setBackfillTx(rows);
+      setBackfillChecked(true);
+      const preview = previewInventoryFundBackfill(products, rows);
+      if (preview.backfillDone) {
+        showToast("Đã bù trừ tồn cũ trước đó", "info");
+      } else if (preview.suggested <= 0) {
+        showToast("Không cần bù trừ quỹ cho tồn hiện tại", "success");
+      }
+    } catch (error) {
+      console.error(error);
+      showToast(
+        firestoreErrorMessage(error, "Không kiểm tra được bù trừ quỹ"),
+        "error"
+      );
+    } finally {
+      setCheckingBackfill(false);
+    }
+  };
+
   const handleBackfill = async () => {
+    if (!backfillChecked) return;
     if (backfillPreview.suggested <= 0 || backfillPreview.backfillDone) return;
     const via = backfillPay === "banking" ? "CK" : "TM";
     const ok = window.confirm(
@@ -766,18 +805,32 @@ function InventoryContent() {
     try {
       const result = await backfillInventoryFundFromStock({
         products,
-        transactions: fundTx,
+        transactions: backfillTx,
         paymentMethod: backfillPay,
         user,
         profile,
       });
+      setBackfillTx((prev) => [
+        ...prev,
+        {
+          id: result.id,
+          amount: result.amount,
+          type: "expense",
+          category: "nhập hàng",
+          source: "inventory_backfill",
+          businessLine: "shop",
+        },
+      ]);
       showToast(
         `Đã bù trừ quỹ ${via} ${formatCurrency(result.amount)}`,
         "success"
       );
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Bù trừ thất bại", "error");
+      showToast(
+        firestoreErrorMessage(error, error?.message || "Bù trừ thất bại"),
+        "error"
+      );
     } finally {
       setBackfilling(false);
     }
@@ -828,75 +881,94 @@ function InventoryContent() {
         .
       </p>
 
-      {!loading && !backfillPreview.backfillDone && backfillPreview.stockValue > 0 ? (
+      {!loading ? (
         <section className="alert-soft mb-4 space-y-3">
           <p className="text-sm font-bold">
             Bù trừ quỹ · tồn cũ chưa trừ tiền
           </p>
-          <div className="grid grid-cols-3 gap-2 text-sm">
-            <MetricTile
-              label="Giá trị tồn"
-              value={
-                <Money amount={backfillPreview.stockValue} />
-              }
-            />
-            <MetricTile
-              label="Đã chi nhập"
-              value={
-                <Money amount={backfillPreview.alreadyCharged} />
-              }
-            />
-            <MetricTile
-              label="Cần bù trừ"
-              value={
-                <span className="text-rose-700">
-                  <Money amount={backfillPreview.suggested} />
-                </span>
-              }
-            />
-          </div>
-          {backfillPreview.suggested > 0 ? (
+          <p className="text-xs text-slate-600">
+            Không tự tải cả sổ chi (tiết kiệm quota). Chỉ kiểm tra khi cần.
+          </p>
+          {!backfillChecked ? (
+            <button
+              type="button"
+              disabled={checkingBackfill}
+              onClick={handleCheckBackfill}
+              className="touch-btn h-12 w-full gap-2 bg-white text-sm font-bold text-slate-900 ring-1 ring-rose-200 disabled:opacity-50"
+            >
+              {checkingBackfill ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : null}
+              {checkingBackfill
+                ? "Đang kiểm tra..."
+                : "Kiểm tra bù trừ quỹ"}
+            </button>
+          ) : backfillPreview.backfillDone ? (
+            <p className="text-sm font-semibold text-emerald-800">
+              Đã bù trừ tồn cũ. Lần nhập mới tự trừ quỹ.
+            </p>
+          ) : backfillPreview.stockValue > 0 ? (
             <>
-              <ChipRow>
-                <FilterChip
-                  active={backfillPay === "cash"}
-                  onClick={() => setBackfillPay("cash")}
-                >
-                  Tiền mặt
-                </FilterChip>
-                <FilterChip
-                  active={backfillPay === "banking"}
-                  onClick={() => setBackfillPay("banking")}
-                >
-                  Chuyển khoản
-                </FilterChip>
-              </ChipRow>
-              <button
-                type="button"
-                disabled={backfilling}
-                onClick={handleBackfill}
-                className="touch-btn h-12 w-full gap-2 bg-rose-700 text-sm text-white disabled:opacity-50"
-              >
-                {backfilling ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                {backfilling
-                  ? "Đang bù trừ..."
-                  : `Bù trừ quỹ ${formatCurrency(backfillPreview.suggested)}`}
-              </button>
+              <div className="grid grid-cols-3 gap-2 text-sm">
+                <MetricTile
+                  label="Giá trị tồn"
+                  value={<Money amount={backfillPreview.stockValue} />}
+                />
+                <MetricTile
+                  label="Đã chi nhập"
+                  value={<Money amount={backfillPreview.alreadyCharged} />}
+                />
+                <MetricTile
+                  label="Cần bù trừ"
+                  value={
+                    <span className="text-rose-700">
+                      <Money amount={backfillPreview.suggested} />
+                    </span>
+                  }
+                />
+              </div>
+              {backfillPreview.suggested > 0 ? (
+                <>
+                  <ChipRow>
+                    <FilterChip
+                      active={backfillPay === "cash"}
+                      onClick={() => setBackfillPay("cash")}
+                    >
+                      Tiền mặt
+                    </FilterChip>
+                    <FilterChip
+                      active={backfillPay === "banking"}
+                      onClick={() => setBackfillPay("banking")}
+                    >
+                      Chuyển khoản
+                    </FilterChip>
+                  </ChipRow>
+                  <button
+                    type="button"
+                    disabled={backfilling}
+                    onClick={handleBackfill}
+                    className="touch-btn h-12 w-full gap-2 bg-rose-700 text-sm text-white disabled:opacity-50"
+                  >
+                    {backfilling ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : null}
+                    {backfilling
+                      ? "Đang bù trừ..."
+                      : `Bù trừ quỹ ${formatCurrency(backfillPreview.suggested)}`}
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-emerald-800">
+                  Đã ghi đủ — không cần bù.
+                </p>
+              )}
             </>
           ) : (
             <p className="text-sm font-semibold text-emerald-800">
-              Đã ghi đủ — không cần bù.
+              Không có tồn cần đối soát bù trừ.
             </p>
           )}
         </section>
-      ) : null}
-
-      {backfillPreview.backfillDone ? (
-        <p className="mb-4 text-sm font-semibold text-emerald-800">
-          Đã bù trừ tồn cũ. Lần nhập mới tự trừ quỹ.
-        </p>
       ) : null}
 
       {isSuperAdmin &&

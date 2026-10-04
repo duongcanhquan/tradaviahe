@@ -59,13 +59,19 @@ import {
   filterRowsByDateRange,
   formatRangeLabel,
   hasDateRange,
+  listenWindowMs,
+  monthInputBounds,
   rowBusinessMs,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeWhere } from "@/lib/liveCollection";
+import { subscribeFieldBetween } from "@/lib/liveCollection";
 import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
+const MONTH_BOUNDS = monthInputBounds(
+  new Date().getFullYear(),
+  new Date().getMonth()
+);
 const TABS = [
   { id: "overview", label: "Tổng quan" },
   { id: "fund", label: "Quỹ XD" },
@@ -92,8 +98,9 @@ function ConstructionContent() {
   const [loadingTx, setLoadingTx] = useState(true);
   const [loadingJobs, setLoadingJobs] = useState(true);
 
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(MONTH_BOUNDS.from);
+  const [dateTo, setDateTo] = useState(MONTH_BOUNDS.to);
+  const [listenCapped, setListenCapped] = useState(false);
   const [page, setPage] = useState(1);
   const [jobPage, setJobPage] = useState(1);
   const [fundFilter, setFundFilter] = useState("all");
@@ -127,10 +134,17 @@ function ConstructionContent() {
   const [savingJob, setSavingJob] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeWhere(
+    setLoadingTx(true);
+    const { fromMs, toMs, capped } = listenWindowMs(dateFrom, dateTo, {
+      fallbackDays: 90,
+    });
+    setListenCapped(capped);
+    const unsub = subscribeFieldBetween(
       "transactions",
       "businessLine",
       "construction",
+      fromMs,
+      toMs,
       (list) => {
         setAllTx(list);
         setLoadingTx(false);
@@ -139,10 +153,11 @@ function ConstructionContent() {
         console.error(error);
         showToast(firestoreErrorMessage(error, "Không tải sổ XD"), "error");
         setLoadingTx(false);
-      }
+      },
+      2000
     );
     return () => unsub();
-  }, [showToast]);
+  }, [dateFrom, dateTo, showToast]);
 
   useEffect(() => {
     const unsub = subscribeConstructionJobs(
@@ -675,11 +690,18 @@ function ConstructionContent() {
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">
-                  Chọn khoảng ngày để tổng kết kỳ mảng XD.
+                  Đang xem ~90 ngày gần nhất (tiết kiệm quota). Chọn khoảng ngày
+                  để thu hẹp.
                 </p>
               )
             }
           />
+
+          {listenCapped ? (
+            <p className="text-xs font-medium text-amber-800">
+              Chưa chọn ngày → chỉ tải sổ XD 90 ngày gần nhất.
+            </p>
+          ) : null}
 
           <ChipRow>
             {[

@@ -35,6 +35,8 @@ import {
   filterRowsByDateRange,
   formatRangeLabel,
   hasDateRange,
+  listenWindowMs,
+  monthInputBounds,
   rowBusinessMs,
 } from "@/lib/dateRange";
 import {
@@ -56,11 +58,15 @@ import {
   updateShopFundEntry,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeWhere } from "@/lib/liveCollection";
+import { subscribeTransactionsBetween } from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { cn, formatCurrency, todayInputValue, dateKeyToInputValue } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
+const MONTH_BOUNDS = monthInputBounds(
+  new Date().getFullYear(),
+  new Date().getMonth()
+);
 
 function txTimeMs(t) {
   return t?.timestamp?.toMillis?.() ?? 0;
@@ -91,8 +97,9 @@ function ExpensesContent() {
   const [cashSalesTotal, setCashSalesTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(MONTH_BOUNDS.from);
+  const [dateTo, setDateTo] = useState(MONTH_BOUNDS.to);
+  const [listenCapped, setListenCapped] = useState(false);
   const [page, setPage] = useState(1);
   const [mode, setMode] = useState(null); // null | fund_in | expense
 
@@ -117,69 +124,34 @@ function ExpensesContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    let fundIns = null;
-    let expenses = null;
-    let cashRows = null;
+    setLoading(true);
+    const { fromMs, toMs, capped } = listenWindowMs(dateFrom, dateTo, {
+      fallbackDays: 90,
+    });
+    setListenCapped(capped);
 
-    const publish = () => {
-      if (!fundIns || !expenses || !cashRows) return;
-      const byId = new Map();
-      for (const row of [...fundIns, ...expenses, ...cashRows]) {
-        if (row?.id) byId.set(row.id, row);
-      }
-      const list = [...byId.values()];
-      setAllTx(list);
-      const fundRows = list
-        .filter(isShopFundEntry)
-        .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
-      setRows(fundRows);
-      setCashSalesTotal(sumGoodsIncomeByMethod(list).cash);
-      setLoading(false);
-    };
-
-    const onError = (error) => {
-      console.error(error);
-      showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
-      setLoading(false);
-    };
-
-    const unsubFund = subscribeWhere(
-      "transactions",
-      "type",
-      "fund_in",
-      (rows) => {
-        fundIns = rows;
-        publish();
+    const unsub = subscribeTransactionsBetween(
+      fromMs,
+      toMs,
+      (list) => {
+        setAllTx(list);
+        const fundRows = list
+          .filter(isShopFundEntry)
+          .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
+        setRows(fundRows);
+        setCashSalesTotal(sumGoodsIncomeByMethod(list).cash);
+        setLoading(false);
       },
-      onError
-    );
-    const unsubExpense = subscribeWhere(
-      "transactions",
-      "type",
-      "expense",
-      (rows) => {
-        expenses = rows;
-        publish();
+      (error) => {
+        console.error(error);
+        showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
+        setLoading(false);
       },
-      onError
-    );
-    const unsubCash = subscribeWhere(
-      "transactions",
-      "paymentMethod",
-      "cash",
-      (rows) => {
-        cashRows = rows;
-        publish();
-      },
-      onError
+      2000
     );
 
-    return () => {
-      unsubFund();
-      unsubExpense();
-      unsubCash();
-    };
-  }, [showToast]);
+    return () => unsub();
+  }, [dateFrom, dateTo, showToast]);
 
   const summary = useMemo(
     () => summarizeShopFund(rows, cashSalesTotal),
@@ -243,6 +215,7 @@ function ExpensesContent() {
   }, [page, totalPages]);
 
   const clearDateFilter = () => {
+    // Xóa ngày → listen 90 ngày gần nhất (không tải cả lịch sử).
     setDateFrom("");
     setDateTo("");
   };
@@ -591,11 +564,18 @@ function ExpensesContent() {
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">
-                  Chọn khoảng ngày để xem tổng kết kỳ.
+                  Đang xem ~90 ngày gần nhất (tiết kiệm quota). Chọn khoảng ngày
+                  để thu hẹp và xem tổng kết kỳ.
                 </p>
               )
             }
           />
+
+          {listenCapped ? (
+            <p className="text-xs font-medium text-amber-800">
+              Chưa chọn ngày → chỉ tải 90 ngày gần nhất, không tải cả lịch sử.
+            </p>
+          ) : null}
 
           <ChipRow>
             {FILTERS.map((f) => (
