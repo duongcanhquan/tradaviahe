@@ -564,11 +564,18 @@ function ExpensesContent() {
                 </div>
               ) : (
                 <p className="text-sm text-slate-500">
-                  Chọn khoảng ngày để xem tổng kết kỳ.
+                  Đang xem ~90 ngày gần nhất (tiết kiệm quota). Chọn khoảng ngày
+                  để thu hẹp và xem tổng kết kỳ.
                 </p>
               )
             }
           />
+
+          {listenCapped ? (
+            <p className="text-xs font-medium text-amber-800">
+              Chưa chọn ngày → chỉ tải 90 ngày gần nhất, không tải cả lịch sử.
+            </p>
+          ) : null}
 
           <ChipRow>
             {FILTERS.map((f) => (

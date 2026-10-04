@@ -243,14 +243,16 @@ function InventoryContent() {
       "productId",
       productId,
       (rows) => setHistoryTx(rows),
-      () => setHistoryTx([])
+      () => setHistoryTx([]),
+      { limitCount: 300 }
     );
     const unsubCap = subscribeWhere(
       CAPITAL_COLLECTION,
       "productId",
       productId,
       (rows) => setCapitalEntries(rows),
-      () => setCapitalEntries([])
+      () => setCapitalEntries([]),
+      { limitCount: 300 }
     );
     return () => {
       unsubTx();

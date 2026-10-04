@@ -46,9 +46,13 @@ import { useToast } from "@/components/Toast";
 import {
   formatRangeLabel,
   hasDateRange,
+  listenWindowMs,
 } from "@/lib/dateRange";
 import { matchesCapitalExpenseSearch } from "@/lib/fundSearch";
-import { subscribeCollection, subscribeWhere } from "@/lib/liveCollection";
+import {
+  subscribeCollection,
+  subscribeFieldBetween,
+} from "@/lib/liveCollection";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
@@ -713,10 +717,14 @@ function CapitalContent() {
       setLoadingBanking(false);
       return undefined;
     }
-    const unsubBank = subscribeWhere(
+    // Không listen cả lịch sử CK — cửa sổ 365 ngày (số dư vốn CK gần đúng).
+    const { fromMs, toMs } = listenWindowMs("", "", { fallbackDays: 365 });
+    const unsubBank = subscribeFieldBetween(
       "transactions",
       "paymentMethod",
       "banking",
+      fromMs,
+      toMs,
       (list) => {
         setBankingIncomeTotal(sumCapitalBankingIncome(list));
         setLoadingBanking(false);
@@ -728,7 +736,8 @@ function CapitalContent() {
           "error"
         );
         setLoadingBanking(false);
-      }
+      },
+      2000
     );
     return () => unsubBank();
   }, [canViewInvestmentCapital, showToast]);
@@ -738,12 +747,17 @@ function CapitalContent() {
       setAllTx([]);
       return undefined;
     }
-    const unsub = subscribeWhere(
+    // Đồng bộ sổ vốn ↔ quỹ: chỉ fund_in trong 365 ngày gần nhất.
+    const { fromMs, toMs } = listenWindowMs("", "", { fallbackDays: 365 });
+    const unsub = subscribeFieldBetween(
       "transactions",
       "type",
       "fund_in",
+      fromMs,
+      toMs,
       (list) => setAllTx(list),
-      () => setAllTx([])
+      () => setAllTx([]),
+      2000
     );
     return () => unsub();
   }, [canManageShareholderCapital]);
@@ -1311,7 +1325,7 @@ function CapitalContent() {
               </div>
               <div className="card-panel !p-3 col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Thu CK (bán + XD)
+                  Thu CK (bán + XD · 12 tháng gần)
                 </p>
                 <p className="money mt-1 text-sm font-bold text-emerald-700">
                   <Money
