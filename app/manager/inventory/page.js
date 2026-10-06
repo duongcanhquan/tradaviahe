@@ -28,7 +28,12 @@ import {
   FilterChip,
   SectionHeader,
 } from "@/components/ui/MobileUI";
-import { receiveInventoryPaid, voidInventoryReceive } from "@/lib/expenses";
+import {
+  receiveInventoryPaid,
+  receiveVoidBlockedByStock,
+  releaseInventoryReceiveMoney,
+  voidInventoryReceive,
+} from "@/lib/expenses";
 import {
   fundSourceLabel,
   listProductReceiveHistory,
@@ -790,6 +795,34 @@ function InventoryContent() {
       showToast("Đã hủy phiếu. Tồn, quỹ và giá vốn đã đảo.", "success");
     } catch (error) {
       console.error(error);
+      if (receiveVoidBlockedByStock(error)) {
+        const force = window.confirm(
+          `${error.message}\n\n` +
+            `Xóa chỉ dòng tiền ${formatCurrency(row.amount)}?\n` +
+            `Tồn và giá vốn giữ nguyên.`
+        );
+        if (force) {
+          try {
+            await releaseInventoryReceiveMoney({
+              id: row.id,
+              fundSource: row.fundSource,
+              role,
+            });
+            showToast(
+              "Đã xóa dòng tiền. Tồn không đổi — chỉnh ở Kiểm kho nếu cần.",
+              "success"
+            );
+            return;
+          } catch (releaseError) {
+            console.error(releaseError);
+            showToast(
+              releaseError?.message || "Không xóa được dòng tiền",
+              "error"
+            );
+            return;
+          }
+        }
+      }
       showToast(error?.message || "Không hủy được phiếu", "error");
     } finally {
       setVoidingId(null);

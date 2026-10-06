@@ -39,6 +39,8 @@ import {
 } from "@/lib/dateRange";
 import {
   deleteShopFundEntry,
+  receiveVoidBlockedByStock,
+  releaseInventoryReceiveMoney,
   voidInventoryReceive,
   expenseCategoryLabel,
   EXPENSE_CATEGORIES,
@@ -368,6 +370,34 @@ function ExpensesContent() {
         showToast("Đã hủy phiếu nhập. Tồn, quỹ và giá vốn đã đảo.", "success");
       } catch (error) {
         console.error(error);
+        if (receiveVoidBlockedByStock(error)) {
+          const force = window.confirm(
+            `${error.message}\n\n` +
+              `Xóa chỉ dòng tiền ${formatCurrency(row.amount)} và trả về quỹ?\n` +
+              `Tồn và giá vốn giữ nguyên.`
+          );
+          if (force) {
+            try {
+              await releaseInventoryReceiveMoney({
+                id: row.id,
+                fundSource: "shop",
+                role,
+              });
+              showToast(
+                "Đã xóa dòng tiền. Tồn không đổi — chỉnh ở Kiểm kho nếu cần.",
+                "success"
+              );
+              return;
+            } catch (releaseError) {
+              console.error(releaseError);
+              showToast(
+                releaseError?.message || "Không xóa được dòng tiền",
+                "error"
+              );
+              return;
+            }
+          }
+        }
         showToast(error?.message || "Không hủy được phiếu nhập", "error");
       } finally {
         setDeletingId(null);

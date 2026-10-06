@@ -60,6 +60,8 @@ import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
   transferCapitalToShopFund,
+  receiveVoidBlockedByStock,
+  releaseInventoryReceiveMoney,
   voidInventoryReceive,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
@@ -1093,6 +1095,35 @@ function CapitalContent() {
         );
       } catch (error) {
         console.error(error);
+        if (receiveVoidBlockedByStock(error)) {
+          const force = window.confirm(
+            `${error.message}\n\n` +
+              `Xóa chỉ dòng chi ${formatCurrency(row.amount)} và trả tiền về vốn?\n` +
+              `Tồn và giá vốn giữ nguyên.`
+          );
+          if (force) {
+            try {
+              await releaseInventoryReceiveMoney({
+                id: row.id,
+                fundSource: "capital",
+                role: profile?.role,
+              });
+              if (editingExpense?.id === row.id) setEditingExpense(null);
+              showToast(
+                "Đã xóa dòng chi vốn. Tồn không đổi — chỉnh ở Kiểm kho nếu cần.",
+                "success"
+              );
+              return;
+            } catch (releaseError) {
+              console.error(releaseError);
+              showToast(
+                releaseError?.message || "Không xóa được dòng tiền",
+                "error"
+              );
+              return;
+            }
+          }
+        }
         showToast(error?.message || "Không hủy được phiếu nhập", "error");
       } finally {
         setDeletingExpId(null);
@@ -2031,7 +2062,7 @@ function CapitalContent() {
             {editingExpense.source === "inventory_receive" ? (
               <div className="space-y-3">
                 <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-100">
-                  Phiếu nhập từ quỹ đầu tư. Hủy sẽ trừ tồn, trả tiền về vốn và tính lại giá vốn. Không sửa số tiền tay.
+                  Phiếu nhập từ quỹ đầu tư. Hủy được khi còn đủ tồn. Nếu hàng đã bán, hệ thống hỏi để xóa chỉ dòng tiền và giữ tồn. Không sửa số tiền tay.
                 </p>
                 <button
                   type="button"
