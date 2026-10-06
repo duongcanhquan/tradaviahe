@@ -15,6 +15,7 @@ import {
   Trash2,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
+import PeriodPresetBar from "@/components/PeriodPresetBar";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, MetricTile, StatCard } from "@/components/StatusBadges";
 import { useAuth } from "@/context/AuthContext";
@@ -27,16 +28,20 @@ import {
   FilterChip,
   SectionHeader,
 } from "@/components/ui/MobileUI";
-import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock, voidInventoryReceive } from "@/lib/expenses";
+import { receiveInventoryPaid, voidInventoryReceive } from "@/lib/expenses";
 import {
   fundSourceLabel,
   listProductReceiveHistory,
   paymentMethodLabel,
   summarizeProductReceiveHistory,
 } from "@/lib/inventoryReceiveHistory";
-import { subscribeWhere } from "@/lib/liveCollection";
+import {
+  subscribeTransactionsInRange,
+  subscribeWhere,
+} from "@/lib/liveCollection";
+import { activePreset, presetRange, rowInDateRange } from "@/lib/dateRange";
 import { db } from "@/lib/firebase";
-import { subscribeShareholderCapital } from "@/lib/shareholderCapital";
+import { CAPITAL_COLLECTION } from "@/lib/shareholderCapital";
 import {
   buildIngredientPackUnits,
   defaultIngredientPackHint,
@@ -68,7 +73,7 @@ import {
   summarizeStocktake,
 } from "@/lib/stocktake";
 import { commitStocktake } from "@/lib/stocktakeWrite";
-import { cn, formatCurrency } from "@/lib/utils";
+import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
 
 /** Parse số tiền/giá nhập — giữ thập phân (0.5), bỏ khoảng trắng. */
 function parseUnitCostInput(raw) {
@@ -202,13 +207,12 @@ function InventoryContent() {
   /** per product: { addQty, cost, payMethod, fundSource } */
   const [drafts, setDrafts] = useState({});
   const [savingId, setSavingId] = useState(null);
-  const [fundTx, setFundTx] = useState([]);
   const [historyTx, setHistoryTx] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
   const [historyProduct, setHistoryProduct] = useState(null);
   const [voidingId, setVoidingId] = useState(null);
-  const [backfillPay, setBackfillPay] = useState("cash");
-  const [backfilling, setBackfilling] = useState(false);
+  const [historyFrom, setHistoryFrom] = useState(() => todayInputValue());
+  const [historyTo, setHistoryTo] = useState(() => todayInputValue());
 
   useEffect(() => {
     const unsub = subscribeProducts(
@@ -226,44 +230,34 @@ function InventoryContent() {
   }, [showToast]);
 
   useEffect(() => {
-    const unsub = subscribeWhere(
-      "transactions",
-      "type",
-      "expense",
-      (rows) => setFundTx(rows),
-      () => setFundTx([])
-    );
-    return () => unsub();
-  }, []);
-
-  useEffect(() => {
     const productId = historyProduct?.id;
     if (!productId) {
       setHistoryTx([]);
       setCapitalEntries([]);
       return undefined;
     }
-    const unsubTx = subscribeWhere(
-      "transactions",
-      "productId",
-      productId,
-      (rows) => setHistoryTx(rows),
+    const unsubTx = subscribeTransactionsInRange(
+      historyFrom,
+      historyTo,
+      (rows) =>
+        setHistoryTx(rows.filter((row) => row.productId === productId)),
       () => setHistoryTx([])
     );
-    const unsubCap = subscribeShareholderCapital(
-      (rows) => setCapitalEntries(rows),
+    const unsubCap = subscribeWhere(
+      CAPITAL_COLLECTION,
+      "productId",
+      productId,
+      (rows) =>
+        setCapitalEntries(
+          rows.filter((row) => rowInDateRange(row, historyFrom, historyTo))
+        ),
       () => setCapitalEntries([])
     );
     return () => {
       unsubTx();
       unsubCap();
     };
-  }, [historyProduct?.id]);
-
-  const backfillPreview = useMemo(
-    () => previewInventoryFundBackfill(products, fundTx),
-    [products, fundTx]
-  );
+  }, [historyProduct?.id, historyFrom, historyTo]);
 
   const productReceiveHistory = useMemo(() => {
     if (!historyProduct?.id) return [];
@@ -779,38 +773,6 @@ function InventoryContent() {
     }
   };
 
-  const handleBackfill = async () => {
-    if (backfillPreview.suggested <= 0 || backfillPreview.backfillDone) return;
-    const via = backfillPay === "banking" ? "CK" : "TM";
-    const ok = window.confirm(
-      `Bù trừ quỹ ${via} ${formatCurrency(backfillPreview.suggested)}?\n\n` +
-        `Giá trị tồn hiện tại: ${formatCurrency(backfillPreview.stockValue)}\n` +
-        `Chi nhập hàng đã ghi: ${formatCurrency(backfillPreview.alreadyCharged)}\n\n` +
-        `Đơn nhập cũ không có sổ — hệ thống trừ phần còn thiếu theo tồn × giá nhập.`
-    );
-    if (!ok) return;
-
-    setBackfilling(true);
-    try {
-      const result = await backfillInventoryFundFromStock({
-        products,
-        transactions: fundTx,
-        paymentMethod: backfillPay,
-        user,
-        profile,
-      });
-      showToast(
-        `Đã bù trừ quỹ ${via} ${formatCurrency(result.amount)}`,
-        "success"
-      );
-    } catch (error) {
-      console.error(error);
-      showToast(error?.message || "Bù trừ thất bại", "error");
-    } finally {
-      setBackfilling(false);
-    }
-  };
-
   const handleZeroRecipeStocks = async () => {
     if (!isSuperAdmin) return;
     const ghost = products.filter(
@@ -846,6 +808,19 @@ function InventoryContent() {
       dense
     >
       <p className="mb-3 text-sm text-slate-500">
+        Lịch sử nhập chỉ tải kỳ đang chọn. Danh mục hàng vẫn hiện đủ để nhập.
+      </p>
+      <div className="mb-3">
+        <PeriodPresetBar
+          active={activePreset(historyFrom, historyTo)}
+          onChange={(id) => {
+            const next = presetRange(id);
+            setHistoryFrom(next.from);
+            setHistoryTo(next.to);
+          }}
+        />
+      </div>
+      <p className="mb-3 text-sm text-slate-500">
         Chọn hàng có sẵn rồi nhập SL · món nấu tại{" "}
         <Link
           href="/manager/products"
@@ -855,77 +830,6 @@ function InventoryContent() {
         </Link>
         .
       </p>
-
-      {!loading && !backfillPreview.backfillDone && backfillPreview.stockValue > 0 ? (
-        <section className="alert-soft mb-4 space-y-3">
-          <p className="text-sm font-bold">
-            Bù trừ quỹ · tồn cũ chưa trừ tiền
-          </p>
-          <div className="grid grid-cols-3 gap-2 text-sm">
-            <MetricTile
-              label="Giá trị tồn"
-              value={
-                <Money amount={backfillPreview.stockValue} />
-              }
-            />
-            <MetricTile
-              label="Đã chi nhập"
-              value={
-                <Money amount={backfillPreview.alreadyCharged} />
-              }
-            />
-            <MetricTile
-              label="Cần bù trừ"
-              value={
-                <span className="text-rose-700">
-                  <Money amount={backfillPreview.suggested} />
-                </span>
-              }
-            />
-          </div>
-          {backfillPreview.suggested > 0 ? (
-            <>
-              <ChipRow>
-                <FilterChip
-                  active={backfillPay === "cash"}
-                  onClick={() => setBackfillPay("cash")}
-                >
-                  Tiền mặt
-                </FilterChip>
-                <FilterChip
-                  active={backfillPay === "banking"}
-                  onClick={() => setBackfillPay("banking")}
-                >
-                  Chuyển khoản
-                </FilterChip>
-              </ChipRow>
-              <button
-                type="button"
-                disabled={backfilling}
-                onClick={handleBackfill}
-                className="touch-btn h-12 w-full gap-2 bg-rose-700 text-sm text-white disabled:opacity-50"
-              >
-                {backfilling ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : null}
-                {backfilling
-                  ? "Đang bù trừ..."
-                  : `Bù trừ quỹ ${formatCurrency(backfillPreview.suggested)}`}
-              </button>
-            </>
-          ) : (
-            <p className="text-sm font-semibold text-emerald-800">
-              Đã ghi đủ — không cần bù.
-            </p>
-          )}
-        </section>
-      ) : null}
-
-      {backfillPreview.backfillDone ? (
-        <p className="mb-4 text-sm font-semibold text-emerald-800">
-          Đã bù trừ tồn cũ. Lần nhập mới tự trừ quỹ.
-        </p>
-      ) : null}
 
       {isSuperAdmin &&
       products.some(
@@ -2121,7 +2025,7 @@ function InventoryContent() {
               <EmptyState
                 icon={History}
                 title="Chưa có lần nhập"
-                description="Chưa ghi nhận nhập hàng cho món này."
+                description="Không có phiếu nhập trong kỳ đang chọn. Đổi Tuần hoặc Tháng nếu cần xem xa hơn."
               />
             ) : (
               <ul className="space-y-2">

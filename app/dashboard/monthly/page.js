@@ -29,12 +29,11 @@ import {
   filterRowsByDateRange,
   formatRangeLabel,
   monthInputBounds,
-  parseRangeBound,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
   subscribeCollection,
-  subscribeTransactionsBetween,
+  subscribeTransactionsInRange,
 } from "@/lib/liveCollection";
 import {
   filterShareholderCapitalEntries,
@@ -126,13 +125,10 @@ function MonthlyContent() {
 
   useEffect(() => {
     warnedTxCap.current = false;
-    const startMs = parseRangeBound(dateFrom, false);
-    const endMs = parseRangeBound(dateTo, true);
-    if (startMs == null || endMs == null) return undefined;
     setLoadingTx(true);
-    const unsub = subscribeTransactionsBetween(
-      startMs,
-      endMs,
+    const unsub = subscribeTransactionsInRange(
+      dateFrom,
+      dateTo,
       (list) => {
         setAllTx(list);
         setLoadingTx(false);
@@ -148,8 +144,7 @@ function MonthlyContent() {
         console.error(error);
         showToast(firestoreErrorMessage(error, "Không tải được giao dịch"), "error");
         setLoadingTx(false);
-      },
-      2000
+      }
     );
     return () => unsub();
   }, [dateFrom, dateTo, showToast]);

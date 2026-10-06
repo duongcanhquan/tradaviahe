@@ -35,7 +35,7 @@ import {
   hasDateRange,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeTransactionsBetween } from "@/lib/liveCollection";
+import { subscribeTransactionsInRange } from "@/lib/liveCollection";
 import { isGoodsIncome } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
 import {
@@ -102,13 +102,10 @@ function SalesLogContent() {
   useEffect(() => {
     const from = dateFrom || todayInputValue();
     const to = dateTo || from;
-    const startMs = new Date(`${from}T00:00:00`).getTime();
-    const endMs = new Date(`${to}T23:59:59.999`).getTime();
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return undefined;
     setLoading(true);
-    const unsub = subscribeTransactionsBetween(
-      startMs,
-      endMs,
+    const unsub = subscribeTransactionsInRange(
+      from,
+      to,
       (list) => {
         setAllTx(
           list
@@ -124,8 +121,7 @@ function SalesLogContent() {
           "error"
         );
         setLoading(false);
-      },
-      2000
+      }
     );
     return () => unsub();
   }, [dateFrom, dateTo, showToast]);
@@ -260,8 +256,9 @@ function SalesLogContent() {
           onFromChange={setDateFrom}
           onToChange={setDateTo}
           onClear={() => {
-            setDateFrom("");
-            setDateTo("");
+            const today = todayInputValue();
+            setDateFrom(today);
+            setDateTo(today);
           }}
           summary={
             <p className="text-sm capitalize text-slate-600">{rangeLabel}</p>

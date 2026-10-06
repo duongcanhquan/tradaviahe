@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import AppShell from "@/components/AppShell";
 import DateRangeFilter from "@/components/DateRangeFilter";
+import PeriodPresetBar from "@/components/PeriodPresetBar";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
@@ -32,13 +33,14 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
 import {
-  filterRowsByDateRange,
+  activePreset,
   formatRangeLabel,
-  hasDateRange,
+  presetRange,
   rowBusinessMs,
 } from "@/lib/dateRange";
 import {
   deleteShopFundEntry,
+  voidInventoryReceive,
   expenseCategoryLabel,
   EXPENSE_CATEGORIES,
   MANUAL_EXPENSE_CATEGORIES,
@@ -56,7 +58,10 @@ import {
   updateShopFundEntry,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeWhere } from "@/lib/liveCollection";
+import {
+  subscribeTransactionsInRange,
+  txLimitForRange,
+} from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { cn, formatCurrency, todayInputValue, dateKeyToInputValue } from "@/lib/utils";
 
@@ -86,13 +91,11 @@ function ExpensesContent() {
   const { showToast } = useToast();
   const { user, profile, role, canManageShop, canDeleteShopFundEntry, canManageShareholderCapital } =
     useAuth();
-  const [allTx, setAllTx] = useState([]);
-  const [rows, setRows] = useState([]);
-  const [cashSalesTotal, setCashSalesTotal] = useState(0);
+  const [windowRows, setWindowRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("all");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => todayInputValue());
+  const [dateTo, setDateTo] = useState(() => todayInputValue());
   const [page, setPage] = useState(1);
   const [mode, setMode] = useState(null); // null | fund_in | expense
 
@@ -117,90 +120,48 @@ function ExpensesContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    let fundIns = null;
-    let expenses = null;
-    let cashRows = null;
-
-    const publish = () => {
-      if (!fundIns || !expenses || !cashRows) return;
-      const byId = new Map();
-      for (const row of [...fundIns, ...expenses, ...cashRows]) {
-        if (row?.id) byId.set(row.id, row);
+    let warned = false;
+    setLoading(true);
+    return subscribeTransactionsInRange(
+      dateFrom,
+      dateTo,
+      (list) => {
+        setWindowRows(list);
+        setLoading(false);
+        const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
+        const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
+        const cap = txLimitForRange(startMs, endMs);
+        if (list.length >= cap && !warned) {
+          warned = true;
+          showToast(
+            "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
+            "error"
+          );
+        }
+      },
+      (error) => {
+        console.error(error);
+        showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
+        setLoading(false);
       }
-      const list = [...byId.values()];
-      setAllTx(list);
-      const fundRows = list
+    );
+  }, [dateFrom, dateTo, showToast]);
+
+  const fundRows = useMemo(
+    () =>
+      windowRows
         .filter(isShopFundEntry)
-        .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a));
-      setRows(fundRows);
-      setCashSalesTotal(sumGoodsIncomeByMethod(list).cash);
-      setLoading(false);
-    };
-
-    const onError = (error) => {
-      console.error(error);
-      showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
-      setLoading(false);
-    };
-
-    const unsubFund = subscribeWhere(
-      "transactions",
-      "type",
-      "fund_in",
-      (rows) => {
-        fundIns = rows;
-        publish();
-      },
-      onError
-    );
-    const unsubExpense = subscribeWhere(
-      "transactions",
-      "type",
-      "expense",
-      (rows) => {
-        expenses = rows;
-        publish();
-      },
-      onError
-    );
-    const unsubCash = subscribeWhere(
-      "transactions",
-      "paymentMethod",
-      "cash",
-      (rows) => {
-        cashRows = rows;
-        publish();
-      },
-      onError
-    );
-
-    return () => {
-      unsubFund();
-      unsubExpense();
-      unsubCash();
-    };
-  }, [showToast]);
+        .sort((a, b) => rowBusinessMs(b) - rowBusinessMs(a)),
+    [windowRows]
+  );
 
   const summary = useMemo(
-    () => summarizeShopFund(rows, cashSalesTotal),
-    [rows, cashSalesTotal]
-  );
-
-  const rangedFundRows = useMemo(
-    () => filterRowsByDateRange(rows, dateFrom, dateTo),
-    [rows, dateFrom, dateTo]
-  );
-
-  const cashInPeriod = useMemo(
-    () =>
-      sumGoodsIncomeByMethod(
-        filterRowsByDateRange(allTx, dateFrom, dateTo)
-      ).cash,
-    [allTx, dateFrom, dateTo]
+    () => summarizeShopFund(fundRows, sumGoodsIncomeByMethod(windowRows).cash),
+    [fundRows, windowRows]
   );
 
   const filtered = useMemo(() => {
-    let list = rangedFundRows;
+    let list = fundRows;
     if (filter === "fund_in") list = list.filter(isFundIn);
     else if (filter !== "all") {
       list = list.filter(
@@ -212,19 +173,19 @@ function ExpensesContent() {
       list = list.filter((r) => matchesFundSearch(r, searchQuery));
     }
     return list;
-  }, [rangedFundRows, filter, searchQuery]);
+  }, [fundRows, filter, searchQuery]);
 
-  const periodSummary = useMemo(() => {
-    const base = summarizeShopFund(rangedFundRows, cashInPeriod);
-    return {
-      ...base,
-      net: base.fundIn + base.cashSales - base.expense,
-    };
-  }, [rangedFundRows, cashInPeriod]);
+  const periodSummary = useMemo(
+    () => ({
+      ...summary,
+      net: summary.fundIn + summary.cashSales - summary.expense,
+    }),
+    [summary]
+  );
 
-  const categorySource = hasDateRange(dateFrom, dateTo)
-    ? periodSummary
-    : summary;
+  const categorySource = summary;
+  const rangeLabel = formatRangeLabel(dateFrom, dateTo);
+  const preset = activePreset(dateFrom, dateTo);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -242,10 +203,13 @@ function ExpensesContent() {
     if (page > totalPages) setPage(totalPages);
   }, [page, totalPages]);
 
-  const clearDateFilter = () => {
-    setDateFrom("");
-    setDateTo("");
+  const applyPreset = (id) => {
+    const next = presetRange(id);
+    setDateFrom(next.from);
+    setDateTo(next.to);
   };
+
+  const clearDateFilter = () => applyPreset("day");
 
   const openEdit = (row) => {
     if (!isShopFundEditable(row)) {
@@ -377,15 +341,32 @@ function ExpensesContent() {
 
   const handleDelete = async (row) => {
     if (!canDeleteShopFundEntry || !row?.id) return;
-    const inventory =
+    const isReceive =
       row.source === "inventory_receive" ||
-      row.source === "inventory_backfill" ||
-      String(row.category || "").trim().toLowerCase() === "nhập hàng";
-    if (inventory) {
-      showToast(
-        "Phiếu nhập hàng hủy ở Nhập hàng → Lịch sử nhập",
-        "error"
+      (String(row.category || "").trim().toLowerCase() === "nhập hàng" &&
+        row.source !== "inventory_backfill");
+    if (isReceive) {
+      const ok = window.confirm(
+        `Hủy phiếu nhập ${formatCurrency(row.amount)}?\n` +
+          `${row.note || "Nhập hàng"}\n` +
+          `Người ghi: ${formatActorLabel(row)}\n\n` +
+          `Tồn trừ lại, tiền trả về quỹ cửa hàng, giá vốn tính lại.`
       );
+      if (!ok) return;
+      setDeletingId(row.id);
+      try {
+        await voidInventoryReceive({
+          id: row.id,
+          fundSource: "shop",
+          role,
+        });
+        showToast("Đã hủy phiếu nhập. Tồn, quỹ và giá vốn đã đảo.", "success");
+      } catch (error) {
+        console.error(error);
+        showToast(error?.message || "Không hủy được phiếu nhập", "error");
+      } finally {
+        setDeletingId(null);
+      }
       return;
     }
     const label = isFundIn(row) ? "nạp quỹ" : "khoản chi";
@@ -423,8 +404,6 @@ function ExpensesContent() {
     }
   };
 
-  const hasDateFilter = hasDateRange(dateFrom, dateTo);
-
   return (
     <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
       <div className="space-y-4">
@@ -442,11 +421,13 @@ function ExpensesContent() {
         </Link>
 
         <p className="text-sm leading-snug text-slate-500">
-          Thu TM vào quỹ · CK khách vào vốn · tick “Từ sổ vốn” khi nạp.
+          Chỉ tải phiếu trong kỳ đang chọn. Mặc định hôm nay — bấm Tuần hoặc Tháng khi cần.
         </p>
 
+        <PeriodPresetBar active={preset} onChange={applyPreset} />
+
         <StatCard
-          label="Số dư quỹ cửa hàng"
+          label={`Biến động · ${rangeLabel}`}
           value={loading ? 0 : summary.balance}
           tone={summary.balance >= 0 ? "brand" : "danger"}
         />
@@ -501,7 +482,7 @@ function ExpensesContent() {
 
         <section>
           <SectionHeader
-            title={hasDateFilter ? "Theo hạng mục · kỳ lọc" : "Theo hạng mục"}
+            title={`Theo hạng mục · ${rangeLabel}`}
           />
           <div className="grid grid-cols-2 gap-2">
             {EXPENSE_CATEGORIES.map((c) => {
@@ -561,10 +542,9 @@ function ExpensesContent() {
             onToChange={setDateTo}
             onClear={clearDateFilter}
             summary={
-              hasDateFilter ? (
-                <div className="space-y-1.5">
+              <div className="space-y-1.5">
                   <p className="text-sm font-semibold text-slate-500">
-                    Tổng kết kỳ · {formatRangeLabel(dateFrom, dateTo)}
+                    Tổng kết kỳ · {rangeLabel}
                   </p>
                   <div className="grid grid-cols-2 gap-1.5 text-sm">
                     <p>
@@ -600,11 +580,6 @@ function ExpensesContent() {
                     </p>
                   </div>
                 </div>
-              ) : (
-                <p className="text-sm text-slate-500">
-                  Chọn khoảng ngày để xem tổng kết kỳ.
-                </p>
-              )
             }
           />
 

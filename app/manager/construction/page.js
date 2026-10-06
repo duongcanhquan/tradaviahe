@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import DateRangeFilter from "@/components/DateRangeFilter";
+import PeriodPresetBar from "@/components/PeriodPresetBar";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import {
@@ -56,13 +57,16 @@ import {
   updateConstructionJob,
 } from "@/lib/construction";
 import {
-  filterRowsByDateRange,
+  activePreset,
   formatRangeLabel,
-  hasDateRange,
+  presetRange,
   rowBusinessMs,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeWhere } from "@/lib/liveCollection";
+import {
+  subscribeTransactionsInRange,
+  txLimitForRange,
+} from "@/lib/liveCollection";
 import { cn, formatCurrency, todayInputValue } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
@@ -92,8 +96,8 @@ function ConstructionContent() {
   const [loadingTx, setLoadingTx] = useState(true);
   const [loadingJobs, setLoadingJobs] = useState(true);
 
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => todayInputValue());
+  const [dateTo, setDateTo] = useState(() => todayInputValue());
   const [page, setPage] = useState(1);
   const [jobPage, setJobPage] = useState(1);
   const [fundFilter, setFundFilter] = useState("all");
@@ -127,13 +131,23 @@ function ConstructionContent() {
   const [savingJob, setSavingJob] = useState(false);
 
   useEffect(() => {
-    const unsub = subscribeWhere(
-      "transactions",
-      "businessLine",
-      "construction",
+    let warned = false;
+    setLoadingTx(true);
+    return subscribeTransactionsInRange(
+      dateFrom,
+      dateTo,
       (list) => {
         setAllTx(list);
         setLoadingTx(false);
+        const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
+        const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
+        if (list.length >= txLimitForRange(startMs, endMs) && !warned) {
+          warned = true;
+          showToast(
+            "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
+            "error"
+          );
+        }
       },
       (error) => {
         console.error(error);
@@ -141,8 +155,7 @@ function ConstructionContent() {
         setLoadingTx(false);
       }
     );
-    return () => unsub();
-  }, [showToast]);
+  }, [dateFrom, dateTo, showToast]);
 
   useEffect(() => {
     const unsub = subscribeConstructionJobs(
@@ -184,10 +197,14 @@ function ConstructionContent() {
     [constructionTx, incomeAll.cash]
   );
 
-  const rangedTx = useMemo(
-    () => filterRowsByDateRange(constructionTx, dateFrom, dateTo),
-    [constructionTx, dateFrom, dateTo]
-  );
+  const rangedTx = constructionTx;
+  const rangeLabel = formatRangeLabel(dateFrom, dateTo);
+  const preset = activePreset(dateFrom, dateTo);
+  const applyPreset = (id) => {
+    const next = presetRange(id);
+    setDateFrom(next.from);
+    setDateTo(next.to);
+  };
 
   const periodIncome = useMemo(
     () => sumConstructionIncomeByMethod(rangedTx),
@@ -470,8 +487,9 @@ function ConstructionContent() {
     >
       <div className="space-y-4">
       <p className="text-sm leading-snug text-slate-500">
-        Thu TM → quỹ XD · Thu CK → vốn CĐT · có thể nhận từ vốn / quỹ quán.
+        Chỉ tải phiếu XD trong kỳ đang chọn. Mặc định hôm nay.
       </p>
+      <PeriodPresetBar active={preset} onChange={applyPreset} />
 
       <ChipRow>
         {TABS.map((t) => (
@@ -488,7 +506,7 @@ function ConstructionContent() {
       {tab === "overview" ? (
         <section className="space-y-4">
           <StatCard
-            label="Số dư quỹ xây dựng"
+            label={`Biến động XD · ${rangeLabel}`}
             value={loadingTx ? 0 : fundSummary.balance}
             tone={fundSummary.balance >= 0 ? "brand" : "danger"}
           />
@@ -574,7 +592,7 @@ function ConstructionContent() {
       {tab === "fund" ? (
         <section className="space-y-4">
           <StatCard
-            label="Số dư quỹ xây dựng"
+            label={`Biến động XD · ${rangeLabel}`}
             value={loadingTx ? 0 : fundSummary.balance}
             tone="brand"
           />
@@ -635,13 +653,9 @@ function ConstructionContent() {
             dateTo={dateTo}
             onFromChange={setDateFrom}
             onToChange={setDateTo}
-            onClear={() => {
-              setDateFrom("");
-              setDateTo("");
-            }}
+            onClear={() => applyPreset("day")}
             summary={
-              hasDateRange(dateFrom, dateTo) ? (
-                <div className="grid grid-cols-2 gap-1 text-xs">
+              <div className="grid grid-cols-2 gap-1 text-xs">
                   <p>
                     TM:{" "}
                     <span className="font-bold text-emerald-700">
@@ -673,11 +687,6 @@ function ConstructionContent() {
                     </span>
                   </p>
                 </div>
-              ) : (
-                <p className="text-sm text-slate-500">
-                  Chọn khoảng ngày để tổng kết kỳ mảng XD.
-                </p>
-              )
             }
           />
 

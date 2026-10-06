@@ -3,16 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  startOfMonth,
-  endOfMonth,
-  startOfDay,
-  endOfDay,
-  startOfWeek,
-  endOfWeek,
-  format,
-} from "date-fns";
-import { vi } from "date-fns/locale";
-import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -42,9 +32,13 @@ import {
   formatRangeLabel,
   hasDateRange,
   parseRangeBound,
+  presetRange,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeTransactionsBetween } from "@/lib/liveCollection";
+import {
+  subscribeTransactionsBetween,
+  txLimitForRange,
+} from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { summarizeShopPnl } from "@/lib/pnl";
 import {
@@ -157,28 +151,19 @@ function DashboardContent() {
   }, [showToast]);
 
   const ranges = useMemo(() => {
-    const now = new Date();
-    const weekFrom = startOfWeek(now, { weekStartsOn: 1 });
-    const weekTo = endOfWeek(now, { weekStartsOn: 1 });
+    const pack = (preset, shortLabel) => {
+      const { from, to } = presetRange(preset);
+      return {
+        from: parseRangeBound(from, false),
+        to: parseRangeBound(to, true),
+        label: formatRangeLabel(from, to),
+        shortLabel,
+      };
+    };
     return {
-      day: {
-        from: startOfDay(now).getTime(),
-        to: endOfDay(now).getTime(),
-        label: format(now, "EEEE dd/MM", { locale: vi }),
-        shortLabel: "Tổng kết ngày",
-      },
-      week: {
-        from: weekFrom.getTime(),
-        to: weekTo.getTime(),
-        label: `${format(weekFrom, "dd/MM")} – ${format(weekTo, "dd/MM")}`,
-        shortLabel: "Tổng kết tuần",
-      },
-      month: {
-        from: startOfMonth(now).getTime(),
-        to: endOfMonth(now).getTime(),
-        label: format(now, "MM/yyyy"),
-        shortLabel: "Tổng kết tháng",
-      },
+      day: pack("day", "Tổng kết ngày"),
+      week: pack("week", "Tổng kết tuần"),
+      month: pack("month", "Tổng kết tháng"),
     };
   }, []);
 
@@ -202,16 +187,17 @@ function DashboardContent() {
   useEffect(() => {
     warnedTxCap.current = false;
     setLoadingTx(true);
+    const cap = txLimitForRange(selectedRange.from, selectedRange.to);
     const unsubTx = subscribeTransactionsBetween(
       selectedRange.from,
       selectedRange.to,
       (rows) => {
         setAllTx(rows);
         setLoadingTx(false);
-        if (rows.length >= 2000 && !warnedTxCap.current) {
+        if (rows.length >= cap && !warnedTxCap.current) {
           warnedTxCap.current = true;
           showToast(
-            "Kỳ này vượt 2000 phiếu. Thu hẹp ngày để số liệu đủ.",
+            "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
             "error"
           );
         }
@@ -224,7 +210,7 @@ function DashboardContent() {
         );
         setLoadingTx(false);
       },
-      2000
+      cap
     );
     return () => unsubTx();
   }, [selectedRange.from, selectedRange.to, showToast]);

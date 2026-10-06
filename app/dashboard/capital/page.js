@@ -31,6 +31,7 @@ import {
 import Link from "next/link";
 import AppShell from "@/components/AppShell";
 import DateRangeFilter from "@/components/DateRangeFilter";
+import PeriodPresetBar from "@/components/PeriodPresetBar";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import {
@@ -44,18 +45,25 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import {
+  activePreset,
   formatRangeLabel,
   hasDateRange,
+  presetRange,
 } from "@/lib/dateRange";
 import { matchesCapitalExpenseSearch } from "@/lib/fundSearch";
-import { subscribeCollection, subscribeWhere } from "@/lib/liveCollection";
+import {
+  subscribeCollection,
+  subscribeTransactionsInRange,
+  txLimitForRange,
+} from "@/lib/liveCollection";
+import { sumCapitalBankingIncome } from "@/lib/construction";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
   transferCapitalToShopFund,
+  voidInventoryReceive,
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { sumCapitalBankingIncome } from "@/lib/construction";
 import {
   ACQUISITION,
   acquisitionLabel,
@@ -559,10 +567,7 @@ function CapitalHistoryList({
                       <button
                         type="button"
                         onClick={() => onDeleteExpense?.(row)}
-                        disabled={
-                          row.source === "inventory_receive" ||
-                          deletingExpenseId === row.id
-                        }
+                        disabled={deletingExpenseId === row.id}
                         className="touch-btn h-11 w-full gap-2 bg-rose-50 text-sm font-bold text-rose-700 ring-1 ring-rose-100 disabled:opacity-40"
                       >
                         <Trash2 className="h-4 w-4" aria-hidden />
@@ -628,6 +633,8 @@ function CapitalContent() {
   const [bankingIncomeTotal, setBankingIncomeTotal] = useState(0);
   const [allTx, setAllTx] = useState([]);
   const [loadingBanking, setLoadingBanking] = useState(true);
+  const [txFrom, setTxFrom] = useState(() => todayInputValue());
+  const [txTo, setTxTo] = useState(() => todayInputValue());
   const [repairing, setRepairing] = useState(false);
   const [tab, setTab] = useState(
     canViewInvestmentCapital ? "capital" : "assets"
@@ -720,18 +727,30 @@ function CapitalContent() {
   }, [canViewInvestmentCapital, showToast]);
 
   useEffect(() => {
-    if (!canViewInvestmentCapital) {
+    if (!canViewInvestmentCapital && !canManageShareholderCapital) {
+      setAllTx([]);
       setBankingIncomeTotal(0);
       setLoadingBanking(false);
       return undefined;
     }
-    const unsubBank = subscribeWhere(
-      "transactions",
-      "paymentMethod",
-      "banking",
+    let warned = false;
+    setLoadingBanking(true);
+    return subscribeTransactionsInRange(
+      txFrom,
+      txTo,
       (list) => {
+        setAllTx(list);
         setBankingIncomeTotal(sumCapitalBankingIncome(list));
         setLoadingBanking(false);
+        const startMs = new Date(`${txFrom || txTo}T00:00:00`).getTime();
+        const endMs = new Date(`${txTo || txFrom}T23:59:59`).getTime();
+        if (list.length >= txLimitForRange(startMs, endMs) && !warned) {
+          warned = true;
+          showToast(
+            "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số CK đủ.",
+            "error"
+          );
+        }
       },
       (error) => {
         console.error(error);
@@ -742,23 +761,13 @@ function CapitalContent() {
         setLoadingBanking(false);
       }
     );
-    return () => unsubBank();
-  }, [canViewInvestmentCapital, showToast]);
-
-  useEffect(() => {
-    if (!canManageShareholderCapital) {
-      setAllTx([]);
-      return undefined;
-    }
-    const unsub = subscribeWhere(
-      "transactions",
-      "type",
-      "fund_in",
-      (list) => setAllTx(list),
-      () => setAllTx([])
-    );
-    return () => unsub();
-  }, [canManageShareholderCapital]);
+  }, [
+    canViewInvestmentCapital,
+    canManageShareholderCapital,
+    txFrom,
+    txTo,
+    showToast,
+  ]);
 
   useEffect(() => {
     const unsub = subscribeCollection(
@@ -799,12 +808,16 @@ function CapitalContent() {
 
   const capitalSummary = useMemo(
     () =>
-      summarizeShareholderCapital(
-        shareholderCapitalEntries,
-        bankingIncomeTotal
-      ),
-    [shareholderCapitalEntries, bankingIncomeTotal]
+      summarizeShareholderCapital(shareholderCapitalEntries, 0),
+    [shareholderCapitalEntries]
   );
+  const txRangeLabel = formatRangeLabel(txFrom, txTo);
+  const txPreset = activePreset(txFrom, txTo);
+  const applyTxPreset = (id) => {
+    const next = presetRange(id);
+    setTxFrom(next.from);
+    setTxTo(next.to);
+  };
 
   const ledgerRepairPreview = useMemo(() => {
     if (!canManageShareholderCapital) {
@@ -1056,10 +1069,31 @@ function CapitalContent() {
       return;
     }
     if (row.source === "inventory_receive") {
-      showToast(
-        "Dòng nhập hàng từ quỹ đầu tư. Hủy trong Nhập hàng → Lịch sử nhập",
-        "error"
+      const ok = window.confirm(
+        `Hủy phiếu nhập từ quỹ đầu tư ${formatCurrency(row.amount)}?\n` +
+          `${row.note || row.productName || "Nhập hàng"}\n` +
+          `Người ghi: ${formatActorLabel(row)}\n\n` +
+          `Tồn trừ lại, tiền trả về vốn chủ đầu tư, giá vốn tính lại.`
       );
+      if (!ok) return;
+      setDeletingExpId(row.id);
+      try {
+        await voidInventoryReceive({
+          id: row.id,
+          fundSource: "capital",
+          role: profile?.role,
+        });
+        if (editingExpense?.id === row.id) setEditingExpense(null);
+        showToast(
+          "Đã hủy phiếu nhập. Tồn, vốn và giá vốn đã đảo.",
+          "success"
+        );
+      } catch (error) {
+        console.error(error);
+        showToast(error?.message || "Không hủy được phiếu nhập", "error");
+      } finally {
+        setDeletingExpId(null);
+      }
       return;
     }
     const linked = row.toShopFund || row.shopFundTxId;
@@ -1316,9 +1350,10 @@ function CapitalContent() {
 
       {canViewInvestmentCapital && tab === "capital" ? (
         <>
+          <PeriodPresetBar active={txPreset} onChange={applyTxPreset} />
           <section className="space-y-3">
             <StatCard
-              label="Số dư vốn"
+              label="Số dư sổ vốn"
               value={
                 loadingCapital || loadingBanking
                   ? 0
@@ -1349,21 +1384,17 @@ function CapitalContent() {
               </div>
               <div className="card-panel !p-3 col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Thu CK (bán + XD)
+                  Thu CK trong kỳ · {txRangeLabel}
                 </p>
                 <p className="money mt-1 text-sm font-bold text-emerald-700">
                   <Money
-                    amount={
-                      loadingCapital || loadingBanking
-                        ? 0
-                        : capitalSummary.bankingIncome
-                    }
+                    amount={loadingBanking ? 0 : bankingIncomeTotal}
                   />
                 </p>
               </div>
             </div>
             <p className="hint-line">
-              Số dư = góp − chi + thu CK · % theo tổng góp · TM bán →{" "}
+              Số dư sổ = góp − chi. Thu CK chỉ tính kỳ đang chọn, không tải cả lịch sử bán. TM bán →{" "}
               <Link href="/manager/expenses" className="font-semibold text-brand-800 underline">
                 quỹ quán
               </Link>
@@ -2014,9 +2045,24 @@ function CapitalContent() {
             </form>
 
             {editingExpense.source === "inventory_receive" ? (
-              <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-100">
-                Dòng nhập hàng từ quỹ đầu tư — không sửa/xóa trên sổ vốn.
-              </p>
+              <div className="space-y-3">
+                <p className="rounded-2xl bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-800 ring-1 ring-rose-100">
+                  Phiếu nhập từ quỹ đầu tư. Hủy sẽ trừ tồn, trả tiền về vốn và tính lại giá vốn. Không sửa số tiền tay.
+                </p>
+                <button
+                  type="button"
+                  disabled={deletingExpId === editingExpense.id}
+                  onClick={() => handleDeleteExpense(editingExpense)}
+                  className="touch-btn h-12 w-full gap-2 bg-rose-700 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  {deletingExpId === editingExpense.id ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-5 w-5" aria-hidden />
+                  )}
+                  Hủy phiếu nhập
+                </button>
+              </div>
             ) : (
               <button
                 type="button"
