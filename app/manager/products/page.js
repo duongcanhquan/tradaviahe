@@ -724,7 +724,7 @@ function ProductsContent() {
     }
     try {
       await deleteProduct(row.id);
-      await recomputeRecipeCosts();
+      await recomputeRecipeCosts(products.filter((p) => p.id !== row.id));
       showToast("Đã xóa", "info");
     } catch (error) {
       console.error(error);

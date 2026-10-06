@@ -67,6 +67,7 @@ import {
   isSellable,
   recomputeRecipeCosts,
   patchCachedProducts,
+  removeCachedProduct,
   subscribeProducts,
   updateProduct,
   zeroRecipeProductStocks,
@@ -591,7 +592,9 @@ function InventoryContent() {
     setDeletingId(product.id);
     try {
       await deleteProduct(product.id);
-      await recomputeRecipeCosts(products);
+      await recomputeRecipeCosts(
+        products.filter((p) => p.id !== product.id)
+      );
       if (editing?.id === product.id) setEditing(null);
       showToast("Đã xóa nguyên liệu", "info");
     } catch (error) {
@@ -732,7 +735,18 @@ function InventoryContent() {
       });
     } catch (error) {
       console.error(error);
-      showToast(error?.message || "Nhập hàng thất bại", "error");
+      const missing =
+        error?.message === "Món không tồn tại" ||
+        error?.message === "Món không còn trong kho";
+      if (missing) {
+        removeCachedProduct(product.id);
+        showToast(
+          "Món đã bị xóa trên máy chủ. Đã gỡ khỏi danh sách trên máy này.",
+          "error"
+        );
+      } else {
+        showToast(error?.message || "Nhập hàng thất bại", "error");
+      }
     } finally {
       setSavingId(null);
     }
