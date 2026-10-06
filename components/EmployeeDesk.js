@@ -33,11 +33,13 @@ import {
   DEFAULT_PRODUCT_GROUPS,
   subscribeProductGroups,
 } from "@/lib/productGroups";
-import { subscribeTransactionsBetween } from "@/lib/liveCollection";
+import { readTransactionsInRange } from "@/lib/liveCollection";
 import {
   comparePosOrder,
   isSellable,
   moveProductInOrder,
+  patchCachedProducts,
+  refreshProducts,
   subscribeProducts,
 } from "@/lib/products";
 import { productUsesRecipe } from "@/lib/recipe";
@@ -123,14 +125,12 @@ export default function EmployeeDesk() {
   // Chỉ tải lịch sử khi mở — POS lần đầu nhẹ hơn trên điện thoại.
   useEffect(() => {
     if (!showHistory || !user?.uid) return;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const end = new Date();
-    end.setHours(23, 59, 59, 999);
-    const unsub = subscribeTransactionsBetween(
-      start.getTime(),
-      end.getTime(),
-      (list) => {
+    let cancelled = false;
+    const today = new Date();
+    const key = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    readTransactionsInRange(key, key)
+      .then((list) => {
+        if (cancelled) return;
         let rows = list
           .filter(isGoodsIncome)
           .sort(
@@ -138,7 +138,6 @@ export default function EmployeeDesk() {
               (b.timestamp?.toMillis?.() || 0) -
               (a.timestamp?.toMillis?.() || 0)
           );
-
         if (canDeleteSales) {
           rows = rows.slice(0, 20);
         } else {
@@ -147,11 +146,13 @@ export default function EmployeeDesk() {
             .slice(0, 6);
         }
         setMyRecent(rows);
-      },
-      () => setMyRecent([]),
-      200
-    );
-    return () => unsub();
+      })
+      .catch(() => {
+        if (!cancelled) setMyRecent([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [showHistory, user?.uid, canDeleteSales]);
 
   useEffect(
@@ -290,13 +291,21 @@ export default function EmployeeDesk() {
   };
 
   const writeSale = async ({ items, amount, paymentMethod }) => {
-    await recordPosSale({
+    const result = await recordPosSale({
       amount,
       paymentMethod,
       items,
       user,
       profile,
     });
+    const patches = {};
+    for (const [id, delta] of Object.entries(result?.stockAdjustments || {})) {
+      const current = productsById[id];
+      patches[id] = {
+        inStock: (Number(current?.inStock) || 0) + (Number(delta) || 0),
+      };
+    }
+    if (Object.keys(patches).length) patchCachedProducts(patches);
   };
 
   const recordSale = async (paymentMethod) => {
@@ -441,6 +450,17 @@ export default function EmployeeDesk() {
           );
         })}
       </ChipRow>
+      <button
+        type="button"
+        onClick={() => {
+          refreshProducts().catch(() =>
+            showToast("Không cập nhật được kho", "error")
+          );
+        }}
+        className="touch-btn h-11 w-full text-sm font-bold bg-white text-slate-700 ring-1 ring-slate-200"
+      >
+        Cập nhật tồn từ máy chủ
+      </button>
       {canManageProducts ? (
         <button
           type="button"

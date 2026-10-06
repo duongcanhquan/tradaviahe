@@ -25,7 +25,6 @@ import {
   Search,
   ShoppingCart,
   Trash2,
-  Building2,
   Wallet,
 } from "lucide-react";
 import Link from "next/link";
@@ -53,10 +52,10 @@ import {
 import { matchesCapitalExpenseSearch } from "@/lib/fundSearch";
 import {
   subscribeCollection,
-  subscribeTransactionsInRange,
+  readTransactionsInRange,
   txLimitForRange,
 } from "@/lib/liveCollection";
-import { sumCapitalBankingIncome } from "@/lib/construction";
+import { sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
@@ -635,6 +634,7 @@ function CapitalContent() {
   const [loadingBanking, setLoadingBanking] = useState(true);
   const [txFrom, setTxFrom] = useState(() => todayInputValue());
   const [txTo, setTxTo] = useState(() => todayInputValue());
+  const [txArmed, setTxArmed] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [tab, setTab] = useState(
     canViewInvestmentCapital ? "capital" : "assets"
@@ -727,43 +727,45 @@ function CapitalContent() {
   }, [canViewInvestmentCapital, showToast]);
 
   useEffect(() => {
-    if (!canViewInvestmentCapital && !canManageShareholderCapital) {
+    if (!txArmed || (!canViewInvestmentCapital && !canManageShareholderCapital)) {
       setAllTx([]);
       setBankingIncomeTotal(0);
       setLoadingBanking(false);
       return undefined;
     }
-    let warned = false;
+    let cancelled = false;
     setLoadingBanking(true);
-    return subscribeTransactionsInRange(
-      txFrom,
-      txTo,
-      (list) => {
+    readTransactionsInRange(txFrom, txTo)
+      .then((list) => {
+        if (cancelled) return;
         setAllTx(list);
-        setBankingIncomeTotal(sumCapitalBankingIncome(list));
+        setBankingIncomeTotal(sumGoodsIncomeByMethod(list).banking);
         setLoadingBanking(false);
         const startMs = new Date(`${txFrom || txTo}T00:00:00`).getTime();
         const endMs = new Date(`${txTo || txFrom}T23:59:59`).getTime();
-        if (list.length >= txLimitForRange(startMs, endMs) && !warned) {
-          warned = true;
+        if (list.length >= txLimitForRange(startMs, endMs)) {
           showToast(
             "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số CK đủ.",
             "error"
           );
         }
-      },
-      (error) => {
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast(
           firestoreErrorMessage(error, "Không tải được thu CK"),
           "error"
         );
         setLoadingBanking(false);
-      }
-    );
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [
     canViewInvestmentCapital,
     canManageShareholderCapital,
+    txArmed,
     txFrom,
     txTo,
     showToast,
@@ -817,6 +819,7 @@ function CapitalContent() {
     const next = presetRange(id);
     setTxFrom(next.from);
     setTxTo(next.to);
+    setTxArmed(true);
   };
 
   const ledgerRepairPreview = useMemo(() => {
@@ -1350,7 +1353,10 @@ function CapitalContent() {
 
       {canViewInvestmentCapital && tab === "capital" ? (
         <>
-          <PeriodPresetBar active={txPreset} onChange={applyTxPreset} />
+          <PeriodPresetBar
+            active={txArmed ? txPreset : ""}
+            onChange={applyTxPreset}
+          />
           <section className="space-y-3">
             <StatCard
               label="Số dư sổ vốn"
@@ -1394,14 +1400,9 @@ function CapitalContent() {
               </div>
             </div>
             <p className="hint-line">
-              Số dư sổ = góp − chi. Thu CK chỉ tính kỳ đang chọn, không tải cả lịch sử bán. TM bán →{" "}
+              Số dư sổ = góp − chi. Thu CK chỉ tải khi bấm Hôm nay, Tuần hoặc Tháng. TM bán vào{" "}
               <Link href="/manager/expenses" className="font-semibold text-brand-800 underline">
                 quỹ quán
-              </Link>
-              {" · "}
-              TM XD →{" "}
-              <Link href="/manager/construction" className="font-semibold text-brand-800 underline">
-                quỹ XD
               </Link>
               .
             </p>
@@ -1462,23 +1463,6 @@ function CapitalContent() {
                 </span>
               </span>
               <span className="text-sm text-white/80">Mở →</span>
-            </Link>
-            <Link
-              href="/manager/construction"
-              className="touch-btn h-14 w-full justify-between gap-2 bg-white px-4 text-slate-900 ring-1 ring-slate-200"
-            >
-              <span className="flex items-center gap-2 text-left">
-                <Building2 className="h-5 w-5 shrink-0" aria-hidden />
-                <span>
-                  <span className="block text-sm font-bold">
-                    Mảng xây dựng
-                  </span>
-                  <span className="block text-xs font-medium text-slate-500">
-                    Quỹ XD · hạng mục · thu CK vào vốn
-                  </span>
-                </span>
-              </span>
-              <span className="text-sm text-slate-500">Mở →</span>
             </Link>
           </div>
 

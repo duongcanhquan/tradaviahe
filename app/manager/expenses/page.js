@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowDownCircle,
   ArrowUpCircle,
-  Building2,
   ChevronLeft,
   ChevronRight,
   Loader2,
@@ -59,7 +58,7 @@ import {
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
-  subscribeTransactionsInRange,
+  readTransactionsInRange,
   txLimitForRange,
 } from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
@@ -96,6 +95,7 @@ function ExpensesContent() {
   const [filter, setFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState(() => todayInputValue());
   const [dateTo, setDateTo] = useState(() => todayInputValue());
+  const [ledgerOn, setLedgerOn] = useState(false);
   const [page, setPage] = useState(1);
   const [mode, setMode] = useState(null); // null | fund_in | expense
 
@@ -120,32 +120,36 @@ function ExpensesContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
-    let warned = false;
+    if (!ledgerOn) {
+      setLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
     setLoading(true);
-    return subscribeTransactionsInRange(
-      dateFrom,
-      dateTo,
-      (list) => {
+    readTransactionsInRange(dateFrom, dateTo)
+      .then((list) => {
+        if (cancelled) return;
         setWindowRows(list);
         setLoading(false);
         const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
         const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
-        const cap = txLimitForRange(startMs, endMs);
-        if (list.length >= cap && !warned) {
-          warned = true;
+        if (list.length >= txLimitForRange(startMs, endMs)) {
           showToast(
             "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
             "error"
           );
         }
-      },
-      (error) => {
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
         setLoading(false);
-      }
-    );
-  }, [dateFrom, dateTo, showToast]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ledgerOn, dateFrom, dateTo, showToast]);
 
   const fundRows = useMemo(
     () =>
@@ -207,6 +211,7 @@ function ExpensesContent() {
     const next = presetRange(id);
     setDateFrom(next.from);
     setDateTo(next.to);
+    setLedgerOn(true);
   };
 
   const clearDateFilter = () => applyPreset("day");
@@ -407,21 +412,8 @@ function ExpensesContent() {
   return (
     <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
       <div className="space-y-4">
-        <Link
-          href="/manager/construction"
-          className="touch-btn h-12 w-full justify-between gap-2 border border-slate-200 bg-white px-4 text-slate-800"
-        >
-          <span className="flex items-center gap-2 text-left">
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-              <Building2 className="h-4 w-4" aria-hidden />
-            </span>
-            <span className="text-sm font-bold">Mảng xây dựng</span>
-          </span>
-          <span className="text-sm text-slate-400">Mở →</span>
-        </Link>
-
         <p className="text-sm leading-snug text-slate-500">
-          Chỉ tải phiếu trong kỳ đang chọn. Mặc định hôm nay — bấm Tuần hoặc Tháng khi cần.
+          Bấm Hôm nay, Tuần hoặc Tháng mới tải sổ. Mở trang chưa đọc phiếu.
         </p>
 
         <PeriodPresetBar active={preset} onChange={applyPreset} />

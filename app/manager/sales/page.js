@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import DateRangeFilter from "@/components/DateRangeFilter";
+import PeriodPresetBar from "@/components/PeriodPresetBar";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
 import { useToast } from "@/components/Toast";
@@ -30,12 +31,14 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
 import {
+  activePreset,
   filterRowsByDateRange,
   formatRangeLabel,
   hasDateRange,
+  presetRange,
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
-import { subscribeTransactionsInRange } from "@/lib/liveCollection";
+import { readTransactionsInRange } from "@/lib/liveCollection";
 import { isGoodsIncome } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
 import {
@@ -88,6 +91,7 @@ function SalesLogContent() {
   const [loading, setLoading] = useState(true);
   const [dateFrom, setDateFrom] = useState(todayInputValue());
   const [dateTo, setDateTo] = useState(todayInputValue());
+  const [ledgerOn, setLedgerOn] = useState(false);
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState(null);
   const [payFilter, setPayFilter] = useState("all"); // all | cash | banking
@@ -100,31 +104,37 @@ function SalesLogContent() {
   const [savingEdit, setSavingEdit] = useState(false);
 
   useEffect(() => {
+    if (!ledgerOn) {
+      setLoading(false);
+      return undefined;
+    }
+    let cancelled = false;
     const from = dateFrom || todayInputValue();
     const to = dateTo || from;
     setLoading(true);
-    const unsub = subscribeTransactionsInRange(
-      from,
-      to,
-      (list) => {
+    readTransactionsInRange(from, to)
+      .then((list) => {
+        if (cancelled) return;
         setAllTx(
           list
             .filter(isGoodsIncome)
             .sort((a, b) => txTimeMs(b) - txTimeMs(a))
         );
         setLoading(false);
-      },
-      (error) => {
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast(
           firestoreErrorMessage(error, "Không tải được sổ bán hàng"),
           "error"
         );
         setLoading(false);
-      }
-    );
-    return () => unsub();
-  }, [dateFrom, dateTo, showToast]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ledgerOn, dateFrom, dateTo, showToast]);
 
   const ranged = useMemo(
     () => filterRowsByDateRange(allTx, dateFrom, dateTo),
@@ -249,6 +259,19 @@ function SalesLogContent() {
           <ArrowLeft className="h-4 w-4" aria-hidden />
           Về đối soát
         </Link>
+
+        <p className="text-sm text-slate-500">
+          Bấm Hôm nay, Tuần hoặc Tháng mới đọc sổ bán.
+        </p>
+        <PeriodPresetBar
+          active={ledgerOn ? activePreset(dateFrom, dateTo) : ""}
+          onChange={(id) => {
+            const next = presetRange(id);
+            setDateFrom(next.from);
+            setDateTo(next.to);
+            setLedgerOn(true);
+          }}
+        />
 
         <DateRangeFilter
           dateFrom={dateFrom}

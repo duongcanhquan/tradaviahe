@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { doc, setDoc } from "firebase/firestore";
 import {
-  Building2,
   KeyRound,
   LogOut,
   Package,
@@ -271,11 +270,6 @@ function SettingsContent() {
 
         {canManageShop ? (
           <>
-            <SettingsRow
-              href="/manager/construction"
-              icon={Building2}
-              title="Mảng xây dựng"
-            />
             <SettingsRow
               href="/manager/products"
               icon={Package}

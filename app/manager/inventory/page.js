@@ -36,7 +36,7 @@ import {
   summarizeProductReceiveHistory,
 } from "@/lib/inventoryReceiveHistory";
 import {
-  subscribeTransactionsInRange,
+  readTransactionsInRange,
   subscribeWhere,
 } from "@/lib/liveCollection";
 import { activePreset, presetRange, rowInDateRange } from "@/lib/dateRange";
@@ -61,6 +61,7 @@ import {
   deleteProduct,
   isSellable,
   recomputeRecipeCosts,
+  patchCachedProducts,
   subscribeProducts,
   updateProduct,
   zeroRecipeProductStocks,
@@ -236,13 +237,19 @@ function InventoryContent() {
       setCapitalEntries([]);
       return undefined;
     }
-    const unsubTx = subscribeTransactionsInRange(
-      historyFrom,
-      historyTo,
-      (rows) =>
-        setHistoryTx(rows.filter((row) => row.productId === productId)),
-      () => setHistoryTx([])
-    );
+    let cancelled = false;
+    readTransactionsInRange(historyFrom, historyTo)
+      .then((rows) => {
+        if (!cancelled) {
+          setHistoryTx(rows.filter((row) => row.productId === productId));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryTx([]);
+      });
+    const unsubTx = () => {
+      cancelled = true;
+    };
     const unsubCap = subscribeWhere(
       CAPITAL_COLLECTION,
       "productId",
@@ -442,7 +449,15 @@ function InventoryContent() {
           user,
           profile,
         });
-        await recomputeRecipeCosts();
+        await recomputeRecipeCosts(products);
+        if (ready?.id && result?.after != null) {
+          patchCachedProducts({
+            [ready.id]: {
+              inStock: result.after,
+              cost: result.baseUnitCost ?? ready.cost,
+            },
+          });
+        }
         const via = result.paymentMethod === "banking" ? "CK" : "TM";
         const fundLabel =
           result.fundSource === "capital" ? "quỹ đầu tư" : "quỹ cửa hàng";
@@ -542,7 +557,7 @@ function InventoryContent() {
         payload.inStock = Number(editForm.inStock) || 0;
       }
       await updateProduct(editing.id, payload);
-      await recomputeRecipeCosts();
+      await recomputeRecipeCosts(products);
       showToast(isFin ? "Đã sửa thành phẩm" : "Đã sửa nguyên liệu", "success");
       setEditing(null);
     } catch (error) {
@@ -571,7 +586,7 @@ function InventoryContent() {
     setDeletingId(product.id);
     try {
       await deleteProduct(product.id);
-      await recomputeRecipeCosts();
+      await recomputeRecipeCosts(products);
       if (editing?.id === product.id) setEditing(null);
       showToast("Đã xóa nguyên liệu", "info");
     } catch (error) {
@@ -650,7 +665,15 @@ function InventoryContent() {
           user,
           profile,
         });
-        await recomputeRecipeCosts();
+        await recomputeRecipeCosts(products);
+        if (ready?.id && result?.after != null) {
+          patchCachedProducts({
+            [ready.id]: {
+              inStock: result.after,
+              cost: result.baseUnitCost ?? ready.cost,
+            },
+          });
+        }
         const via = result.paymentMethod === "banking" ? "CK" : "TM";
         const fundLabel =
           result.fundSource === "capital" ? "quỹ đầu tư" : "quỹ cửa hàng";
@@ -688,7 +711,7 @@ function InventoryContent() {
         }
         await updateDoc(doc(db, "products", product.id), payload);
         if (hasCost) {
-          await recomputeRecipeCosts();
+          await recomputeRecipeCosts(products);
         }
         showToast(
           hasCost
@@ -1430,6 +1453,27 @@ function InventoryContent() {
             ) : null}
           </form>
       </BottomSheet>
+
+      <ChipRow className="mb-3">
+        <FilterChip
+          active={!stocktakeOn}
+          onClick={() => setStocktakeOn(false)}
+        >
+          Nhập hàng
+        </FilterChip>
+        {canStocktake ? (
+          <FilterChip
+            active={stocktakeOn}
+            onClick={() => {
+              setStocktakeOn(true);
+              setShowAdd(false);
+              setEditing(null);
+            }}
+          >
+            Kiểm kho
+          </FilterChip>
+        ) : null}
+      </ChipRow>
 
       <ChipRow className="mb-3">
         {[

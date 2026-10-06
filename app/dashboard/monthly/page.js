@@ -33,7 +33,7 @@ import {
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
   subscribeCollection,
-  subscribeTransactionsInRange,
+  readTransactionsInRange,
 } from "@/lib/liveCollection";
 import {
   filterShareholderCapitalEntries,
@@ -98,7 +98,8 @@ function MonthlyContent() {
   const [relationFundPercent, setRelationFundPercent] = useState(
     DEFAULT_RELATION_FUND_PERCENT
   );
-  const [loadingTx, setLoadingTx] = useState(true);
+  const [loadingTx, setLoadingTx] = useState(false);
+  const [monthAsked, setMonthAsked] = useState(false);
   const [loadingInv, setLoadingInv] = useState(true);
   const [loadingSettings, setLoadingSettings] = useState(true);
   const [loadingReceipts, setLoadingReceipts] = useState(true);
@@ -124,12 +125,13 @@ function MonthlyContent() {
   }, [year, monthIndex]);
 
   useEffect(() => {
+    if (!monthAsked) return undefined;
+    let cancelled = false;
     warnedTxCap.current = false;
     setLoadingTx(true);
-    const unsub = subscribeTransactionsInRange(
-      dateFrom,
-      dateTo,
-      (list) => {
+    readTransactionsInRange(dateFrom, dateTo)
+      .then((list) => {
+        if (cancelled) return;
         setAllTx(list);
         setLoadingTx(false);
         if (list.length >= 2000 && !warnedTxCap.current) {
@@ -139,15 +141,17 @@ function MonthlyContent() {
             "error"
           );
         }
-      },
-      (error) => {
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast(firestoreErrorMessage(error, "Không tải được giao dịch"), "error");
         setLoadingTx(false);
-      }
-    );
-    return () => unsub();
-  }, [dateFrom, dateTo, showToast]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [monthAsked, dateFrom, dateTo, showToast]);
 
   useEffect(() => {
     const unsub = subscribeProducts(
@@ -343,6 +347,19 @@ function MonthlyContent() {
             onChange={(e) => setMonthValue(e.target.value)}
           />
         </label>
+
+        <button
+          type="button"
+          onClick={() => setMonthAsked(true)}
+          className="touch-btn h-12 w-full bg-brand-700 text-sm font-bold text-white"
+        >
+          {loadingTx ? "Đang tải..." : monthAsked ? "Tải lại tháng này" : "Tải báo cáo tháng"}
+        </button>
+        {!monthAsked ? (
+          <p className="text-sm text-slate-500">
+            Chưa đọc phiếu. Bấm tải khi cần tổng kết tháng.
+          </p>
+        ) : null}
 
         <DateRangeFilter
           dense

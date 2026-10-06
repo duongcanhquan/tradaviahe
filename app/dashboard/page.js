@@ -6,7 +6,6 @@ import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
-  Building2,
   Landmark,
   Package,
   Percent,
@@ -36,7 +35,7 @@ import {
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
-  subscribeTransactionsBetween,
+  readTransactionsInRange,
   txLimitForRange,
 } from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
@@ -95,9 +94,11 @@ function DashboardContent() {
   const [allTx, setAllTx] = useState([]);
   const [products, setProducts] = useState([]);
   const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
-  const [loadingTx, setLoadingTx] = useState(true);
+  const [loadingTx, setLoadingTx] = useState(false);
   const [loadingStock, setLoadingStock] = useState(true);
   const [period, setPeriod] = useState("day");
+  const [reportAsked, setReportAsked] = useState(false);
+  const [showLines, setShowLines] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [recentPage, setRecentPage] = useState(1);
@@ -185,15 +186,22 @@ function DashboardContent() {
   }, [customRangeActive, dateFrom, dateTo, ranges, period]);
 
   useEffect(() => {
+    if (!reportAsked && !customRangeActive) {
+      setLoadingTx(false);
+      return undefined;
+    }
+    let cancelled = false;
     warnedTxCap.current = false;
     setLoadingTx(true);
-    const cap = txLimitForRange(selectedRange.from, selectedRange.to);
-    const unsubTx = subscribeTransactionsBetween(
-      selectedRange.from,
-      selectedRange.to,
-      (rows) => {
+    const bounds = customRangeActive
+      ? { from: dateFrom, to: dateTo || dateFrom }
+      : presetRange(period);
+    readTransactionsInRange(bounds.from, bounds.to)
+      .then((rows) => {
+        if (cancelled) return;
         setAllTx(rows);
         setLoadingTx(false);
+        const cap = txLimitForRange(selectedRange.from, selectedRange.to);
         if (rows.length >= cap && !warnedTxCap.current) {
           warnedTxCap.current = true;
           showToast(
@@ -201,19 +209,28 @@ function DashboardContent() {
             "error"
           );
         }
-      },
-      (error) => {
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast(
           firestoreErrorMessage(error, "Không tải được giao dịch"),
           "error"
         );
         setLoadingTx(false);
-      },
-      cap
-    );
-    return () => unsubTx();
-  }, [selectedRange.from, selectedRange.to, showToast]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    reportAsked,
+    customRangeActive,
+    dateFrom,
+    dateTo,
+    selectedRange.from,
+    selectedRange.to,
+    showToast,
+  ]);
 
   const selectedGoods = useMemo(
     () =>
@@ -351,6 +368,8 @@ function DashboardContent() {
                   setPeriod(item.id);
                   setDateFrom("");
                   setDateTo("");
+                  setReportAsked(true);
+                  setShowLines(false);
                 }}
               >
                 {item.label}
@@ -370,6 +389,12 @@ function DashboardContent() {
             setDateTo("");
           }}
         />
+
+        {!reportAsked && !customRangeActive ? (
+          <p className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
+            Bấm Hôm nay, Tuần hoặc Tháng để tải tổng kết. Mở trang chưa đọc phiếu.
+          </p>
+        ) : null}
 
         <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-6 text-white shadow-md">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/80">
@@ -488,7 +513,19 @@ function DashboardContent() {
             </Link>
           }
         />
-        {loadingTx ? (
+        {!reportAsked && !customRangeActive ? (
+          <p className="text-sm text-slate-500">
+            Danh sách phiếu chỉ tải khi bạn bấm Hiện danh sách, sau khi đã chọn kỳ.
+          </p>
+        ) : !showLines ? (
+          <button
+            type="button"
+            onClick={() => setShowLines(true)}
+            className="touch-btn h-12 w-full bg-white text-sm font-bold text-slate-800 ring-1 ring-slate-200"
+          >
+            Hiện danh sách phiếu
+          </button>
+        ) : loadingTx ? (
           <div className="card-panel h-20 animate-pulse bg-white/80" />
         ) : recentIncome.length === 0 ? (
           <EmptyState
@@ -742,11 +779,6 @@ function DashboardContent() {
         <SectionHeader title="Thao tác nhanh" />
         <div className="grid grid-cols-2 gap-2">
           {[
-            {
-              href: "/manager/construction",
-              icon: Building2,
-              label: "Xây dựng",
-            },
             { href: "/manager/products", icon: Package, label: "Món · CT" },
             {
               href: "/dashboard/monthly",

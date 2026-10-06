@@ -17,10 +17,10 @@ import { cn } from "@/lib/utils";
 /** Quản lý: thu · đối soát · kho · món · cài đặt */
 const managerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
+  { href: "/manager/expenses", label: "Quỹ quán", icon: Wallet },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/manager/inventory", label: "Kho", icon: Warehouse },
   { href: "/manager/products", label: "Món", icon: Package },
-  { href: "/settings", label: "Cài đặt", icon: Settings },
 ];
 
 /**
@@ -29,8 +29,8 @@ const managerLinks = [
  */
 const ownerLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/manager/expenses", label: "Quỹ quán", icon: Wallet },
+  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/manager/inventory", label: "Kho", icon: Warehouse },
   { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
 ];
