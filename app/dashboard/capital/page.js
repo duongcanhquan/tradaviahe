@@ -21,7 +21,6 @@ import {
   Package,
   Pencil,
   Plus,
-  Save,
   Search,
   ShoppingCart,
   Trash2,
@@ -95,8 +94,6 @@ import {
   summarizeShareholderCapital,
   updateCapitalExpense,
   updateInitialCapitalAmount,
-  previewCapitalFundRepair,
-  applyCapitalFundRepair,
 } from "@/lib/shareholderCapital";
 import {
   cn,
@@ -643,7 +640,6 @@ function CapitalContent() {
   const [txFrom, setTxFrom] = useState(() => todayInputValue());
   const [txTo, setTxTo] = useState(() => todayInputValue());
   const [txArmed, setTxArmed] = useState(false);
-  const [repairing, setRepairing] = useState(false);
   const [tab, setTab] = useState(
     canViewInvestmentCapital ? "capital" : "assets"
   );
@@ -860,62 +856,6 @@ function CapitalContent() {
     setTxFrom(next.from);
     setTxTo(next.to);
     setTxArmed(true);
-  };
-
-  const ledgerRepairPreview = useMemo(() => {
-    if (!canManageShareholderCapital) {
-      return {
-        totalIssues: 0,
-        autoFixable: 0,
-        needsManual: 0,
-        linkShop: [],
-        linkXd: [],
-        orphanShopFund: [],
-        orphanXdFund: [],
-        brokenShopFlag: [],
-        brokenXdFlag: [],
-      };
-    }
-    return previewCapitalFundRepair({
-      capitalEntries: shareholderCapitalEntries,
-      transactions: allTx,
-    });
-  }, [canManageShareholderCapital, shareholderCapitalEntries, allTx]);
-
-  const handleLedgerRepair = async () => {
-    if (!canManageShareholderCapital || ledgerRepairPreview.totalIssues <= 0) {
-      return;
-    }
-    const p = ledgerRepairPreview;
-    const ok = window.confirm(
-      `Đồng bộ sổ vốn ↔ quỹ theo thực tế?\n\n` +
-        `• Gắn lại quỹ cửa hàng: ${p.linkShop.length}\n` +
-        `• Gắn lại quỹ XD: ${p.linkXd.length}\n` +
-        `• Xóa nạp quỹ mồ côi (vốn đã xóa): ${
-          p.orphanShopFund.length + p.orphanXdFund.length
-        }\n` +
-        `• Bỏ cờ “đã nạp” gãy: ${
-          p.brokenShopFlag.length + p.brokenXdFlag.length
-        }\n\n` +
-        `Số dư quỹ sẽ giảm nếu có nạp mồ côi bị xóa.`
-    );
-    if (!ok) return;
-    setRepairing(true);
-    try {
-      const result = await applyCapitalFundRepair({
-        preview: p,
-        role: profile?.role,
-      });
-      showToast(
-        `Đã sửa sổ: gắn shop ${result.linkedShop} · XD ${result.linkedXd} · xóa mồ côi ${result.deletedOrphans} · bỏ cờ gãy ${result.clearedBrokenFlags}`,
-        "success"
-      );
-    } catch (error) {
-      console.error(error);
-      showToast(error?.message || "Sửa sổ thất bại", "error");
-    } finally {
-      setRepairing(false);
-    }
   };
 
   const assets = useMemo(() => summarizeAssets(investments), [investments]);
@@ -1186,15 +1126,13 @@ function CapitalContent() {
         role: profile?.role,
       });
       if (editingExpense?.id === row.id) setEditingExpense(null);
-      const shopN = result?.removedFundTxIds?.length || 0;
-      const xdN = result?.removedConstructionTxIds?.length || 0;
-      const parts = ["Đã xóa chi tiêu vốn"];
-      if (shopN > 0) parts.push(`${shopN} nạp quỹ cửa hàng`);
-      if (xdN > 0) parts.push(`${xdN} giao dịch quỹ XD`);
+      const linkedN =
+        (result?.removedFundTxIds?.length || 0) +
+        (result?.removedConstructionTxIds?.length || 0);
       showToast(
-        parts.length > 1
-          ? `${parts[0]} + ${parts.slice(1).join(" + ")} (sổ đã khớp)`
-          : parts[0],
+        linkedN > 0
+          ? `Đã xóa chi tiêu vốn và ${linkedN} giao dịch quỹ gắn kèm`
+          : "Đã xóa chi tiêu vốn",
         "info"
       );
     } catch (error) {
@@ -1521,44 +1459,6 @@ function CapitalContent() {
               {loadingLifetime ? "Đang tính lại…" : "Tính lại số dư"}
             </button>
           </section>
-
-          {canManageShareholderCapital && ledgerRepairPreview.totalIssues > 0 ? (
-            <section className="space-y-3 rounded-[1.25rem] bg-rose-50 px-4 py-4 ring-1 ring-rose-200">
-              <p className="text-sm font-bold text-rose-950">
-                Đồng bộ sổ lệch · {ledgerRepairPreview.totalIssues} chỗ
-              </p>
-              <p className="text-sm leading-snug text-rose-900/90">
-                Gắn lại ID hoặc xóa nạp mồ côi để quỹ khớp thực tế.
-              </p>
-              <ul className="space-y-1 text-xs font-semibold text-rose-950">
-                <li>Gắn lại nạp quỹ cửa hàng: {ledgerRepairPreview.linkShop.length}</li>
-                <li>Gắn lại nạp quỹ XD: {ledgerRepairPreview.linkXd.length}</li>
-                <li>
-                  Nạp quỹ mồ côi (sẽ xóa):{" "}
-                  {ledgerRepairPreview.orphanShopFund.length +
-                    ledgerRepairPreview.orphanXdFund.length}
-                </li>
-                <li>
-                  Cờ “đã nạp” gãy (sẽ bỏ đánh dấu):{" "}
-                  {ledgerRepairPreview.brokenShopFlag.length +
-                    ledgerRepairPreview.brokenXdFlag.length}
-                </li>
-              </ul>
-              <button
-                type="button"
-                disabled={repairing}
-                onClick={handleLedgerRepair}
-                className="touch-btn h-12 w-full gap-2 bg-rose-800 text-white disabled:opacity-50"
-              >
-                {repairing ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <Save className="h-5 w-5" aria-hidden />
-                )}
-                {repairing ? "Đang sửa sổ..." : "Sửa sổ theo thực tế"}
-              </button>
-            </section>
-          ) : null}
 
           <div className="grid grid-cols-1 gap-2">
             <Link
