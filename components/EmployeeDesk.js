@@ -169,6 +169,15 @@ export default function EmployeeDesk() {
   const isUngroupedProduct = (p) =>
     !p.groupId || !knownGroupIds.has(p.groupId);
 
+  const products = useMemo(
+    () => catalog.filter(isSellable),
+    [catalog]
+  );
+  const productsById = useMemo(
+    () => Object.fromEntries(catalog.map((p) => [p.id, p])),
+    [catalog]
+  );
+
   const visibleProducts = useMemo(() => {
     let rows;
     const inGroup = products.filter((p) => p.groupId === activeGroupId);
@@ -203,15 +212,6 @@ export default function EmployeeDesk() {
       };
     });
   };
-
-  const products = useMemo(
-    () => catalog.filter(isSellable),
-    [catalog]
-  );
-  const productsById = useMemo(
-    () => Object.fromEntries(catalog.map((p) => [p.id, p])),
-    [catalog]
-  );
 
   const cartItems = useMemo(() => {
     return Object.entries(cart)
