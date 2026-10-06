@@ -161,9 +161,14 @@ function ExpensesContent() {
     [windowRows]
   );
 
+  const incomeByMethod = useMemo(
+    () => sumGoodsIncomeByMethod(windowRows),
+    [windowRows]
+  );
+
   const summary = useMemo(
-    () => summarizeShopFund(fundRows, sumGoodsIncomeByMethod(windowRows).cash),
-    [fundRows, windowRows]
+    () => summarizeShopFund(fundRows, incomeByMethod.cash),
+    [fundRows, incomeByMethod]
   );
 
   const filtered = useMemo(() => {
@@ -442,44 +447,92 @@ function ExpensesContent() {
   return (
     <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
       <div className="space-y-4">
-        <p className="text-sm leading-snug text-slate-500">
-          Bấm Hôm nay, Tuần hoặc Tháng mới tải sổ. Mở trang chưa đọc phiếu.
-        </p>
+        {!ledgerOn ? (
+          <section className="card-panel space-y-3">
+            <p className="text-sm leading-snug text-slate-600">
+              Chưa tải sổ. Bấm để xem hôm nay thu tiền mặt, chuyển khoản và đã chi bao nhiêu.
+            </p>
+            <button
+              type="button"
+              onClick={() => applyPreset("day")}
+              className="touch-btn h-14 w-full bg-brand-700 text-base font-bold text-white"
+            >
+              Kiểm tra hôm nay
+            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => applyPreset("week")}
+                className="touch-btn h-12 bg-white text-sm font-bold text-slate-700 ring-1 ring-slate-200"
+              >
+                Tuần này
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("month")}
+                className="touch-btn h-12 bg-white text-sm font-bold text-slate-700 ring-1 ring-slate-200"
+              >
+                Tháng này
+              </button>
+            </div>
+          </section>
+        ) : (
+          <>
+            <PeriodPresetBar active={preset} onChange={applyPreset} />
 
-        <PeriodPresetBar active={preset} onChange={applyPreset} />
+            {loading ? (
+              <div className="card-panel flex h-24 items-center justify-center">
+                <Loader2 className="h-6 w-6 animate-spin text-brand-700" />
+              </div>
+            ) : (
+              <>
+                <StatCard
+                  label={`Két tiền mặt · ${rangeLabel}`}
+                  value={summary.balance}
+                  tone={summary.balance >= 0 ? "brand" : "danger"}
+                />
 
-        <StatCard
-          label={`Biến động · ${rangeLabel}`}
-          value={loading ? 0 : summary.balance}
-          tone={summary.balance >= 0 ? "brand" : "danger"}
-        />
-
-        <div className="grid grid-cols-3 gap-2">
-          <div className="card-panel !p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Thu TM
-            </p>
-            <p className="money mt-1 text-sm font-bold text-emerald-700">
-              <Money amount={loading ? 0 : summary.cashSales} />
-            </p>
-          </div>
-          <div className="card-panel !p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Đã nạp
-            </p>
-            <p className="money mt-1 text-sm font-bold text-emerald-700">
-              <Money amount={loading ? 0 : summary.fundIn} />
-            </p>
-          </div>
-          <div className="card-panel !p-3">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Đã chi
-            </p>
-            <p className="money mt-1 text-sm font-bold text-rose-700">
-              <Money amount={loading ? 0 : summary.expense} />
-            </p>
-          </div>
-        </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="card-panel !p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Thu tiền mặt
+                    </p>
+                    <p className="money mt-1 text-base font-bold text-emerald-700">
+                      <Money amount={summary.cashSales} />
+                    </p>
+                  </div>
+                  <div className="card-panel !p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Thu chuyển khoản
+                    </p>
+                    <p className="money mt-1 text-base font-bold text-sky-700">
+                      <Money amount={incomeByMethod.banking} />
+                    </p>
+                  </div>
+                  <div className="card-panel !p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Đã chi
+                    </p>
+                    <p className="money mt-1 text-base font-bold text-rose-700">
+                      <Money amount={summary.expense} />
+                    </p>
+                  </div>
+                  <div className="card-panel !p-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Đã nạp két
+                    </p>
+                    <p className="money mt-1 text-base font-bold text-emerald-700">
+                      <Money amount={summary.fundIn} />
+                    </p>
+                  </div>
+                </div>
+                <p className="text-xs leading-snug text-slate-500">
+                  Két = nạp + thu tiền mặt − đã chi. Thu chuyển khoản không vào két.
+                </p>
+              </>
+            )}
+          </>
+        )}
 
         {canManageShop ? (
           <section className="grid grid-cols-2 gap-2">
@@ -502,6 +555,8 @@ function ExpensesContent() {
           </section>
         ) : null}
 
+        {ledgerOn ? (
+        <>
         <section>
           <SectionHeader
             title={`Theo hạng mục · ${rangeLabel}`}
@@ -573,6 +628,12 @@ function ExpensesContent() {
                       Thu TM:{" "}
                       <span className="font-bold text-emerald-700">
                         <Money amount={periodSummary.cashSales} />
+                      </span>
+                    </p>
+                    <p>
+                      Thu CK:{" "}
+                      <span className="font-bold text-sky-700">
+                        <Money amount={incomeByMethod.banking} />
                       </span>
                     </p>
                     <p>
@@ -763,6 +824,8 @@ function ExpensesContent() {
             </>
           )}
         </section>
+        </>
+        ) : null}
       </div>
 
       <BottomSheet
