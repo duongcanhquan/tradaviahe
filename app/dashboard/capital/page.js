@@ -56,6 +56,10 @@ import {
   txLimitForRange,
 } from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
+import {
+  readGoodsBankingCache,
+  syncGoodsBankingTotal,
+} from "@/lib/capitalBanking";
 import { actorFields, formatActorLabel } from "@/lib/audit";
 import {
   convertExistingCapitalExpenseToShopFund,
@@ -632,6 +636,8 @@ function CapitalContent() {
   const [loadingAssets, setLoadingAssets] = useState(true);
   const [loadingCapital, setLoadingCapital] = useState(true);
   const [bankingIncomeTotal, setBankingIncomeTotal] = useState(0);
+  const [lifetimeBanking, setLifetimeBanking] = useState(null);
+  const [loadingLifetime, setLoadingLifetime] = useState(true);
   const [allTx, setAllTx] = useState([]);
   const [loadingBanking, setLoadingBanking] = useState(true);
   const [txFrom, setTxFrom] = useState(() => todayInputValue());
@@ -810,10 +816,42 @@ function CapitalContent() {
     [investments]
   );
 
+  useEffect(() => {
+    if (!canViewInvestmentCapital && !canManageShareholderCapital) {
+      setLoadingLifetime(false);
+      return undefined;
+    }
+    const cached = readGoodsBankingCache();
+    if (cached) setLifetimeBanking(cached.total);
+    let cancelled = false;
+    setLoadingLifetime(true);
+    syncGoodsBankingTotal()
+      .then((total) => {
+        if (!cancelled) setLifetimeBanking(total);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error(error);
+        showToast(
+          firestoreErrorMessage(error, "Không tính được thu chuyển khoản"),
+          "error"
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingLifetime(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewInvestmentCapital, canManageShareholderCapital, showToast]);
+
   const capitalSummary = useMemo(
     () =>
-      summarizeShareholderCapital(shareholderCapitalEntries, 0),
-    [shareholderCapitalEntries]
+      summarizeShareholderCapital(
+        shareholderCapitalEntries,
+        lifetimeBanking || 0
+      ),
+    [shareholderCapitalEntries, lifetimeBanking]
   );
   const txRangeLabel = formatRangeLabel(txFrom, txTo);
   const txPreset = activePreset(txFrom, txTo);
@@ -1337,6 +1375,23 @@ function CapitalContent() {
     if (entry) setEditAmount(String(entry.amount ?? ""));
   }, [editName, shareholderCapitalEntries]);
 
+  const recountBanking = async () => {
+    setLoadingLifetime(true);
+    try {
+      const total = await syncGoodsBankingTotal({ force: true });
+      setLifetimeBanking(total);
+      showToast("Đã tính lại số dư sổ vốn", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(
+        firestoreErrorMessage(error, "Không tính lại được số dư"),
+        "error"
+      );
+    } finally {
+      setLoadingLifetime(false);
+    }
+  };
+
   const pageTitle = canViewInvestmentCapital
     ? "Vốn & tài sản"
     : "Hàng hóa & thiết bị";
@@ -1389,15 +1444,22 @@ function CapitalContent() {
             onChange={applyTxPreset}
           />
           <section className="space-y-3">
-            <StatCard
-              label="Số dư sổ vốn"
-              value={
-                loadingCapital || loadingBanking
-                  ? 0
-                  : capitalSummary.totalBalance
-              }
-              tone="success"
-            />
+            {lifetimeBanking == null ? (
+              <div className="card-panel flex h-24 items-center justify-center gap-2 text-sm font-semibold text-slate-600">
+                {loadingLifetime ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-brand-700" />
+                ) : null}
+                {loadingLifetime
+                  ? "Đang tính số dư sổ vốn"
+                  : "Chưa cộng được thu chuyển khoản. Bấm Tính lại số dư."}
+              </div>
+            ) : (
+              <StatCard
+                label="Số dư sổ vốn"
+                value={loadingCapital ? 0 : capitalSummary.totalBalance}
+                tone="success"
+              />
+            )}
             <div className="grid grid-cols-2 gap-2">
               <div className="card-panel !p-3">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -1421,22 +1483,43 @@ function CapitalContent() {
               </div>
               <div className="card-panel !p-3 col-span-2">
                 <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Thu CK trong kỳ · {txRangeLabel}
+                  Thu bán chuyển khoản
                 </p>
                 <p className="money mt-1 text-sm font-bold text-emerald-700">
-                  <Money
-                    amount={loadingBanking ? 0 : bankingIncomeTotal}
-                  />
+                  {lifetimeBanking == null ? (
+                    loadingLifetime ? "Đang tính…" : "Chưa tính được"
+                  ) : (
+                    <Money amount={lifetimeBanking} />
+                  )}
                 </p>
               </div>
+              {txArmed ? (
+                <div className="card-panel !p-3 col-span-2">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Thu CK trong kỳ · {txRangeLabel}
+                  </p>
+                  <p className="money mt-1 text-sm font-bold text-sky-800">
+                    <Money amount={loadingBanking ? 0 : bankingIncomeTotal} />
+                  </p>
+                </div>
+              ) : null}
             </div>
             <p className="hint-line">
-              Số dư sổ = góp − chi. Thu CK chỉ tải khi bấm Hôm nay, Tuần hoặc Tháng. TM bán vào{" "}
+              Số dư sổ vốn = tổng góp − chi từ quỹ chủ đầu tư + tiền bán chuyển khoản.
+              Tiền mặt bán vào{" "}
               <Link href="/manager/expenses" className="font-semibold text-brand-800 underline">
                 quỹ quán
               </Link>
               .
             </p>
+            <button
+              type="button"
+              onClick={recountBanking}
+              disabled={loadingLifetime}
+              className="touch-btn h-11 w-full bg-white text-sm font-bold text-slate-700 ring-1 ring-slate-200 disabled:opacity-50"
+            >
+              {loadingLifetime ? "Đang tính lại…" : "Tính lại số dư"}
+            </button>
           </section>
 
           {canManageShareholderCapital && ledgerRepairPreview.totalIssues > 0 ? (
