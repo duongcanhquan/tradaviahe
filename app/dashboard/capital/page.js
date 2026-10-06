@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import {
   endOfDay,
@@ -90,7 +90,8 @@ import {
   filterShareholderCapitalEntries,
   findInitialEntry,
   isShopManagerName,
-  subscribeShareholderCapital,
+  loadCapitalLedger,
+  readCapitalEntriesInRange,
   summarizeShareholderCapital,
   updateCapitalExpense,
   updateInitialCapitalAmount,
@@ -356,9 +357,10 @@ function CapitalHistoryList({
   onEditExpense,
   onDeleteExpense,
   deletingExpenseId = null,
+  onRangeChange,
 }) {
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(() => todayInputValue());
+  const [dateTo, setDateTo] = useState(() => todayInputValue());
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
 
@@ -388,6 +390,10 @@ function CapitalHistoryList({
     const start = (safePage - 1) * CAPITAL_HISTORY_PAGE_SIZE;
     return filtered.slice(start, start + CAPITAL_HISTORY_PAGE_SIZE);
   }, [filtered, safePage]);
+
+  useEffect(() => {
+    onRangeChange?.(dateFrom, dateTo);
+  }, [dateFrom, dateTo, onRangeChange]);
 
   useEffect(() => {
     setPage(1);
@@ -446,8 +452,9 @@ function CapitalHistoryList({
         onFromChange={setDateFrom}
         onToChange={setDateTo}
         onClear={() => {
-          setDateFrom("");
-          setDateTo("");
+          const today = todayInputValue();
+          setDateFrom(today);
+          setDateTo(today);
         }}
         summary={
           hasDateFilter ? (
@@ -625,6 +632,11 @@ function CapitalContent() {
 
   const [investments, setInvestments] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
+  const [histFrom, setHistFrom] = useState(() => todayInputValue());
+  const [histTo, setHistTo] = useState(() => todayInputValue());
+  const [ledgerTick, setLedgerTick] = useState(0);
   const [users, setUsers] = useState([]);
   /** Chỉ Chủ đầu tư (investor) — không gồm quản lý quán */
   const [shareholderOptions, setShareholderOptions] = useState([]);
@@ -716,19 +728,58 @@ function CapitalContent() {
       setLoadingBanking(false);
       return undefined;
     }
-    const unsub = subscribeShareholderCapital(
-      (list) => {
-        setCapitalEntries(list);
-        setLoadingCapital(false);
-      },
-      (error) => {
+    let cancelled = false;
+    setLoadingCapital(true);
+    loadCapitalLedger({ force: ledgerTick > 0 })
+      .then((list) => {
+        if (!cancelled) setCapitalEntries(list);
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast("Không tải được sổ vốn cổ đông", "error");
-        setLoadingCapital(false);
-      }
-    );
-    return () => unsub();
-  }, [canViewInvestmentCapital, showToast]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingCapital(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewInvestmentCapital, ledgerTick, showToast]);
+
+  const onHistoryRange = useCallback((from, to) => {
+    const today = todayInputValue();
+    setHistFrom(from || today);
+    setHistTo(to || today);
+  }, []);
+
+  const noteCapitalChanged = useCallback(() => {
+    setLedgerTick((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    if (!canViewInvestmentCapital) {
+      setLoadingHistory(false);
+      return undefined;
+    }
+    let cancelled = false;
+    setLoadingHistory(true);
+    readCapitalEntriesInRange(histFrom, histTo)
+      .then((list) => {
+        if (!cancelled) setHistoryEntries(list);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error(error);
+        showToast("Không tải được lịch sử sổ vốn", "error");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingHistory(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canViewInvestmentCapital, histFrom, histTo, ledgerTick, showToast]);
 
   useEffect(() => {
     if (!txArmed || (!canViewInvestmentCapital && !canManageShareholderCapital)) {
@@ -805,6 +856,10 @@ function CapitalContent() {
   const shareholderCapitalEntries = useMemo(
     () => filterShareholderCapitalEntries(capitalEntries, users),
     [capitalEntries, users]
+  );
+  const historyRows = useMemo(
+    () => filterShareholderCapitalEntries(historyEntries, users),
+    [historyEntries, users]
   );
 
   const assetRows = useMemo(
@@ -912,6 +967,7 @@ function CapitalContent() {
         user,
         profile,
       });
+      noteCapitalChanged();
       showToast(
         capInitial ? "Đã ghi vốn đầu tư ban đầu" : "Đã ghi vốn góp thêm",
         "success"
@@ -953,6 +1009,7 @@ function CapitalContent() {
           user,
           profile,
         });
+        noteCapitalChanged();
         showToast(
           expPayMethod === "banking"
             ? "Đã chi vốn và nạp quỹ (chuyển khoản)"
@@ -968,6 +1025,7 @@ function CapitalContent() {
           user,
           profile,
         });
+        noteCapitalChanged();
         showToast("Đã ghi chi tiêu vốn (không nạp quỹ)", "success");
       }
       setExpAmount("");
@@ -1034,6 +1092,7 @@ function CapitalContent() {
             : null,
         role: profile?.role,
       });
+      noteCapitalChanged();
       showToast(
         "Đã cập nhật chi tiêu vốn (đã đồng bộ quỹ liên quan nếu có)",
         "success"
@@ -1067,6 +1126,7 @@ function CapitalContent() {
           role: profile?.role,
         });
         if (editingExpense?.id === row.id) setEditingExpense(null);
+        noteCapitalChanged();
         showToast(
           "Đã hủy phiếu nhập. Tồn, vốn và giá vốn đã đảo.",
           "success"
@@ -1087,6 +1147,7 @@ function CapitalContent() {
                 role: profile?.role,
               });
               if (editingExpense?.id === row.id) setEditingExpense(null);
+              noteCapitalChanged();
               showToast(
                 "Đã xóa dòng chi vốn. Tồn không đổi — chỉnh ở Kiểm kho nếu cần.",
                 "success"
@@ -1126,6 +1187,7 @@ function CapitalContent() {
         role: profile?.role,
       });
       if (editingExpense?.id === row.id) setEditingExpense(null);
+      noteCapitalChanged();
       const linkedN =
         (result?.removedFundTxIds?.length || 0) +
         (result?.removedConstructionTxIds?.length || 0);
@@ -1177,6 +1239,7 @@ function CapitalContent() {
         user,
         profile,
       });
+      noteCapitalChanged();
       showToast(
         editExpPayMethod === "banking"
           ? "Đã chuyển vào quỹ (chuyển khoản)"
@@ -1213,6 +1276,7 @@ function CapitalContent() {
     setSavingEdit(true);
     try {
       await updateInitialCapitalAmount(entry.id, editAmount);
+      noteCapitalChanged();
       showToast("Đã cập nhật vốn đầu tư ban đầu", "success");
       setEditAmount("");
       setCapitalWrite(null);
@@ -1569,20 +1633,26 @@ function CapitalContent() {
           </section>
 
           <section className="space-y-3">
-            <SectionHeader title="Lịch sử sổ vốn cổ đông" />
+            <SectionHeader
+              title="Lịch sử sổ vốn cổ đông"
+              hint="Chỉ đọc ngày đang chọn"
+            />
+            <p className="text-sm leading-snug text-slate-500">
+              Mặc định là hôm nay. Đổi từ ngày / đến ngày thì mới đọc kỳ đó.
+            </p>
 
-            {loadingCapital ? (
-              <div className="card-panel h-24 animate-pulse bg-white/80" />
-            ) : (
-              <CapitalHistoryList
-                rows={shareholderCapitalEntries}
-                emptyText="Chưa có giao dịch trên sổ vốn cổ đông."
-                canEditExpense={canManageShareholderCapital}
-                onEditExpense={openEditExpense}
-                onDeleteExpense={handleDeleteExpense}
-                deletingExpenseId={deletingExpId}
-              />
-            )}
+            {loadingHistory ? (
+              <p className="text-sm font-semibold text-slate-500">Đang đọc kỳ này…</p>
+            ) : null}
+            <CapitalHistoryList
+              rows={historyRows}
+              emptyText="Không có dòng sổ vốn trong ngày đã chọn."
+              canEditExpense={canManageShareholderCapital}
+              onEditExpense={openEditExpense}
+              onDeleteExpense={handleDeleteExpense}
+              deletingExpenseId={deletingExpId}
+              onRangeChange={onHistoryRange}
+            />
           </section>
         </>
       ) : null}

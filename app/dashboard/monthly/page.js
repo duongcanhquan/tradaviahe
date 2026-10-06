@@ -37,7 +37,7 @@ import {
 } from "@/lib/liveCollection";
 import {
   filterShareholderCapitalEntries,
-  subscribeShareholderCapital,
+  loadCapitalLedger,
   summarizeShareholderCapital,
 } from "@/lib/shareholderCapital";
 import {
@@ -179,17 +179,19 @@ function MonthlyContent() {
       setLoadingSettings(false);
       return undefined;
     }
-    const unsubInv = subscribeShareholderCapital(
-      (list) => {
-        setCapitalEntries(list);
-        setLoadingInv(false);
-      },
-      (error) => {
+    let cancelled = false;
+    loadCapitalLedger()
+      .then((list) => {
+        if (!cancelled) setCapitalEntries(list);
+      })
+      .catch((error) => {
+        if (cancelled) return;
         console.error(error);
         showToast("Không tải được vốn góp", "error");
-        setLoadingInv(false);
-      }
-    );
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingInv(false);
+      });
     const unsubUsers = subscribeCollection(
       "users",
       (rows) => setUsers(rows),
@@ -207,7 +209,7 @@ function MonthlyContent() {
       }
     );
     return () => {
-      unsubInv();
+      cancelled = true;
       unsubUsers();
       unsubSettings();
     };
