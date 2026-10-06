@@ -27,7 +27,7 @@ import {
   FilterChip,
   SectionHeader,
 } from "@/components/ui/MobileUI";
-import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock } from "@/lib/expenses";
+import { receiveInventoryPaid, previewInventoryFundBackfill, backfillInventoryFundFromStock, voidInventoryReceive } from "@/lib/expenses";
 import {
   fundSourceLabel,
   listProductReceiveHistory,
@@ -166,6 +166,7 @@ function InventoryContent() {
   const {
     user,
     profile,
+    role,
     canChooseInventoryFundSource,
     canManageProducts,
     canStocktake,
@@ -205,6 +206,7 @@ function InventoryContent() {
   const [historyTx, setHistoryTx] = useState([]);
   const [capitalEntries, setCapitalEntries] = useState([]);
   const [historyProduct, setHistoryProduct] = useState(null);
+  const [voidingId, setVoidingId] = useState(null);
   const [backfillPay, setBackfillPay] = useState("cash");
   const [backfilling, setBackfilling] = useState(false);
 
@@ -748,6 +750,32 @@ function InventoryContent() {
       showToast(error?.message || "Kiểm kho thất bại", "error");
     } finally {
       setSavingTake(false);
+    }
+  };
+
+  const handleVoidReceive = async (row) => {
+    if (!isSuperAdmin || !row?.id || voidingId) return;
+    const fund = fundSourceLabel(row.fundSource);
+    const ok = window.confirm(
+      `Hủy phiếu nhập ${formatCurrency(row.amount)}?\n` +
+        `+${formatUnitCount(row.receiveQty)} ${row.unit} · ${fund}\n\n` +
+        `Tồn sẽ trừ lại, tiền trả về ${fund}, giá vốn được tính lại.\n` +
+        `Chỉ dùng khi nhập nhầm món hoặc số tiền.`
+    );
+    if (!ok) return;
+    setVoidingId(row.id);
+    try {
+      await voidInventoryReceive({
+        id: row.id,
+        fundSource: row.fundSource,
+        role,
+      });
+      showToast("Đã hủy phiếu. Tồn, quỹ và giá vốn đã đảo.", "success");
+    } catch (error) {
+      console.error(error);
+      showToast(error?.message || "Không hủy được phiếu", "error");
+    } finally {
+      setVoidingId(null);
     }
   };
 
@@ -2145,6 +2173,21 @@ function InventoryContent() {
                         </>
                       ) : null}
                     </p>
+                    {isSuperAdmin ? (
+                      <button
+                        type="button"
+                        disabled={voidingId === row.id}
+                        onClick={() => handleVoidReceive(row)}
+                        className="touch-btn mt-3 h-11 w-full gap-2 bg-white text-sm text-rose-800 ring-1 ring-rose-200 disabled:opacity-50"
+                      >
+                        {voidingId === row.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        )}
+                        Hủy phiếu
+                      </button>
+                    ) : null}
                   </li>
                 ))}
               </ul>

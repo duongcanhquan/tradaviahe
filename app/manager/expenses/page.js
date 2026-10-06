@@ -377,6 +377,17 @@ function ExpensesContent() {
 
   const handleDelete = async (row) => {
     if (!canDeleteShopFundEntry || !row?.id) return;
+    const inventory =
+      row.source === "inventory_receive" ||
+      row.source === "inventory_backfill" ||
+      String(row.category || "").trim().toLowerCase() === "nhập hàng";
+    if (inventory) {
+      showToast(
+        "Phiếu nhập hàng hủy ở Nhập hàng → Lịch sử nhập",
+        "error"
+      );
+      return;
+    }
     const label = isFundIn(row) ? "nạp quỹ" : "khoản chi";
     const linked =
       row.capitalEntryId ||
@@ -388,7 +399,7 @@ function ExpensesContent() {
         (linked
           ? "Khoản này gắn vốn / chuyển quỹ — sẽ xóa cả cặp liên quan để sổ khớp.\n"
           : "Tiền sẽ về lại quỹ ngay.\n") +
-        "Không xóa được phiếu nhập hàng."
+        "Chỉ xóa khi ghi nhầm."
     );
     if (!ok) return;
     setDeletingId(row.id);

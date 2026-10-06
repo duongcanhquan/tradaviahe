@@ -60,6 +60,7 @@ import {
   ACQUISITION,
   acquisitionLabel,
   createInvestment,
+  updateInvestment,
   filterInvestmentsForRole,
   isAssetInvestment,
   investmentTypeLabel,
@@ -245,7 +246,7 @@ function PersonPicker({
   );
 }
 
-function AssetHistoryList({ rows, emptyText }) {
+function AssetHistoryList({ rows, emptyText, canEdit = false, onEdit }) {
   const [query, setQuery] = useState("");
   const filtered = useMemo(
     () => (rows || []).filter((r) => matchesAssetSearch(r, query)),
@@ -320,6 +321,16 @@ function AssetHistoryList({ rows, emptyText }) {
               <p className="text-xs font-medium text-brand-800">
                 Nhập bởi: {formatActorLabel(row)}
               </p>
+            ) : null}
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => onEdit?.(row)}
+                className="touch-btn h-11 w-full gap-2 bg-slate-900 text-sm text-white"
+              >
+                <Pencil className="h-4 w-4" aria-hidden />
+                Sửa
+              </button>
             ) : null}
           </article>
         ))
@@ -655,6 +666,7 @@ function CapitalContent() {
   /** null | contribute | expense | edit — form ghi chỉ mở khi bấm */
   const [capitalWrite, setCapitalWrite] = useState(null);
   const [assetWriteOpen, setAssetWriteOpen] = useState(false);
+  const [editingAsset, setEditingAsset] = useState(null);
 
   const [assetMode, setAssetMode] = useState("select");
   const [assetSelect, setAssetSelect] = useState("");
@@ -987,6 +999,14 @@ function CapitalContent() {
     setEditExpDate(
       row.dateKey ? dateKeyToInputValue(row.dateKey) : todayInputValue()
     );
+    const linked = (allTx || []).find(
+      (tx) =>
+        tx.id === row.shopFundTxId ||
+        (row.id && tx.capitalEntryId === row.id && tx.type === "fund_in")
+    );
+    setEditExpPayMethod(
+      linked?.paymentMethod === "banking" ? "banking" : "cash"
+    );
   };
 
   const saveEditExpense = async (e) => {
@@ -1012,6 +1032,10 @@ function CapitalContent() {
         note: editExpNote,
         dateKey: inputValueToDateKey(editExpDate),
         expenseDate: timestampForBusinessDate(editExpDate),
+        paymentMethod:
+          editingExpense.toShopFund || editingExpense.shopFundTxId
+            ? editExpPayMethod
+            : null,
         role: profile?.role,
       });
       showToast(
@@ -1033,7 +1057,7 @@ function CapitalContent() {
     }
     if (row.source === "inventory_receive") {
       showToast(
-        "Dòng nhập hàng từ quỹ đầu tư — không xóa trên sổ vốn",
+        "Dòng nhập hàng từ quỹ đầu tư. Hủy trong Nhập hàng → Lịch sử nhập",
         "error"
       );
       return;
@@ -1184,25 +1208,39 @@ function CapitalContent() {
     setSavingAsset(true);
     try {
       const actor = actorFields(user, profile);
-      await createInvestment({
-        investorName,
-        type: assetType,
-        amount: isFree ? 0 : assetAmount,
-        equipmentName: assetName,
-        note: assetNote,
-        acquisition: assetAcquisition,
-        ...actor,
-      });
-      showToast(
-        isFree
-          ? "Đã ghi thiết bị / hàng miễn phí từ CĐT"
-          : "Đã lưu hàng hóa / thiết bị mua",
-        "success"
-      );
+      if (editingAsset?.id) {
+        await updateInvestment({
+          id: editingAsset.id,
+          investorName,
+          type: assetType,
+          amount: isFree ? 0 : assetAmount,
+          equipmentName: assetName,
+          note: assetNote,
+          acquisition: assetAcquisition,
+        });
+        showToast("Đã sửa hàng hóa / thiết bị", "success");
+      } else {
+        await createInvestment({
+          investorName,
+          type: assetType,
+          amount: isFree ? 0 : assetAmount,
+          equipmentName: assetName,
+          note: assetNote,
+          acquisition: assetAcquisition,
+          ...actor,
+        });
+        showToast(
+          isFree
+            ? "Đã ghi thiết bị / hàng miễn phí từ CĐT"
+            : "Đã lưu hàng hóa / thiết bị mua",
+          "success"
+        );
+      }
       setAssetName("");
       setAssetAmount("");
       setAssetNote("");
       setAssetAcquisition(ACQUISITION.purchased);
+      setEditingAsset(null);
       setAssetWriteOpen(false);
     } catch (error) {
       console.error(error);
@@ -1524,7 +1562,18 @@ function CapitalContent() {
         <>
           <button
             type="button"
-            onClick={() => setAssetWriteOpen(true)}
+            onClick={() => {
+              setEditingAsset(null);
+              setAssetMode("select");
+              setAssetSelect("");
+              setAssetCustom("");
+              setAssetType("equipment");
+              setAssetName("");
+              setAssetAmount("");
+              setAssetNote("");
+              setAssetAcquisition(ACQUISITION.purchased);
+              setAssetWriteOpen(true);
+            }}
             className="touch-btn h-12 w-full justify-between gap-2 bg-white px-4 text-sm text-brand-800 ring-1 ring-brand-100"
           >
             <span className="flex items-center gap-2">
@@ -1568,6 +1617,27 @@ function CapitalContent() {
               <AssetHistoryList
                 rows={assetRows}
                 emptyText="Chưa có hàng hóa / thiết bị."
+                canEdit={canManageShop}
+                onEdit={(row) => {
+                  setEditingAsset(row);
+                  setAssetMode("custom");
+                  setAssetSelect("");
+                  setAssetCustom(row.investorName || "");
+                  setAssetType(row.type === "goods" ? "goods" : "equipment");
+                  setAssetName(row.equipmentName || "");
+                  setAssetNote(row.note || "");
+                  setAssetAcquisition(
+                    row.acquisition === ACQUISITION.free
+                      ? ACQUISITION.free
+                      : ACQUISITION.purchased
+                  );
+                  setAssetAmount(
+                    row.acquisition === ACQUISITION.free
+                      ? ""
+                      : String(row.amount ?? "")
+                  );
+                  setAssetWriteOpen(true);
+                }}
               />
             )}
           </section>
@@ -1970,9 +2040,28 @@ function CapitalContent() {
             )}
 
             {editingExpense.toShopFund || editingExpense.shopFundTxId ? (
-              <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-100">
-                Dòng này đã gắn quỹ cửa hàng — không chuyển lần nữa.
-              </p>
+              <div className="space-y-3">
+                <p className="rounded-2xl bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-800 ring-1 ring-emerald-100">
+                  Đã vào quỹ cửa hàng. Đổi số tiền hoặc hình thức rồi bấm Lưu — quỹ cập nhật theo.
+                </p>
+                <div>
+                  <FieldLabel>Hình thức đã nạp quỹ</FieldLabel>
+                  <ChipRow>
+                    {[
+                      { id: "cash", label: "Tiền mặt" },
+                      { id: "banking", label: "Chuyển khoản" },
+                    ].map((item) => (
+                      <FilterChip
+                        key={item.id}
+                        active={editExpPayMethod === item.id}
+                        onClick={() => setEditExpPayMethod(item.id)}
+                      >
+                        {item.label}
+                      </FilterChip>
+                    ))}
+                  </ChipRow>
+                </div>
+              </div>
             ) : editingExpense.source === "inventory_receive" ? null : (
               <div className="space-y-3">
                 <div>
@@ -2015,15 +2104,27 @@ function CapitalContent() {
 
       <BottomSheet
         open={canManageShop && assetWriteOpen}
-        onClose={() => setAssetWriteOpen(false)}
-        title="Nhập hàng hóa / thiết bị"
-        subtitle="Chọn mua hoặc miễn phí từ CĐT"
+        onClose={() => {
+          setAssetWriteOpen(false);
+          setEditingAsset(null);
+        }}
+        title={
+          editingAsset ? "Sửa hàng hóa / thiết bị" : "Nhập hàng hóa / thiết bị"
+        }
+        subtitle={
+          editingAsset
+            ? "Đổi tên, giá, miễn phí hoặc mua"
+            : "Chọn mua hoặc miễn phí từ CĐT"
+        }
         labelledBy="capital-asset-sheet"
         footer={
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => setAssetWriteOpen(false)}
+              onClick={() => {
+                setAssetWriteOpen(false);
+                setEditingAsset(null);
+              }}
               className="touch-btn h-12 flex-1 border border-slate-200 bg-white text-slate-700"
             >
               Hủy
@@ -2034,7 +2135,11 @@ function CapitalContent() {
               disabled={savingAsset}
               className="touch-btn h-12 flex-[1.4] bg-brand-700 text-white disabled:opacity-50"
             >
-              {savingAsset ? "Đang lưu..." : "Lưu"}
+              {savingAsset
+                ? "Đang lưu..."
+                : editingAsset
+                  ? "Lưu sửa"
+                  : "Lưu"}
             </button>
           </div>
         }
