@@ -452,9 +452,6 @@ function ExpensesContent() {
         </p>
         {!ledgerOn ? (
           <section className="card-panel space-y-3">
-            <p className="text-sm leading-snug text-slate-600">
-              Chưa tải sổ. Bấm để xem hôm nay thu tiền mặt, chuyển khoản và đã chi bao nhiêu.
-            </p>
             <button
               type="button"
               onClick={() => applyPreset("day")}

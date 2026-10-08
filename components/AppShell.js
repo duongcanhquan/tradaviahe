@@ -22,7 +22,7 @@ export default function AppShell({
 
   return (
     <div className="min-h-dvh text-slate-900">
-      <header className="sticky top-0 z-40 border-b border-slate-200/70 bg-white/92 backdrop-blur-xl">
+      <header className="glass-bar sticky top-0 z-40 border-b">
         <div
           className={cn(
             "mx-auto max-w-lg",
@@ -69,7 +69,7 @@ export default function AppShell({
               <Link
                 href="/settings"
                 aria-label="Tài khoản"
-                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl bg-slate-100 text-slate-700 transition duration-200 active:scale-95"
+                className="flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-white/80 bg-white/50 text-slate-700 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.8)] backdrop-blur-md transition duration-200 active:scale-95"
               >
                 <Settings className="h-5 w-5" aria-hidden />
               </Link>

@@ -877,9 +877,6 @@ function InventoryContent() {
       subtitle="Chọn hàng có sẵn · cộng tồn · trừ quỹ"
       dense
     >
-      <p className="mb-3 text-sm text-slate-500">
-        Lịch sử nhập chỉ tải kỳ đang chọn. Danh mục hàng vẫn hiện đủ để nhập.
-      </p>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <span className="touch-btn h-12 rounded-2xl bg-brand-700 text-sm font-bold text-white">
           Nhập hàng

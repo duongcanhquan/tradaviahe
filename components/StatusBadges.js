@@ -87,7 +87,7 @@ export function MetricTile({ label, value, className }) {
   return (
     <div
       className={cn(
-        "rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200",
+        "glass-panel px-3 py-3",
         className
       )}
     >

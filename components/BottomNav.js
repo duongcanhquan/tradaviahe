@@ -42,7 +42,7 @@ export default function BottomNav() {
   return (
     <nav
       aria-label="Điều hướng chính"
-      className="fixed inset-x-0 bottom-0 z-50 border-t border-slate-200/80 bg-white/95 shadow-[0_-8px_24px_rgb(15_23_42_/_0.06)] backdrop-blur-xl safe-bottom"
+      className="glass-bar fixed inset-x-0 bottom-0 z-50 border-t safe-bottom"
     >
       <ul className="mx-auto flex max-w-lg items-stretch justify-around gap-0.5 px-2 py-1.5">
         {links.map(({ href, label, icon: Icon }) => {
@@ -69,7 +69,7 @@ export default function BottomNav() {
                 className={cn(
                   "relative flex min-h-[3.5rem] cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl px-0.5 py-2 text-xs font-bold transition duration-200 active:scale-95",
                   active
-                    ? "bg-brand-50 text-brand-800 ring-1 ring-brand-700/10"
+                    ? "bg-white/70 text-brand-800 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.9)] ring-1 ring-white/80"
                     : "text-slate-500"
                 )}
               >

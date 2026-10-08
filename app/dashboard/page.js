@@ -143,7 +143,7 @@ function DashboardContent() {
       };
     };
     return {
-      day: pack("day", "Tổng kết ngày"),
+      day: pack("day", ""),
       week: pack("week", "Tổng kết tuần"),
       month: pack("month", "Tổng kết tháng"),
     };
@@ -295,11 +295,7 @@ function DashboardContent() {
 
   return (
     <AppShell title="Đối soát" subtitle="Doanh thu bán trong kỳ">
-      <p className="mb-3 text-sm leading-snug text-slate-600">
-        Số này là tiền bán hàng. Tiền mặt vào két. Chuyển khoản vào vốn, không
-        vào két.
-      </p>
-      <section className="mb-4 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
+      <section className="glass-panel mb-4 p-3">
         <div className="grid grid-cols-4 gap-2">
           {PERIOD_BUTTONS.map((item) => {
             const active =
@@ -351,11 +347,7 @@ function DashboardContent() {
               }}
             />
           </div>
-        ) : (
-          <p className="mt-2 text-xs leading-snug text-slate-500">
-            Hôm nay tự tải. Mở lại chỉ đọc phiếu mới. Tuần và Tháng đọc khi bấm.
-          </p>
-        )}
+        ) : null}
       </section>
 
 
@@ -363,7 +355,7 @@ function DashboardContent() {
         {canViewInvestmentCapital ? (
           <Link
             href="/dashboard/capital"
-            className="touch-btn h-12 gap-1 rounded-2xl bg-brand-700 px-1 text-xs font-bold text-white"
+            className="touch-btn h-12 gap-1 border border-white/70 bg-white/45 px-1 text-xs font-bold text-brand-900 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.85)] backdrop-blur-md"
           >
             <Landmark className="h-4 w-4 shrink-0" aria-hidden />
             Vốn
@@ -371,26 +363,28 @@ function DashboardContent() {
         ) : null}
         <Link
           href="/dashboard/monthly"
-          className="touch-btn h-12 gap-1 rounded-2xl bg-amber-500 px-1 text-xs font-bold text-white"
+          className="touch-btn h-12 gap-1 border border-amber-200/80 bg-amber-100/55 px-1 text-xs font-bold text-amber-950 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.8)] backdrop-blur-md"
         >
           <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
           {canViewDividends ? "Cổ tức" : "Theo tháng"}
         </Link>
         <Link
           href="/manager/sales"
-          className="touch-btn h-12 gap-1 rounded-2xl bg-slate-800 px-1 text-xs font-bold text-white"
+          className="touch-btn h-12 gap-1 border border-white/70 bg-slate-900/75 px-1 text-xs font-bold text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.18)] backdrop-blur-md"
         >
           <Receipt className="h-4 w-4 shrink-0" aria-hidden />
           Sổ bán
         </Link>
       </div>
 
-      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-emerald-50 p-3 ring-1 ring-emerald-100">
-        <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-6 text-white shadow-md">
-          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/80">
-            {selectedRange.shortLabel}
-          </p>
-          <p className="mt-1 text-sm font-medium capitalize text-white/90">
+      <section className="glass-panel mb-4 space-y-3 p-3">
+        <div className="relative overflow-hidden rounded-[1.25rem] bg-gradient-to-br from-emerald-500/90 to-teal-700/90 px-5 py-6 text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.28),0_16px_40px_rgb(6_78_59_/_0.18)] ring-1 ring-white/25 backdrop-blur-md">
+          {selectedRange.shortLabel ? (
+            <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/80">
+              {selectedRange.shortLabel}
+            </p>
+          ) : null}
+          <p className="text-sm font-medium capitalize text-white/90">
             {selectedRange.label}
           </p>
           <p className="money mt-3 text-4xl font-bold leading-none tracking-tight">
@@ -413,7 +407,7 @@ function DashboardContent() {
         </div>
       </section>
 
-      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-sky-50 p-3 ring-1 ring-sky-100">
+      <section className="glass-panel mb-4 space-y-3 border-sky-200/70 p-3">
         <SectionHeader title="Tổng kết kỳ" hint={selectedRange.shortLabel} />
 
         <div className="grid grid-cols-2 gap-2">
@@ -441,7 +435,7 @@ function DashboardContent() {
 
       </section>
 
-      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-amber-50 p-3 ring-1 ring-amber-100">
+      <section className="glass-panel mb-4 space-y-3 border-amber-200/70 p-3">
         <SectionHeader title="Lãi theo giá vốn" hint={selectedRange.shortLabel} />
         <div className="grid grid-cols-2 gap-2">
           <StatCard
@@ -481,7 +475,7 @@ function DashboardContent() {
         ) : null}
       </section>
 
-      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
+      <section className="glass-panel mb-4 space-y-3 p-3">
         <SectionHeader
           title="Thu gần đây"
           hint={

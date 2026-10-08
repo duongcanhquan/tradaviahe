@@ -17,8 +17,8 @@ export function FilterChip({
       className={cn(
         "touch-btn h-11 shrink-0 rounded-2xl px-3.5 text-sm font-bold transition duration-200",
         active
-          ? "bg-brand-700 text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.16)]"
-          : "bg-white text-slate-700 ring-1 ring-slate-200",
+          ? "bg-brand-700 text-white shadow-[inset_0_1px_0_rgb(255_255_255_/_0.22)]"
+          : "border border-white/80 bg-white/55 text-slate-700 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.8)] backdrop-blur-md",
         className
       )}
       {...props}
@@ -63,7 +63,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center rounded-[1.25rem] bg-white px-5 py-10 text-center ring-1 ring-slate-200",
+        "glass-panel flex flex-col items-center px-5 py-10 text-center",
         className
       )}
     >

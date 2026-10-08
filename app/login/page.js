@@ -135,7 +135,7 @@ function LoginForm() {
 
   return (
     <div className="relative flex min-h-dvh flex-col justify-end overflow-hidden bg-brand-800 px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-16">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_18%,rgba(59,130,246,0.4),transparent_48%),radial-gradient(circle_at_85%_8%,rgba(255,255,255,0.14),transparent_36%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_16%,rgba(125,211,252,0.55),transparent_42%),radial-gradient(circle_at_88%_8%,rgba(196,181,253,0.45),transparent_36%),radial-gradient(circle_at_70%_88%,rgba(110,231,183,0.28),transparent_40%)]" />
 
       <div className="relative z-10 mx-auto w-full max-w-lg">
         <div className="mb-8 text-white">
@@ -167,7 +167,7 @@ function LoginForm() {
 
         <form
           onSubmit={handleSubmit}
-          className="rounded-[1.75rem] bg-white p-5 shadow-[0_8px_32px_rgb(15_23_42_/_0.22)]"
+          className="rounded-[1.75rem] border border-white/70 bg-white/88 p-5 text-slate-900 shadow-[inset_0_1px_0_rgb(255_255_255_/_0.9),0_18px_50px_rgb(15_23_42_/_0.28)] backdrop-blur-2xl"
         >
           <label className="mb-4 block">
             <FieldLabel>Tên đăng nhập</FieldLabel>
