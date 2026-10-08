@@ -18,12 +18,7 @@ import BankingByDateForm from "@/components/BankingByDateForm";
 import DateRangeFilter from "@/components/DateRangeFilter";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { Money, StatCard } from "@/components/StatusBadges";
-import {
-  ChipRow,
-  EmptyState,
-  FilterChip,
-  SectionHeader,
-} from "@/components/ui/MobileUI";
+import { EmptyState, SectionHeader } from "@/components/ui/MobileUI";
 import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/components/Toast";
 import { formatActorLabel } from "@/lib/audit";
@@ -33,6 +28,7 @@ import {
   parseRangeBound,
   presetRange,
 } from "@/lib/dateRange";
+import { dropDoisoatTx, loadDoisoatToday, peekDoisoatToday } from "@/lib/dayLedger";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
   readTransactionsInRange,
@@ -62,10 +58,31 @@ function holdsPhysicalStock(product) {
   return !lines.some((line) => line && (line.virtual || line.productId));
 }
 
-const REVENUE_PERIODS = [
-  { id: "day", label: "Ngày" },
-  { id: "week", label: "Tuần" },
-  { id: "month", label: "Tháng" },
+const PERIOD_BUTTONS = [
+  {
+    id: "day",
+    label: "Hôm nay",
+    idle: "bg-emerald-50 text-emerald-900 ring-emerald-200",
+    on: "bg-emerald-600 text-white ring-emerald-700",
+  },
+  {
+    id: "week",
+    label: "Tuần",
+    idle: "bg-sky-50 text-sky-900 ring-sky-200",
+    on: "bg-sky-600 text-white ring-sky-700",
+  },
+  {
+    id: "month",
+    label: "Tháng",
+    idle: "bg-amber-50 text-amber-950 ring-amber-200",
+    on: "bg-amber-500 text-white ring-amber-600",
+  },
+  {
+    id: "custom",
+    label: "Theo ngày",
+    idle: "bg-violet-50 text-violet-900 ring-violet-200",
+    on: "bg-violet-600 text-white ring-violet-700",
+  },
 ];
 
 const RECENT_PAGE_SIZE = 10;
@@ -97,7 +114,8 @@ function DashboardContent() {
   const [loadingTx, setLoadingTx] = useState(false);
   const [loadingStock, setLoadingStock] = useState(true);
   const [period, setPeriod] = useState("day");
-  const [reportAsked, setReportAsked] = useState(false);
+  const [dateMode, setDateMode] = useState(false);
+  const [reportAsked, setReportAsked] = useState(true);
   const [showLines, setShowLines] = useState(false);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -115,6 +133,8 @@ function DashboardContent() {
     setDeletingId(row.id);
     try {
       await deleteSaleTransaction(row.id, role);
+      dropDoisoatTx(row.id);
+      setAllTx((list) => list.filter((item) => item.id !== row.id));
       showToast("Đã xóa khoản thu", "success");
     } catch (error) {
       console.error(error);
@@ -186,23 +206,41 @@ function DashboardContent() {
   }, [customRangeActive, dateFrom, dateTo, ranges, period]);
 
   useEffect(() => {
-    if (!reportAsked && !customRangeActive) {
+    const todayOnly = !dateMode && period === "day";
+    if (dateMode && !customRangeActive) {
+      setLoadingTx(false);
+      return undefined;
+    }
+    if (!todayOnly && !reportAsked && !customRangeActive) {
       setLoadingTx(false);
       return undefined;
     }
     let cancelled = false;
     warnedTxCap.current = false;
-    setLoadingTx(true);
+    if (todayOnly) {
+      const cached = peekDoisoatToday();
+      if (cached.length) {
+        setAllTx(cached);
+        setLoadingTx(false);
+      } else {
+        setLoadingTx(true);
+      }
+    } else {
+      setLoadingTx(true);
+    }
     const bounds = customRangeActive
       ? { from: dateFrom, to: dateTo || dateFrom }
       : presetRange(period);
-    readTransactionsInRange(bounds.from, bounds.to)
+    const job = todayOnly
+      ? loadDoisoatToday()
+      : readTransactionsInRange(bounds.from, bounds.to);
+    job
       .then((rows) => {
         if (cancelled) return;
         setAllTx(rows);
         setLoadingTx(false);
         const cap = txLimitForRange(selectedRange.from, selectedRange.to);
-        if (rows.length >= cap && !warnedTxCap.current) {
+        if (!todayOnly && rows.length >= cap && !warnedTxCap.current) {
           warnedTxCap.current = true;
           showToast(
             "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
@@ -224,6 +262,8 @@ function DashboardContent() {
     };
   }, [
     reportAsked,
+    dateMode,
+    period,
     customRangeActive,
     dateFrom,
     dateTo,
@@ -354,48 +394,67 @@ function DashboardContent() {
   }, [products]);
 
   return (
-    <AppShell title="Đối soát" subtitle="Doanh thu kỳ đang chọn">
-      {/* Hero doanh thu trước */}
-      <section className="mb-6 space-y-3">
-        <ChipRow>
-          {REVENUE_PERIODS.map((item) => {
-            const active = !customRangeActive && period === item.id;
+    <AppShell title="Đối soát" subtitle="Hôm nay tự hiện · tuần và tháng khi bấm">
+      <section className="mb-4 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
+        <div className="grid grid-cols-4 gap-2">
+          {PERIOD_BUTTONS.map((item) => {
+            const active =
+              item.id === "custom" ? dateMode : !dateMode && period === item.id;
             return (
-              <FilterChip
+              <button
                 key={item.id}
-                active={active}
+                type="button"
                 onClick={() => {
-                  setPeriod(item.id);
+                  setShowLines(false);
+                  if (item.id === "custom") {
+                    setDateMode(true);
+                    return;
+                  }
+                  setDateMode(false);
                   setDateFrom("");
                   setDateTo("");
+                  setPeriod(item.id);
                   setReportAsked(true);
-                  setShowLines(false);
                 }}
+                className={`touch-btn h-12 w-full rounded-2xl px-1 text-xs font-bold leading-tight ring-1 sm:text-sm ${
+                  active ? item.on : item.idle
+                }`}
               >
                 {item.label}
-              </FilterChip>
+              </button>
             );
           })}
-        </ChipRow>
-
-        <DateRangeFilter
-          dense
-          dateFrom={dateFrom}
-          dateTo={dateTo}
-          onFromChange={setDateFrom}
-          onToChange={setDateTo}
-          onClear={() => {
-            setDateFrom("");
-            setDateTo("");
-          }}
-        />
-
-        {!reportAsked && !customRangeActive ? (
-          <p className="rounded-2xl bg-white px-4 py-3 text-sm text-slate-600 ring-1 ring-slate-200">
-            Bấm Hôm nay, Tuần hoặc Tháng để tải tổng kết. Mở trang chưa đọc phiếu.
+        </div>
+        {dateMode ? (
+          <div className="mt-3 rounded-2xl bg-violet-50 p-2 ring-1 ring-violet-100">
+            <DateRangeFilter
+              dense
+              dateFrom={dateFrom}
+              dateTo={dateTo}
+              onFromChange={(value) => {
+                setDateFrom(value);
+                setShowLines(false);
+              }}
+              onToChange={(value) => {
+                setDateTo(value);
+                setShowLines(false);
+              }}
+              onClear={() => {
+                setDateMode(false);
+                setDateFrom("");
+                setDateTo("");
+                setPeriod("day");
+              }}
+            />
+          </div>
+        ) : (
+          <p className="mt-2 text-xs leading-snug text-slate-500">
+            Hôm nay tự tải. Mở lại chỉ đọc phiếu mới. Tuần và Tháng đọc khi bấm.
           </p>
-        ) : null}
+        )}
+      </section>
 
+      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-emerald-50 p-3 ring-1 ring-emerald-100">
         <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-6 text-white shadow-md">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/80">
             {selectedRange.shortLabel}
@@ -423,8 +482,7 @@ function DashboardContent() {
         </div>
       </section>
 
-      {/* Tổng kết kỳ */}
-      <section className="mb-6 space-y-3">
+      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-sky-50 p-3 ring-1 ring-sky-100">
         <SectionHeader title="Tổng kết kỳ" hint={selectedRange.shortLabel} />
 
         <div className="grid grid-cols-2 gap-2">
@@ -450,9 +508,10 @@ function DashboardContent() {
           />
         </div>
 
-        <p className="pt-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
-          Lãi theo giá vốn
-        </p>
+      </section>
+
+      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-amber-50 p-3 ring-1 ring-amber-100">
+        <SectionHeader title="Lãi theo giá vốn" hint={selectedRange.shortLabel} />
         <div className="grid grid-cols-2 gap-2">
           <StatCard
             label="Giá vốn (COGS)"
@@ -491,8 +550,7 @@ function DashboardContent() {
         ) : null}
       </section>
 
-      {/* Thu gần đây */}
-      <section className="mb-6 space-y-3">
+      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <SectionHeader
           title="Thu gần đây"
           hint={
@@ -513,15 +571,15 @@ function DashboardContent() {
             </Link>
           }
         />
-        {!reportAsked && !customRangeActive ? (
+        {dateMode && !customRangeActive ? (
           <p className="text-sm text-slate-500">
-            Danh sách phiếu chỉ tải khi bạn bấm Hiện danh sách, sau khi đã chọn kỳ.
+            Chọn từ ngày và đến ngày để xem kỳ đó.
           </p>
         ) : !showLines ? (
           <button
             type="button"
             onClick={() => setShowLines(true)}
-            className="touch-btn h-12 w-full bg-white text-sm font-bold text-slate-800 ring-1 ring-slate-200"
+            className="touch-btn h-12 w-full rounded-2xl bg-slate-900 text-sm font-bold text-white"
           >
             Hiện danh sách phiếu
           </button>
@@ -635,8 +693,7 @@ function DashboardContent() {
         )}
       </section>
 
-      {/* Người nhập bán */}
-      <section className="mb-6 space-y-3">
+      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-violet-50 p-3 ring-1 ring-violet-100">
         <SectionHeader
           title="Người nhập bán"
           hint={selectedRange.shortLabel}
@@ -698,8 +755,7 @@ function DashboardContent() {
         <BankingByDateForm className="mb-6" />
       ) : null}
 
-      {/* Tồn kho */}
-      <section className="mb-6 space-y-3">
+      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-slate-100 p-3 ring-1 ring-slate-200">
         <SectionHeader
           title="Tồn kho theo nhóm"
           action={
@@ -775,7 +831,7 @@ function DashboardContent() {
       </section>
 
       {/* Lối tắt — demoted dưới nội dung chính */}
-      <section className="mb-6">
+      <section className="mb-4 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <SectionHeader title="Thao tác nhanh" />
         <div className="grid grid-cols-2 gap-2">
           {[
