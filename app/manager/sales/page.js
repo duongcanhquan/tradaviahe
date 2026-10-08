@@ -39,7 +39,7 @@ import {
 } from "@/lib/dateRange";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import { readTransactionsInRange } from "@/lib/liveCollection";
-import { isGoodsIncome } from "@/lib/receipts";
+import { isGoodsIncome, summarizeGoodsIncomeByActor } from "@/lib/receipts";
 import { roleLabel } from "@/lib/roles";
 import {
   deleteSaleTransaction,
@@ -168,6 +168,11 @@ function SalesLogContent() {
     };
   }, [ranged, dayRows.length]);
 
+  const byActor = useMemo(
+    () => summarizeGoodsIncomeByActor(ranged),
+    [ranged]
+  );
+
   const totalPages = Math.max(1, Math.ceil(dayRows.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageRows = useMemo(() => {
@@ -272,6 +277,32 @@ function SalesLogContent() {
             setLedgerOn(true);
           }}
         />
+
+        {ledgerOn && !loading ? (
+          <section className="space-y-2 rounded-[1.25rem] bg-violet-50 p-3 ring-1 ring-violet-100">
+            <SectionHeader title="Người nhập bán" hint={rangeLabel} />
+            {byActor.length === 0 ? (
+              <p className="text-sm text-slate-600">Chưa có phiếu trong kỳ này.</p>
+            ) : (
+              <ul className="space-y-2">
+                {byActor.map((row) => (
+                  <li
+                    key={row.key}
+                    className="flex items-center justify-between gap-2 rounded-2xl bg-white px-3 py-2 ring-1 ring-violet-100"
+                  >
+                    <span className="min-w-0 truncate text-sm font-bold text-slate-900">
+                      {row.name || row.username || "Không rõ"}
+                      {row.role ? ` · ${roleLabel(row.role)}` : ""}
+                    </span>
+                    <span className="money shrink-0 text-sm font-bold text-slate-900">
+                      <Money amount={row.total} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        ) : null}
 
         <DateRangeFilter
           dateFrom={dateFrom}

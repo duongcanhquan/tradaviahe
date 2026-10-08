@@ -326,7 +326,7 @@ function MonthlyContent() {
 
   return (
     <AppShell
-      title={canViewDividends ? "Tổng kết tháng" : "Thu hàng hóa"}
+      title={canViewDividends ? "Cổ tức" : "Thu hàng hóa"}
       subtitle={
         canViewDividends
           ? `Cổ đông · ${monthLabel}`

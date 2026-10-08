@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   ArrowDown,
   ArrowUp,
@@ -136,7 +137,7 @@ const emptyForm = {
 };
 
 function ProductsContent() {
-  const { canManageProducts, canDeleteProductGroups, role, isSuperAdmin } =
+  const { canManageProducts, canDeleteProductGroups, isSuperAdmin } =
     useAuth();
   const { showToast } = useToast();
   const [products, setProducts] = useState([]);
@@ -785,7 +786,7 @@ function ProductsContent() {
 
   if (!canManageProducts) {
     return (
-      <AppShell title="Món & giá" subtitle="Không có quyền">
+      <AppShell title="Món bán" subtitle="Không có quyền">
         <p className="rounded-2xl bg-white px-4 py-8 text-center text-sm text-slate-500 ring-1 ring-slate-200">
           Chỉ Quản lý, Chủ đầu tư (Admin) và Super Admin được setup món/giá.
         </p>
@@ -795,13 +796,20 @@ function ProductsContent() {
 
   return (
     <AppShell
-      title="Món & giá"
-      subtitle={
-        role === "manager"
-          ? "Nhóm SP · giá bán · công thức"
-          : "Admin — nhóm SP · giá · công thức"
-      }
+      title="Món bán"
+      subtitle="Món pha trừ nguyên liệu · hàng bán nguyên giữ tồn"
     >
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <Link
+          href="/manager/inventory"
+          className="touch-btn h-12 rounded-2xl bg-white text-sm font-bold text-slate-800 ring-1 ring-slate-200"
+        >
+          Nhập hàng
+        </Link>
+        <span className="touch-btn h-12 rounded-2xl bg-brand-700 text-sm font-bold text-white">
+          Món bán
+        </span>
+      </div>
       <div className="mb-3 grid grid-cols-2 gap-2">
         <button
           type="button"
@@ -832,7 +840,7 @@ function ProductsContent() {
           active={tab === "finished"}
           onClick={() => setTab("finished")}
         >
-          Thành phẩm ({finished.length})
+          Món bán ({finished.length})
         </FilterChip>
         <FilterChip
           active={tab === "ingredient"}
@@ -847,25 +855,6 @@ function ProductsContent() {
           Nhóm SP ({groups.length})
         </FilterChip>
       </ChipRow>
-
-      {tab !== "groups" ? (
-        <div className="mb-4 flex gap-2">
-          <button
-            type="button"
-            onClick={() =>
-              openCreate(
-                tab === "ingredient"
-                  ? PRODUCT_KIND.INGREDIENT
-                  : PRODUCT_KIND.FINISHED
-              )
-            }
-            className="touch-btn h-14 flex-1 gap-2 bg-brand-700 text-white"
-          >
-            <Plus className="h-5 w-5" />
-            {tab === "ingredient" ? "Thêm nguyên liệu" : "Thêm món bán"}
-          </button>
-        </div>
-      ) : null}
 
       {tab === "finished" ? (
         <ChipRow className="mb-3">
@@ -1051,16 +1040,14 @@ function ProductsContent() {
                       </p>
                       <p className="text-sm font-medium text-slate-400">
                         {row.kind !== PRODUCT_KIND.INGREDIENT
-                          ? `${groupLabel} · `
+                          ? productUsesRecipe(row)
+                            ? `Món pha · ${groupLabel} · trừ nguyên liệu khi bán`
+                            : `Hàng bán nguyên · ${groupLabel} · `
                           : ""}
-                        {productUsesRecipe(row)
-                          ? "Không tồn món · trừ NL/TP trong CT"
-                          : packaging
+                        {row.kind === PRODUCT_KIND.INGREDIENT || !productUsesRecipe(row)
+                          ? packaging
                             ? `Tồn: ${stockSummary || `${stockBase} ${packaging.baseUnit}`}`
-                            : `Đơn vị: ${row.unit || "—"} · Tồn: ${row.inStock ?? 0}`}
-                        {row.kind !== PRODUCT_KIND.INGREDIENT &&
-                        productUsesRecipe(row)
-                          ? " · Cost theo CT"
+                            : `Đơn vị: ${row.unit || "—"} · Tồn: ${row.inStock ?? 0}`
                           : ""}
                       </p>
                     </div>

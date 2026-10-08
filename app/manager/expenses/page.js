@@ -445,8 +445,11 @@ function ExpensesContent() {
   };
 
   return (
-    <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt · nạp · chi tiêu">
+    <AppShell title="Quỹ cửa hàng" subtitle="Két tiền mặt">
       <div className="space-y-4">
+        <p className="text-sm leading-snug text-slate-600">
+          Két = nạp + thu tiền mặt − chi. Chuyển khoản không vào két.
+        </p>
         {!ledgerOn ? (
           <section className="card-panel space-y-3">
             <p className="text-sm leading-snug text-slate-600">

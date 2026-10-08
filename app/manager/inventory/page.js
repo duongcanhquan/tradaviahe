@@ -880,6 +880,17 @@ function InventoryContent() {
       <p className="mb-3 text-sm text-slate-500">
         Lịch sử nhập chỉ tải kỳ đang chọn. Danh mục hàng vẫn hiện đủ để nhập.
       </p>
+      <div className="mb-3 grid grid-cols-2 gap-2">
+        <span className="touch-btn h-12 rounded-2xl bg-brand-700 text-sm font-bold text-white">
+          Nhập hàng
+        </span>
+        <Link
+          href="/manager/products"
+          className="touch-btn h-12 rounded-2xl bg-white text-sm font-bold text-slate-800 ring-1 ring-slate-200"
+        >
+          Món bán
+        </Link>
+      </div>
       <div className="mb-3">
         <PeriodPresetBar
           active={activePreset(historyFrom, historyTo)}
@@ -1066,7 +1077,7 @@ function InventoryContent() {
             <ChipRow>
               {[
                 { id: PRODUCT_KIND.INGREDIENT, label: "Nguyên liệu" },
-                { id: PRODUCT_KIND.FINISHED, label: "Thành phẩm nhập" },
+                { id: PRODUCT_KIND.FINISHED, label: "Hàng bán nguyên" },
               ].map((k) => (
                 <FilterChip
                   key={k.id}
@@ -1192,8 +1203,8 @@ function InventoryContent() {
             <label className="block">
               <FieldLabel>
                 {form.packEnabled
-                  ? `Giá / ${form.packLabel || "kiện"}`
-                  : "Giá nhập / ĐV"}
+                  ? `Giá vốn / ${form.packLabel || "kiện"}`
+                  : "Giá vốn / ĐV"}
               </FieldLabel>
               <input
                 type="number"
@@ -1445,7 +1456,7 @@ function InventoryContent() {
             ) : null}
             <label className="block">
               <FieldLabel>
-                Giá nhập / {editForm.unit || "đơn vị gốc"}
+                Giá vốn / {editForm.unit || "đơn vị gốc"}
               </FieldLabel>
               <input
                 type="number"
@@ -1526,7 +1537,7 @@ function InventoryContent() {
         {[
           { id: "all", label: "Tất cả" },
           { id: "ingredient", label: "Nguyên liệu" },
-          { id: "finished", label: "Thành phẩm nhập" },
+          { id: "finished", label: "Hàng bán nguyên" },
         ].map((f) => (
           <FilterChip
             key={f.id}
@@ -1548,26 +1559,6 @@ function InventoryContent() {
           onChange={(e) => setNameQuery(e.target.value)}
         />
       </label>
-
-      {canStocktake ? (
-        <button
-          type="button"
-          onClick={() => {
-            setStocktakeOn((v) => !v);
-            setShowAdd(false);
-            setEditing(null);
-          }}
-          className={cn(
-            "touch-btn mb-4 h-12 w-full gap-2 text-sm font-bold",
-            stocktakeOn
-              ? "bg-brand-700 text-white"
-              : "bg-white text-slate-800 ring-1 ring-slate-200"
-          )}
-        >
-          <ClipboardList className="h-4 w-4" aria-hidden />
-          {stocktakeOn ? "Đóng kiểm kho" : "Kiểm kho · đối chiếu thực tế"}
-        </button>
-      ) : null}
 
       {stocktakeOn ? (
         <section className="mb-8 space-y-3">
@@ -1800,8 +1791,8 @@ function InventoryContent() {
                       {isIng
                         ? "Nguyên liệu"
                         : isRecipeFinished(product)
-                          ? "Món công thức"
-                          : "Thành phẩm nhập"}
+                          ? "Món pha"
+                          : "Hàng bán nguyên"}
                       {" · Tồn "}
                       <span className="font-bold text-slate-800">
                         {stockLine(product)}
@@ -1931,7 +1922,7 @@ function InventoryContent() {
                   ) : null}
                   <label className="block col-span-2">
                     <FieldLabel>
-                      Giá / {selectedUnit?.label || "đv"}
+                      Giá nhập lần này / {selectedUnit?.label || "đv"}
                     </FieldLabel>
                     <input
                       type="number"

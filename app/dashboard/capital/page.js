@@ -1398,7 +1398,7 @@ function CapitalContent() {
     ? "Vốn & tài sản"
     : "Hàng hóa & thiết bị";
   const pageSubtitle = canViewInvestmentCapital
-    ? "Xem sổ trước · bấm để ghi vốn / chi"
+    ? "Số dư = góp − chi quỹ chủ đầu tư + tiền bán chuyển khoản"
     : "Xem tồn tài sản · bấm để nhập mới";
 
   return (

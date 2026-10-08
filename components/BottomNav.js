@@ -6,33 +6,18 @@ import {
   Store,
   BarChart3,
   Settings,
-  Landmark,
   Wallet,
-  Package,
   Warehouse,
 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
-/** Quản lý: thu · đối soát · kho · món · cài đặt */
-const managerLinks = [
+/** Thu tiền · quỹ · đối soát · kho. Món bán nằm trong Kho. Vốn mở từ Đối soát. */
+const shopLinks = [
   { href: "/manager/pos", label: "Thu tiền", icon: Store },
   { href: "/manager/expenses", label: "Quỹ quán", icon: Wallet },
   { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
   { href: "/manager/inventory", label: "Kho", icon: Warehouse },
-  { href: "/manager/products", label: "Món", icon: Package },
-];
-
-/**
- * Cổ đông / tài khoản quản trị: việc hằng ngày trước.
- * Cài đặt qua icon header.
- */
-const ownerLinks = [
-  { href: "/manager/pos", label: "Thu tiền", icon: Store },
-  { href: "/manager/expenses", label: "Quỹ quán", icon: Wallet },
-  { href: "/dashboard", label: "Đối soát", icon: BarChart3 },
-  { href: "/manager/inventory", label: "Kho", icon: Warehouse },
-  { href: "/dashboard/capital", label: "Vốn", icon: Landmark },
 ];
 
 /** Nhân viên: tối giản — màn thu + tài khoản */
@@ -42,10 +27,8 @@ const employeeLinks = [
 ];
 
 function linksForRole(role) {
-  if (role === "superadmin" || role === "investor") return ownerLinks;
   if (role === "employee") return employeeLinks;
-  if (role === "manager") return managerLinks;
-  return managerLinks;
+  return shopLinks;
 }
 
 export default function BottomNav() {
@@ -73,10 +56,11 @@ export default function BottomNav() {
                 : href === "/manager/expenses"
                   ? pathname === href || pathname?.startsWith(`${href}/`)
                   : href === "/manager/inventory"
-                    ? pathname === href || pathname?.startsWith(`${href}/`)
-                    : href === "/manager/products"
-                      ? pathname === href || pathname?.startsWith(`${href}/`)
-                      : pathname === href || pathname?.startsWith(`${href}/`);
+                    ? pathname === "/manager/inventory" ||
+                      pathname?.startsWith("/manager/inventory/") ||
+                      pathname === "/manager/products" ||
+                      pathname?.startsWith("/manager/products/")
+                    : pathname === href || pathname?.startsWith(`${href}/`);
           return (
             <li key={href} className="min-w-0 flex-1">
               <Link

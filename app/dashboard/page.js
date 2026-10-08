@@ -7,11 +7,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Landmark,
-  Package,
-  Percent,
   Receipt,
   Trash2,
-  Wallet,
 } from "lucide-react";
 import AppShell from "@/components/AppShell";
 import BankingByDateForm from "@/components/BankingByDateForm";
@@ -36,27 +33,11 @@ import {
 } from "@/lib/liveCollection";
 import { deleteSaleTransaction } from "@/lib/sales";
 import { summarizeShopPnl } from "@/lib/pnl";
-import {
-  DEFAULT_PRODUCT_GROUPS,
-  subscribeProductGroups,
-} from "@/lib/productGroups";
 import { isSellable, productsByIdMap, subscribeProducts } from "@/lib/products";
-import {
-  isGoodsIncome,
-  sumGoodsIncomeByMethod,
-  summarizeGoodsIncomeByActor,
-} from "@/lib/receipts";
+import { isGoodsIncome, sumGoodsIncomeByMethod } from "@/lib/receipts";
 import { isShopOperatingExpense } from "@/lib/expenses";
 import { roleLabel } from "@/lib/roles";
 import { formatCurrency } from "@/lib/utils";
-
-/** Món công thức không giữ tồn — không cộng vào giá trị kho. */
-function holdsPhysicalStock(product) {
-  if (!product) return false;
-  if (product.costMode === "recipe") return false;
-  const lines = Array.isArray(product.recipe) ? product.recipe : [];
-  return !lines.some((line) => line && (line.virtual || line.productId));
-}
 
 const PERIOD_BUTTONS = [
   {
@@ -73,7 +54,7 @@ const PERIOD_BUTTONS = [
   },
   {
     id: "month",
-    label: "Tháng",
+    label: "Doanh thu tháng",
     idle: "bg-amber-50 text-amber-950 ring-amber-200",
     on: "bg-amber-500 text-white ring-amber-600",
   },
@@ -104,15 +85,11 @@ function DashboardContent() {
     role,
     canViewInvestmentCapital,
     canViewDividends,
-    canManageSystem,
-    canCloseShift,
     canDeleteSales,
   } = useAuth();
   const [allTx, setAllTx] = useState([]);
   const [products, setProducts] = useState([]);
-  const [groups, setGroups] = useState(DEFAULT_PRODUCT_GROUPS);
   const [loadingTx, setLoadingTx] = useState(false);
-  const [loadingStock, setLoadingStock] = useState(true);
   const [period, setPeriod] = useState("day");
   const [dateMode, setDateMode] = useState(false);
   const [reportAsked, setReportAsked] = useState(true);
@@ -146,29 +123,13 @@ function DashboardContent() {
 
   useEffect(() => {
     const unsubProducts = subscribeProducts(
-      (list) => {
-        setProducts(list.filter(isSellable));
-        setLoadingStock(false);
-      },
+      (list) => setProducts(list.filter(isSellable)),
       (error) => {
         console.error(error);
-        showToast(firestoreErrorMessage(error, "Không tải được tồn kho"), "error");
-        setLoadingStock(false);
+        showToast(firestoreErrorMessage(error, "Không tải được giá vốn"), "error");
       }
     );
-
-    const unsubGroups = subscribeProductGroups(
-      (rows) => {
-        const active = rows.filter((g) => g.active !== false);
-        setGroups(active.length ? active : DEFAULT_PRODUCT_GROUPS);
-      },
-      () => setGroups(DEFAULT_PRODUCT_GROUPS)
-    );
-
-    return () => {
-      unsubProducts();
-      unsubGroups();
-    };
+    return () => unsubProducts();
   }, [showToast]);
 
   const ranges = useMemo(() => {
@@ -332,69 +293,12 @@ function DashboardContent() {
     if (recentPage > recentTotalPages) setRecentPage(recentTotalPages);
   }, [recentPage, recentTotalPages]);
 
-  const salesByActor = useMemo(
-    () => summarizeGoodsIncomeByActor(periodTx),
-    [periodTx]
-  );
-
-  const stockByGroup = useMemo(() => {
-    const known = new Set(groups.map((g) => g.id));
-    const rows = groups.map((g) => {
-      const items = products.filter(
-        (p) => p.groupId === g.id && holdsPhysicalStock(p)
-      );
-      const qty = items.reduce((sum, p) => sum + (Number(p.inStock) || 0), 0);
-      const value = items.reduce(
-        (sum, p) =>
-          sum + (Number(p.inStock) || 0) * (Number(p.cost) || 0),
-        0
-      );
-      return {
-        id: g.id,
-        name: g.name,
-        count: items.length,
-        qty,
-        value,
-      };
-    });
-    const otherItems = products.filter(
-      (p) => (!p.groupId || !known.has(p.groupId)) && holdsPhysicalStock(p)
-    );
-    if (otherItems.length) {
-      rows.push({
-        id: "other",
-        name: "Khác",
-        count: otherItems.length,
-        qty: otherItems.reduce((s, p) => s + (Number(p.inStock) || 0), 0),
-        value: otherItems.reduce(
-          (s, p) => s + (Number(p.inStock) || 0) * (Number(p.cost) || 0),
-          0
-        ),
-      });
-    }
-    return rows;
-  }, [groups, products]);
-
-  const stockTotals = useMemo(() => {
-    return stockByGroup.reduce(
-      (acc, g) => ({
-        qty: acc.qty + g.qty,
-        value: acc.value + g.value,
-        count: acc.count + g.count,
-      }),
-      { qty: 0, value: 0, count: 0 }
-    );
-  }, [stockByGroup]);
-
-  const lowStock = useMemo(() => {
-    return products
-      .filter((p) => holdsPhysicalStock(p) && (Number(p.inStock) || 0) <= 5)
-      .sort((a, b) => (Number(a.inStock) || 0) - (Number(b.inStock) || 0))
-      .slice(0, 8);
-  }, [products]);
-
   return (
-    <AppShell title="Đối soát" subtitle="Hôm nay tự hiện · tuần và tháng khi bấm">
+    <AppShell title="Đối soát" subtitle="Doanh thu bán trong kỳ">
+      <p className="mb-3 text-sm leading-snug text-slate-600">
+        Số này là tiền bán hàng. Tiền mặt vào két. Chuyển khoản vào vốn, không
+        vào két.
+      </p>
       <section className="mb-4 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
         <div className="grid grid-cols-4 gap-2">
           {PERIOD_BUTTONS.map((item) => {
@@ -453,6 +357,33 @@ function DashboardContent() {
           </p>
         )}
       </section>
+
+
+      <div className="mb-4 grid grid-cols-3 gap-2">
+        {canViewInvestmentCapital ? (
+          <Link
+            href="/dashboard/capital"
+            className="touch-btn h-12 gap-1 rounded-2xl bg-brand-700 px-1 text-xs font-bold text-white"
+          >
+            <Landmark className="h-4 w-4 shrink-0" aria-hidden />
+            Vốn
+          </Link>
+        ) : null}
+        <Link
+          href="/dashboard/monthly"
+          className="touch-btn h-12 gap-1 rounded-2xl bg-amber-500 px-1 text-xs font-bold text-white"
+        >
+          <CalendarDays className="h-4 w-4 shrink-0" aria-hidden />
+          {canViewDividends ? "Cổ tức" : "Theo tháng"}
+        </Link>
+        <Link
+          href="/manager/sales"
+          className="touch-btn h-12 gap-1 rounded-2xl bg-slate-800 px-1 text-xs font-bold text-white"
+        >
+          <Receipt className="h-4 w-4 shrink-0" aria-hidden />
+          Sổ bán
+        </Link>
+      </div>
 
       <section className="mb-4 space-y-3 rounded-[1.25rem] bg-emerald-50 p-3 ring-1 ring-emerald-100">
         <div className="rounded-[1.25rem] bg-gradient-to-br from-emerald-600 to-emerald-700 px-5 py-6 text-white shadow-md">
@@ -693,194 +624,6 @@ function DashboardContent() {
         )}
       </section>
 
-      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-violet-50 p-3 ring-1 ring-violet-100">
-        <SectionHeader
-          title="Người nhập bán"
-          hint={selectedRange.shortLabel}
-        />
-        {loadingTx ? (
-          <div className="card-panel h-20 animate-pulse bg-white/80" />
-        ) : salesByActor.length === 0 ? (
-          <EmptyState
-            title="Chưa có ai ghi thu"
-            description="Khi có khoản thu trong kỳ, tổng theo người nhập sẽ hiện ở đây."
-          />
-        ) : (
-          salesByActor.map((row) => (
-            <article
-              key={row.key}
-              className="rounded-[1.25rem] bg-white px-4 py-3.5 shadow-sm ring-1 ring-slate-200"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-base font-bold text-slate-900">
-                    {(() => {
-                      const label = formatActorLabel({
-                        createdByName: row.name,
-                        createdByUsername: row.username,
-                      });
-                      return label === "—" ? "Không rõ người nhập" : label;
-                    })()}
-                  </p>
-                  <p className="mt-0.5 text-sm text-slate-500">
-                    {roleLabel(row.role)}
-                    {" · "}
-                    {row.count} lần ghi
-                  </p>
-                </div>
-                <p className="money shrink-0 text-lg font-bold text-emerald-700">
-                  <Money amount={row.total} />
-                </p>
-              </div>
-              <div className="mt-2.5 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-xl bg-emerald-50 px-3 py-2 text-emerald-900">
-                  <p className="font-semibold text-emerald-700/80">Tiền mặt</p>
-                  <p className="money font-bold">
-                    <Money amount={row.cash} />
-                  </p>
-                </div>
-                <div className="rounded-xl bg-brand-50 px-3 py-2 text-brand-900">
-                  <p className="font-semibold text-brand-700/80">Chuyển khoản</p>
-                  <p className="money font-bold">
-                    <Money amount={row.banking} />
-                  </p>
-                </div>
-              </div>
-            </article>
-          ))
-        )}
-      </section>
-
-      {canCloseShift ? (
-        <BankingByDateForm className="mb-6" />
-      ) : null}
-
-      <section className="mb-4 space-y-3 rounded-[1.25rem] bg-slate-100 p-3 ring-1 ring-slate-200">
-        <SectionHeader
-          title="Tồn kho theo nhóm"
-          action={
-            canCloseShift ? (
-              <Link
-                href="/manager/inventory"
-                className="min-h-11 inline-flex items-center text-sm font-bold text-brand-800"
-              >
-                Nhập hàng →
-              </Link>
-            ) : null
-          }
-        />
-
-        {loadingStock ? (
-          <div className="card-panel h-24 animate-pulse bg-white/80" />
-        ) : (
-          <>
-            <div className="rounded-[1.25rem] bg-slate-900 px-4 py-4 text-white">
-              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/70">
-                Tổng tồn
-              </p>
-              <p className="mt-1 text-3xl font-bold leading-none">
-                {stockTotals.qty}
-              </p>
-              <p className="mt-2 text-sm text-white/80">
-                {stockTotals.count} món ·{" "}
-                <span className="money font-bold text-white">
-                  {formatCurrency(stockTotals.value)}
-                </span>
-              </p>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              {stockByGroup.map((g) => (
-                <article
-                  key={g.id}
-                  className="rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200"
-                >
-                  <p className="text-xs font-bold text-slate-500">{g.name}</p>
-                  <p className="money mt-1 text-xl font-bold text-slate-900">
-                    {g.qty}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {g.count} món · {formatCurrency(g.value)}
-                  </p>
-                </article>
-              ))}
-            </div>
-
-            {lowStock.length > 0 ? (
-              <div className="alert-soft">
-                <p className="mb-2 text-xs font-bold uppercase tracking-wide text-amber-800">
-                  Sắp hết (≤ 5)
-                </p>
-                <ul className="space-y-1.5">
-                  {lowStock.map((p) => (
-                    <li
-                      key={p.id}
-                      className="flex justify-between gap-2 text-sm text-amber-950"
-                    >
-                      <span className="truncate font-semibold">{p.name}</span>
-                      <span className="money shrink-0 font-bold">
-                        {Number(p.inStock) || 0}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-          </>
-        )}
-      </section>
-
-      {/* Lối tắt — demoted dưới nội dung chính */}
-      <section className="mb-4 rounded-[1.25rem] bg-white p-3 shadow-sm ring-1 ring-slate-200">
-        <SectionHeader title="Thao tác nhanh" />
-        <div className="grid grid-cols-2 gap-2">
-          {[
-            { href: "/manager/products", icon: Package, label: "Món · CT" },
-            {
-              href: "/dashboard/monthly",
-              icon: CalendarDays,
-              label: canViewDividends ? "Tháng · cổ tức" : "Theo tháng",
-            },
-            canCloseShift
-              ? {
-                  href: "/manager/inventory",
-                  icon: Package,
-                  label: "Nhập hàng",
-                }
-              : null,
-            { href: "/manager/sales", icon: Receipt, label: "Món đã bán" },
-            { href: "/manager/expenses", icon: Wallet, label: "Quỹ CH" },
-            {
-              href: "/dashboard/capital",
-              icon: Landmark,
-              label: canViewInvestmentCapital ? "Vốn cổ đông" : "Hàng / TB",
-            },
-            canViewDividends && canManageSystem
-              ? {
-                  href: "/dashboard/settings",
-                  icon: Percent,
-                  label: "% Quỹ ĐN",
-                }
-              : null,
-          ]
-            .filter(Boolean)
-            .map((item) => {
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.href + item.label}
-                  href={item.href}
-                  className="touch-btn h-12 justify-start gap-2 border border-slate-200 bg-white px-3 text-sm text-slate-800"
-                >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700">
-                    <Icon className="h-4 w-4" aria-hidden />
-                  </span>
-                  <span className="truncate">{item.label}</span>
-                </Link>
-              );
-            })}
-        </div>
-      </section>
     </AppShell>
   );
 }
