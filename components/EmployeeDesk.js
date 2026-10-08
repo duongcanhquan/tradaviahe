@@ -295,15 +295,22 @@ export default function EmployeeDesk() {
       amount,
       paymentMethod,
       items,
+      productsById,
       user,
       profile,
     });
+    const nextStock = result?.nextStock || {};
     const patches = {};
-    for (const [id, delta] of Object.entries(result?.stockAdjustments || {})) {
-      const current = productsById[id];
-      patches[id] = {
-        inStock: (Number(current?.inStock) || 0) + (Number(delta) || 0),
-      };
+    for (const [id, qty] of Object.entries(nextStock)) {
+      patches[id] = { inStock: qty };
+    }
+    if (!Object.keys(patches).length) {
+      for (const [id, delta] of Object.entries(result?.stockAdjustments || {})) {
+        const current = productsById[id];
+        patches[id] = {
+          inStock: (Number(current?.inStock) || 0) + (Number(delta) || 0),
+        };
+      }
     }
     if (Object.keys(patches).length) patchCachedProducts(patches);
   };

@@ -67,6 +67,7 @@ import {
   isSellable,
   recomputeRecipeCosts,
   patchCachedProducts,
+  refreshProducts,
   removeCachedProduct,
   subscribeProducts,
   updateProduct,
@@ -759,10 +760,9 @@ function InventoryContent() {
     }
     const targets = visible.filter(isStocktakeTarget);
     const ok = window.confirm(
-      `Ghi tồn thực tế ${stocktakeSummary.mismatch} món lệch?\n\n` +
-        `Thừa ${stocktakeSummary.surplusQty} · Thiếu ${stocktakeSummary.shortageQty}\n` +
-        `Giá trị lệch: ${formatCurrency(stocktakeSummary.netValue)}\n\n` +
-        `Không trừ quỹ — chỉ sửa sổ kho.`
+      `Ghi số đếm ${stocktakeSummary.mismatch} món?\n\n` +
+        `Thừa ${formatUnitCount(stocktakeSummary.surplusQty)} · Thiếu ${formatUnitCount(stocktakeSummary.shortageQty)}\n\n` +
+        `Chỉ đổi số lượng trên sổ kho. Không đổi tiền, không đổi giá vốn.`
     );
     if (!ok) return;
     setSavingTake(true);
@@ -774,8 +774,22 @@ function InventoryContent() {
         user,
         profile,
       });
+      patchCachedProducts(
+        Object.fromEntries(
+          (result.lines || []).map((line) => [
+            line.productId,
+            { inStock: line.actual },
+          ])
+        )
+      );
+      const named = (result.lines || [])
+        .slice(0, 4)
+        .map((line) => `${line.name}: ${line.actual} ${line.unit}`)
+        .join(" · ");
       showToast(
-        `Đã kiểm kho · ${result.summary.mismatch} món lệch · giá trị lệch ${formatCurrency(result.summary.netValue)}`,
+        named
+          ? `Đã ghi tồn, không trừ tiền. ${named}`
+          : "Đã ghi tồn thực tế, không trừ tiền.",
         "success"
       );
       setStockCounts({});
@@ -1523,6 +1537,13 @@ function InventoryContent() {
               setStocktakeOn(true);
               setShowAdd(false);
               setEditing(null);
+              refreshProducts().catch((error) => {
+                console.error(error);
+                showToast(
+                  error?.message || "Không đọc được tồn từ máy chủ",
+                  "error"
+                );
+              });
             }}
           >
             Kiểm kho
@@ -1560,17 +1581,11 @@ function InventoryContent() {
       {stocktakeOn ? (
         <section className="mb-8 space-y-3">
           <p className="hint-line">
-            Đếm theo đơn vị gốc · để trống = bỏ qua · lưu không trừ quỹ.
+            Kiểm kê số lượng theo đơn vị gốc. Ô trống = bỏ qua. Không đổi tiền,
+            không đổi giá vốn. Món pha không đếm — tồn nằm ở nguyên liệu và hàng
+            bán nguyên.
           </p>
-          {stocktakeSummary.mismatch > 0 ? (
-            <p className="alert-soft">
-              {stocktakeSummary.mismatch} món lệch ·{" "}
-              <span className="money font-bold">
-                <Money amount={stocktakeSummary.netValue} />
-              </span>
-            </p>
-          ) : null}
-          <div className="grid grid-cols-3 gap-2 text-sm">
+          <div className="grid grid-cols-2 gap-2 text-sm">
             <MetricTile label="Đã đếm" value={stocktakeSummary.counted} />
             <MetricTile
               label="Món lệch"
@@ -1584,29 +1599,10 @@ function InventoryContent() {
                 </span>
               }
             />
-            <MetricTile
-              label="Giá trị lệch"
-              value={
-                <span
-                  className={
-                    stocktakeSummary.netValue < 0
-                      ? "text-rose-700"
-                      : stocktakeSummary.netValue > 0
-                        ? "text-emerald-700"
-                        : undefined
-                  }
-                >
-                  <Money amount={stocktakeSummary.netValue} />
-                </span>
-              }
-            />
           </div>
           <p className="text-sm font-semibold text-slate-600">
-            Thừa {formatUnitCount(stocktakeSummary.surplusQty)} ·{" "}
-            <Money amount={stocktakeSummary.surplusValue} />
-            {" · Thiếu "}
-            {formatUnitCount(stocktakeSummary.shortageQty)} ·{" "}
-            <Money amount={stocktakeSummary.shortageValue} />
+            Thừa {formatUnitCount(stocktakeSummary.surplusQty)} · Thiếu{" "}
+            {formatUnitCount(stocktakeSummary.shortageQty)}
           </p>
           <label className="flex items-center gap-3 rounded-2xl bg-white px-3 py-3 ring-1 ring-slate-200">
             <input
@@ -1625,7 +1621,7 @@ function InventoryContent() {
             <EmptyState
               icon={ClipboardList}
               title="Chưa có hàng để kiểm"
-              description="Món công thức không đếm tồn."
+              description="Món pha không đếm. Tồn nằm ở nguyên liệu và hàng bán nguyên."
             />
           ) : (
             stocktakeRows.map((line) => {
@@ -1680,8 +1676,8 @@ function InventoryContent() {
                   </label>
                   {delta != null && delta !== 0 ? (
                     <p className="text-sm font-semibold text-slate-600">
-                      Lệch {delta > 0 ? "thừa" : "thiếu"} · giá trị{" "}
-                      <Money amount={line.value} />
+                      Lệch {delta > 0 ? "thừa" : "thiếu"}{" "}
+                      {formatUnitCount(Math.abs(delta))} {line.unit}
                     </p>
                   ) : null}
                 </article>
