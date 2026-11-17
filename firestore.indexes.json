@@ -15,6 +15,15 @@
         { "fieldPath": "sealed", "order": "ASCENDING" },
         { "fieldPath": "monthKey", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "shop_fund_closes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sealed", "order": "ASCENDING" },
+        { "fieldPath": "scanVersion", "order": "ASCENDING" },
+        { "fieldPath": "monthKey", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

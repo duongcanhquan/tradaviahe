@@ -59,6 +59,7 @@ import {
 } from "@/lib/expenses";
 import { firestoreErrorMessage } from "@/lib/firestoreErrors";
 import {
+  readAllTransactionsInRange,
   readTransactionsInRange,
   txLimitForRange,
 } from "@/lib/liveCollection";
@@ -142,24 +143,29 @@ function ExpensesContent() {
     setLoading(true);
 
     const load = async () => {
-      const list = await readTransactionsInRange(dateFrom, dateTo);
+      const lifetime = isLifetimePreset(presetId);
+
+      // “Từ đầu”: đọc HẾT tháng này (không cắt limit) để cộng với bản chốt cho đúng.
+      const list = lifetime
+        ? await readAllTransactionsInRange(dateFrom, dateTo)
+        : await readTransactionsInRange(dateFrom, dateTo);
       if (cancelled) return;
       setWindowRows(list);
 
-      if (isLifetimePreset(presetId)) {
+      if (lifetime) {
         try {
           if (!cancelled) {
             setClosingFund(true);
-            setCloseProgress("Đang kiểm tra bản chốt quỹ…");
+            setCloseProgress("Đang kiểm tra bản chốt quỹ trên hệ thống…");
           }
           const result = await ensurePreviousMonthShopFundClose(new Date(), {
             onProgress: ({ monthKey, phase, txCount }) => {
               if (cancelled) return;
               if (phase === "scanning") {
-                setCloseProgress(`Lần đầu: đang đọc hết phiếu ${monthKey}…`);
+                setCloseProgress(`Đang đọc hết phiếu ${monthKey} để chốt…`);
               } else if (phase === "sealed") {
                 setCloseProgress(
-                  `Đã chốt ${monthKey}${
+                  `Đã lưu chốt ${monthKey}${
                     txCount != null ? ` (${txCount} phiếu)` : ""
                   }`
                 );
@@ -171,7 +177,7 @@ function ExpensesContent() {
             setCloseProgress("");
             if (result.rebuilt) {
               showToast(
-                `Đã tính và lưu chốt quỹ đến hết ${previousMonthKey()} trên hệ thống (${result.monthsBuilt} tháng)`,
+                `Đã tính đủ và khóa chốt quỹ đến hết ${previousMonthKey()} (${result.monthsBuilt} tháng) — lần sau không tính lại`,
                 "success"
               );
             }
@@ -200,13 +206,15 @@ function ExpensesContent() {
 
       if (cancelled) return;
       setLoading(false);
-      const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
-      const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
-      if (list.length >= txLimitForRange(startMs, endMs)) {
-        showToast(
-          "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
-          "error"
-        );
+      if (!lifetime) {
+        const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
+        const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
+        if (list.length >= txLimitForRange(startMs, endMs)) {
+          showToast(
+            "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
+            "error"
+          );
+        }
       }
     };
 
@@ -666,7 +674,10 @@ function ExpensesContent() {
                     <Money amount={lifetimeClose.balance} />
                     {" · Tháng này: "}
                     <Money amount={periodTotals.balance} />
-                    {lifetimeClose.sealed ? " · Đã khóa" : ""}
+                    {lifetimeClose.sealed &&
+                    Number(lifetimeClose.scanVersion) >= 2
+                      ? " · Đã khóa đủ"
+                      : ""}
                   </p>
                 ) : null}
               </>
