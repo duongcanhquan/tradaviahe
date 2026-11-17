@@ -107,6 +107,8 @@ function ExpensesContent() {
   const [presetId, setPresetId] = useState("day");
   /** Chốt lũy kế đến hết tháng trước — chỉ dùng khi preset = all */
   const [lifetimeClose, setLifetimeClose] = useState(null);
+  const [closingFund, setClosingFund] = useState(false);
+  const [closeProgress, setCloseProgress] = useState("");
   const [ledgerOn, setLedgerOn] = useState(false);
   const [page, setPage] = useState(1);
   const [mode, setMode] = useState(null); // null | fund_in | expense
@@ -146,12 +148,39 @@ function ExpensesContent() {
 
       if (isLifetimePreset(presetId)) {
         try {
-          const close = await ensurePreviousMonthShopFundClose();
-          if (!cancelled) setLifetimeClose(close);
+          if (!cancelled) {
+            setClosingFund(true);
+            setCloseProgress("Đang kiểm tra bản chốt quỹ…");
+          }
+          const result = await ensurePreviousMonthShopFundClose(new Date(), {
+            onProgress: ({ monthKey, phase, txCount }) => {
+              if (cancelled) return;
+              if (phase === "scanning") {
+                setCloseProgress(`Lần đầu: đang đọc hết phiếu ${monthKey}…`);
+              } else if (phase === "sealed") {
+                setCloseProgress(
+                  `Đã chốt ${monthKey}${
+                    txCount != null ? ` (${txCount} phiếu)` : ""
+                  }`
+                );
+              }
+            },
+          });
+          if (!cancelled) {
+            setLifetimeClose(result.close);
+            setCloseProgress("");
+            if (result.rebuilt) {
+              showToast(
+                `Đã tính và lưu chốt quỹ đến hết ${previousMonthKey()} trên hệ thống (${result.monthsBuilt} tháng)`,
+                "success"
+              );
+            }
+          }
         } catch (error) {
           console.error(error);
           if (!cancelled) {
             setLifetimeClose(null);
+            setCloseProgress("");
             showToast(
               firestoreErrorMessage(
                 error,
@@ -160,9 +189,13 @@ function ExpensesContent() {
               "error"
             );
           }
+        } finally {
+          if (!cancelled) setClosingFund(false);
         }
       } else if (!cancelled) {
         setLifetimeClose(null);
+        setClosingFund(false);
+        setCloseProgress("");
       }
 
       if (cancelled) return;
@@ -545,8 +578,8 @@ function ExpensesContent() {
               </button>
             </div>
             <p className="text-[11px] leading-snug text-slate-500">
-              “Từ đầu” dùng số chốt hết tháng trước + phiếu tháng này — không đọc
-              hết lịch sử.
+              “Từ đầu”: lần đầu hệ thống đọc hết lịch sử rồi lưu bản chốt trên
+              server; lần sau chỉ lấy bản chốt + tháng này.
             </p>
           </section>
         ) : (
@@ -563,9 +596,15 @@ function ExpensesContent() {
               onChange={applyPreset}
             />
 
-            {loading ? (
-              <div className="card-panel flex h-24 items-center justify-center">
+            {loading || closingFund ? (
+              <div className="card-panel flex min-h-24 flex-col items-center justify-center gap-2 px-4 py-5">
                 <Loader2 className="h-6 w-6 animate-spin text-brand-700" />
+                <p className="text-center text-xs font-semibold text-slate-600">
+                  {closeProgress ||
+                    (closingFund
+                      ? "Đang chốt quỹ từ đầu (chỉ lần đầu)…"
+                      : "Đang tải sổ quỹ…")}
+                </p>
               </div>
             ) : (
               <>
@@ -615,7 +654,7 @@ function ExpensesContent() {
                 </div>
                 <p className="text-xs leading-snug text-slate-500">
                   {lifetimeMode
-                    ? `${lifetimeFundLabel()}. Sổ bên dưới chỉ liệt kê tháng này.`
+                    ? `${lifetimeFundLabel()}. Bản chốt đã khóa trên hệ thống — lần sau không tính lại. Sổ bên dưới chỉ liệt kê tháng này.`
                     : "Két = nạp + thu tiền mặt − đã chi. Thu chuyển khoản không vào két."}
                 </p>
                 {lifetimeMode && lifetimeClose ? (
@@ -627,6 +666,7 @@ function ExpensesContent() {
                     <Money amount={lifetimeClose.balance} />
                     {" · Tháng này: "}
                     <Money amount={periodTotals.balance} />
+                    {lifetimeClose.sealed ? " · Đã khóa" : ""}
                   </p>
                 ) : null}
               </>

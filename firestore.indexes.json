@@ -7,6 +7,14 @@
         { "fieldPath": "businessDate", "order": "ASCENDING" },
         { "fieldPath": "type", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "shop_fund_closes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "sealed", "order": "ASCENDING" },
+        { "fieldPath": "monthKey", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
