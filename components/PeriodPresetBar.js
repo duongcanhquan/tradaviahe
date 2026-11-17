@@ -19,12 +19,18 @@ const PRESETS = [
     idle: "bg-amber-50 text-amber-950 ring-amber-200",
     on: "bg-amber-500 text-white ring-amber-600",
   },
+  {
+    id: "all",
+    label: "Từ đầu",
+    idle: "bg-violet-50 text-violet-950 ring-violet-200",
+    on: "bg-violet-700 text-white ring-violet-800",
+  },
 ];
 
-/** Một hàng nút kỳ, giãn đều. Không có nút “tất cả”. */
+/** Một hàng nút kỳ. “Từ đầu” = chốt tháng trước + phiếu tháng này. */
 export default function PeriodPresetBar({ active = "day", onChange }) {
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-4 gap-1.5">
       {PRESETS.map((item) => {
         const selected = active === item.id;
         return (
@@ -32,7 +38,7 @@ export default function PeriodPresetBar({ active = "day", onChange }) {
             key={item.id}
             type="button"
             onClick={() => onChange?.(item.id)}
-            className={`touch-btn h-12 w-full rounded-2xl px-1 text-sm font-bold ring-1 ${
+            className={`touch-btn h-12 w-full rounded-2xl px-0.5 text-[11px] font-bold ring-1 sm:text-sm ${
               selected ? item.on : item.idle
             }`}
           >

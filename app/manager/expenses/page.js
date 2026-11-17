@@ -32,7 +32,6 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { formatActorLabel } from "@/lib/audit";
 import {
-  activePreset,
   formatRangeLabel,
   presetRange,
   rowBusinessMs,
@@ -64,6 +63,13 @@ import {
   txLimitForRange,
 } from "@/lib/liveCollection";
 import { sumGoodsIncomeByMethod } from "@/lib/receipts";
+import {
+  combineLifetimeWithMonth,
+  ensurePreviousMonthShopFundClose,
+  isLifetimePreset,
+  lifetimeFundLabel,
+  previousMonthKey,
+} from "@/lib/shopFundClose";
 import { cn, formatCurrency, todayInputValue, dateKeyToInputValue } from "@/lib/utils";
 
 const PAGE_SIZE = 10;
@@ -97,6 +103,10 @@ function ExpensesContent() {
   const [filter, setFilter] = useState("all");
   const [dateFrom, setDateFrom] = useState(() => todayInputValue());
   const [dateTo, setDateTo] = useState(() => todayInputValue());
+  /** day | week | month | all | custom */
+  const [presetId, setPresetId] = useState("day");
+  /** Chốt lũy kế đến hết tháng trước — chỉ dùng khi preset = all */
+  const [lifetimeClose, setLifetimeClose] = useState(null);
   const [ledgerOn, setLedgerOn] = useState(false);
   const [page, setPage] = useState(1);
   const [mode, setMode] = useState(null); // null | fund_in | expense
@@ -128,30 +138,56 @@ function ExpensesContent() {
     }
     let cancelled = false;
     setLoading(true);
-    readTransactionsInRange(dateFrom, dateTo)
-      .then((list) => {
-        if (cancelled) return;
-        setWindowRows(list);
-        setLoading(false);
-        const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
-        const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
-        if (list.length >= txLimitForRange(startMs, endMs)) {
-          showToast(
-            "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
-            "error"
-          );
+
+    const load = async () => {
+      const list = await readTransactionsInRange(dateFrom, dateTo);
+      if (cancelled) return;
+      setWindowRows(list);
+
+      if (isLifetimePreset(presetId)) {
+        try {
+          const close = await ensurePreviousMonthShopFundClose();
+          if (!cancelled) setLifetimeClose(close);
+        } catch (error) {
+          console.error(error);
+          if (!cancelled) {
+            setLifetimeClose(null);
+            showToast(
+              firestoreErrorMessage(
+                error,
+                "Không chốt được quỹ tháng trước — đang hiện tháng này"
+              ),
+              "error"
+            );
+          }
         }
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        console.error(error);
-        showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
-        setLoading(false);
-      });
+      } else if (!cancelled) {
+        setLifetimeClose(null);
+      }
+
+      if (cancelled) return;
+      setLoading(false);
+      const startMs = new Date(`${dateFrom || dateTo}T00:00:00`).getTime();
+      const endMs = new Date(`${dateTo || dateFrom}T23:59:59`).getTime();
+      if (list.length >= txLimitForRange(startMs, endMs)) {
+        showToast(
+          "Kỳ này nhiều phiếu hơn mức tải. Thu hẹp ngày để số liệu đủ.",
+          "error"
+        );
+      }
+    };
+
+    load().catch((error) => {
+      if (cancelled) return;
+      console.error(error);
+      showToast(firestoreErrorMessage(error, "Không tải được sổ quỹ"), "error");
+      setLoading(false);
+    });
+
     return () => {
       cancelled = true;
     };
-  }, [ledgerOn, dateFrom, dateTo, showToast]);
+  }, [ledgerOn, dateFrom, dateTo, presetId, showToast]);
 
   const fundRows = useMemo(
     () =>
@@ -166,10 +202,21 @@ function ExpensesContent() {
     [windowRows]
   );
 
-  const summary = useMemo(
+  const periodTotals = useMemo(
     () => summarizeShopFund(fundRows, incomeByMethod.cash),
     [fundRows, incomeByMethod]
   );
+
+  const lifetimeMode = isLifetimePreset(presetId) && lifetimeClose;
+
+  const summary = useMemo(() => {
+    if (!lifetimeMode) return periodTotals;
+    const combined = combineLifetimeWithMonth(lifetimeClose, periodTotals);
+    return {
+      ...combined,
+      byCategory: periodTotals.byCategory,
+    };
+  }, [lifetimeMode, lifetimeClose, periodTotals]);
 
   const filtered = useMemo(() => {
     let list = fundRows;
@@ -194,9 +241,11 @@ function ExpensesContent() {
     [summary]
   );
 
-  const categorySource = summary;
-  const rangeLabel = formatRangeLabel(dateFrom, dateTo);
-  const preset = activePreset(dateFrom, dateTo);
+  const categorySource = lifetimeMode ? periodTotals : summary;
+  const rangeLabel = lifetimeMode
+    ? "Từ đầu → nay"
+    : formatRangeLabel(dateFrom, dateTo);
+  const preset = presetId === "custom" ? "custom" : presetId;
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -215,13 +264,26 @@ function ExpensesContent() {
   }, [page, totalPages]);
 
   const applyPreset = (id) => {
-    const next = presetRange(id);
+    const next = presetRange(id === "all" ? "all" : id);
+    setPresetId(id);
     setDateFrom(next.from);
     setDateTo(next.to);
     setLedgerOn(true);
   };
 
   const clearDateFilter = () => applyPreset("day");
+
+  const setCustomFrom = (value) => {
+    setPresetId("custom");
+    setDateFrom(value);
+    setLedgerOn(true);
+  };
+
+  const setCustomTo = (value) => {
+    setPresetId("custom");
+    setDateTo(value);
+    setLedgerOn(true);
+  };
 
   const openEdit = (row) => {
     if (!isShopFundEditable(row)) {
@@ -459,7 +521,7 @@ function ExpensesContent() {
             >
               Kiểm tra hôm nay
             </button>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() => applyPreset("week")}
@@ -474,11 +536,32 @@ function ExpensesContent() {
               >
                 Tháng này
               </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("all")}
+                className="touch-btn h-12 bg-violet-50 text-sm font-bold text-violet-950 ring-1 ring-violet-200"
+              >
+                Từ đầu
+              </button>
             </div>
+            <p className="text-[11px] leading-snug text-slate-500">
+              “Từ đầu” dùng số chốt hết tháng trước + phiếu tháng này — không đọc
+              hết lịch sử.
+            </p>
           </section>
         ) : (
           <>
-            <PeriodPresetBar active={preset} onChange={applyPreset} />
+            <PeriodPresetBar
+              active={
+                preset === "day" ||
+                preset === "week" ||
+                preset === "month" ||
+                preset === "all"
+                  ? preset
+                  : ""
+              }
+              onChange={applyPreset}
+            />
 
             {loading ? (
               <div className="card-panel flex h-24 items-center justify-center">
@@ -496,6 +579,7 @@ function ExpensesContent() {
                   <div className="card-panel !p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Thu tiền mặt
+                      {lifetimeMode ? " · toàn kỳ" : ""}
                     </p>
                     <p className="money mt-1 text-base font-bold text-emerald-700">
                       <Money amount={summary.cashSales} />
@@ -504,6 +588,7 @@ function ExpensesContent() {
                   <div className="card-panel !p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Thu chuyển khoản
+                      {lifetimeMode ? " · tháng này" : ""}
                     </p>
                     <p className="money mt-1 text-base font-bold text-sky-700">
                       <Money amount={incomeByMethod.banking} />
@@ -512,6 +597,7 @@ function ExpensesContent() {
                   <div className="card-panel !p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Đã chi
+                      {lifetimeMode ? " · toàn kỳ" : ""}
                     </p>
                     <p className="money mt-1 text-base font-bold text-rose-700">
                       <Money amount={summary.expense} />
@@ -520,6 +606,7 @@ function ExpensesContent() {
                   <div className="card-panel !p-3">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                       Đã nạp két
+                      {lifetimeMode ? " · toàn kỳ" : ""}
                     </p>
                     <p className="money mt-1 text-base font-bold text-emerald-700">
                       <Money amount={summary.fundIn} />
@@ -527,8 +614,21 @@ function ExpensesContent() {
                   </div>
                 </div>
                 <p className="text-xs leading-snug text-slate-500">
-                  Két = nạp + thu tiền mặt − đã chi. Thu chuyển khoản không vào két.
+                  {lifetimeMode
+                    ? `${lifetimeFundLabel()}. Sổ bên dưới chỉ liệt kê tháng này.`
+                    : "Két = nạp + thu tiền mặt − đã chi. Thu chuyển khoản không vào két."}
                 </p>
+                {lifetimeMode && lifetimeClose ? (
+                  <p className="text-[11px] leading-snug text-violet-800">
+                    {(() => {
+                      const prev = previousMonthKey();
+                      return `Chốt hết ${prev.slice(5)}/${prev.slice(0, 4)}: `;
+                    })()}
+                    <Money amount={lifetimeClose.balance} />
+                    {" · Tháng này: "}
+                    <Money amount={periodTotals.balance} />
+                  </p>
+                ) : null}
               </>
             )}
           </>
@@ -615,8 +715,8 @@ function ExpensesContent() {
             dense
             dateFrom={dateFrom}
             dateTo={dateTo}
-            onFromChange={setDateFrom}
-            onToChange={setDateTo}
+            onFromChange={setCustomFrom}
+            onToChange={setCustomTo}
             onClear={clearDateFilter}
             summary={
               <div className="space-y-1.5">
